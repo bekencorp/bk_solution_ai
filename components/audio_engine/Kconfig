@@ -1,0 +1,135 @@
+menu "audio engine"
+	config BK_AUDIO_ENGINE
+		bool "enable audio engine"
+		default y
+
+	config AE_AUDIO_FRAME_DURATION_MS
+		int "default audio frame duration in ms"
+		range 20 60
+		default 20
+
+	config AE_AUDIO_ADC_SAMP_RATE
+		int "ADC sample rate"
+		default 16000
+
+	config AE_AUDIO_DAC_SAMP_RATE
+		int "DAC sample rate"
+		default 16000
+
+	choice
+		prompt "Audio encoder type"
+		default AE_AUDIO_ENCODER_G722
+		config AE_AUDIO_ENCODER_G722
+			bool "G722"
+		config AE_AUDIO_ENCODER_G711A
+			bool "G711A"
+		config AE_AUDIO_ENCODER_G711U
+			bool "G711U"
+		config AE_AUDIO_ENCODER_OPUS
+			bool "OPUS"
+		config AE_AUDIO_ENCODER_PCM
+			bool "PCM"
+	endchoice
+
+	config AE_AUDIO_ENCODER_TYPE
+		string "audio encoder type"
+		default "G722" if AE_AUDIO_ENCODER_G722
+		default "G711A" if AE_AUDIO_ENCODER_G711A
+		default "G711U" if AE_AUDIO_ENCODER_G711U
+		default "OPUS" if AE_AUDIO_ENCODER_OPUS
+		default "PCM" if AE_AUDIO_ENCODER_PCM
+
+	choice
+		prompt "Audio decoder type"
+		default AE_AUDIO_DECODER_G722
+		config AE_AUDIO_DECODER_G722
+			bool "G722"
+		config AE_AUDIO_DECODER_G711A
+			bool "G711A"
+		config AE_AUDIO_DECODER_G711U
+			bool "G711U"
+		config AE_AUDIO_DECODER_OPUS
+			bool "OPUS"
+		config AE_AUDIO_DECODER_PCM
+			bool "PCM"
+	endchoice
+
+	config AE_AUDIO_DECODER_TYPE
+		string "audio decoder type"
+		default "G722" if AE_AUDIO_DECODER_G722
+		default "G711A" if AE_AUDIO_DECODER_G711A
+		default "G711U" if AE_AUDIO_DECODER_G711U
+		default "OPUS" if AE_AUDIO_DECODER_OPUS
+		default "PCM" if AE_AUDIO_DECODER_PCM
+
+	config AE_ENABLE_PA_CNTRL
+		bool "enable PA control"
+		default y
+
+	config AE_PA_CNTRL_GPIO
+		int "PA control GPIO"
+		depends on AE_ENABLE_PA_CNTRL
+		default 50
+		range 0 100
+
+	config AE_PA_ON_LEVEL
+		int "PA on level"
+		depends on AE_ENABLE_PA_CNTRL
+		default 1
+		range 0 1
+
+	config AE_PA_ON_DELAY
+		int "PA on delay in ms"
+		depends on AE_ENABLE_PA_CNTRL
+		default 10
+
+	config AE_PA_OFF_DELAY
+		int "PA off delay in ms"
+		depends on AE_ENABLE_PA_CNTRL
+		default 30
+
+	config AE_DEFAULT_DIG_GAIN
+		hex "audio dac digital gain"
+		default 0x16
+
+	config AE_DEFAULT_ANA_GAIN
+		hex "audio dac analog gain"
+		default 0xA
+
+	config AE_SUPPORT_PROMPT_TONE
+		depends on ADK_ONBOARD_SPEAKER_STREAM_SUPPORT_MULTIPLE_SOURCE && PLAYER_SERVICE && BK_AUDIO_ENGINE
+		bool "Enable audio engine support playback prompt tone"
+		default n
+
+	choice AE_PROMPT_TONE_SOURCE
+		depends on AE_SUPPORT_PROMPT_TONE
+		prompt "Select audio engine prompt tone Source"
+		default AE_PROMPT_TONE_SOURCE_ARRAY
+
+		config AE_PROMPT_TONE_SOURCE_ARRAY
+		depends on PLAYER_SERVICE_SUPPORT_ARRAY_STREAM
+		bool "Select prompt tone stored in array"
+
+		config AE_PROMPT_TONE_SOURCE_VFS
+		depends on PLAYER_SERVICE_SUPPORT_VFS_STREAM
+		bool "Select prompt tone stored in vfs file system"
+	endchoice
+
+	choice AE_PROMPT_TONE_DECODER_TYPE
+		depends on AE_SUPPORT_PROMPT_TONE
+		prompt "Select audio engine prompt tone decoder type"
+		default AE_PROMPT_TONE_DECODER_WAV
+
+		config AE_PROMPT_TONE_DECODER_PCM
+		bool "Select PCM Prompt Tone"
+
+		config AE_PROMPT_TONE_DECODER_MP3
+		depends on PLAYER_SERVICE_SUPPORT_MP3_DECODER
+		bool "Select MP3 Prompt Tone"
+
+		config AE_PROMPT_TONE_DECODER_WAV
+		depends on PLAYER_SERVICE_SUPPORT_WAV_DECODER
+		bool "Select WAV Prompt Tone"
+	endchoice
+
+endmenu

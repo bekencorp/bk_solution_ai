@@ -1,0 +1,2 @@
+cd volc_rtc;make bk7258
+cd ai_camera;make bk7258

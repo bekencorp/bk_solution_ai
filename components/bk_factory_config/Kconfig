@@ -1,0 +1,5 @@
+menu "BK Factory Config"
+	  config BK_FACTORY_CONFIG
+        bool "Enable BK factory config"
+        default y
+endmenu
