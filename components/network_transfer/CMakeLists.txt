@@ -10,12 +10,14 @@ list(APPEND srcs
 if (CONFIG_AGORA_IOT_SDK)
 list(APPEND incs
             agora_rtc
+            agora_rtc/agent_utils
 )
 
 list(APPEND srcs
-	agora_rtc/agora_debug.c
-	agora_rtc/agora_rtc_main.c
-	agora_rtc/agora_rtc.c
+	agora_rtc/bk_agora_api.c
+	agora_rtc/agora_rtc_engine.c
+	agora_rtc/agora_agent_engine.c
+    agora_rtc/agent_utils/AgoraWebClientUtils.c
 )
 endif()
 
@@ -63,5 +65,5 @@ endif()
 armino_component_register(
     SRCS "${srcs}"
     INCLUDE_DIRS "${incs}"
-    PRIV_REQUIRES bk_common bk_init lwip_intf_v2_1 psa_mbedtls json VolcEngineRTCLite video_engine audio_engine bk_smart_config bk_app_event bk_vfs
+    PRIV_REQUIRES bk_common bk_init lwip_intf_v2_1 psa_mbedtls json VolcEngineRTCLite agora-iot-sdk video_engine audio_engine bk_smart_config bk_app_event bk_factory_config bk_vfs
 )

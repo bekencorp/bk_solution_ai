@@ -8,10 +8,10 @@
 #include <os/str.h>
 #include "network_transfer.h"
 #include "cli.h"
-#if CONFIG_AGORA_IOT_SDK
-#include "agora_rtc.h"
-#elif CONFIG_VOLC_RTC_EN
+#if CONFIG_VOLC_RTC_EN
 #include "bk_volc_api.h"
+#elif CONFIG_AGORA_IOT_SDK
+#include "bk_agora_api.h"
 #endif
 #if CONFIG_BK_AUDIO_ENGINE
 #include "audio_engine.h"
@@ -139,7 +139,14 @@ int ntwk_trans_init(void)
     g_ntwk_trans_ctx.update_cb = bk_byte_update_agent;
     g_ntwk_trans_ctx.network_type = NETWORK_TYPE_VOLC_RTC;
     #elif CONFIG_AGORA_IOT_SDK
-    // 声网RTC配置
+    // 声网Agora RTC配置
+    g_ntwk_trans_ctx.audio_tx_cb = bk_agora_rtc_audio_data_send;
+    g_ntwk_trans_ctx.video_tx_cb = bk_agora_rtc_video_data_send;
+    g_ntwk_trans_ctx.start_cb = bk_agora_start;
+    g_ntwk_trans_ctx.stop_cb = bk_agora_stop;
+    g_ntwk_trans_ctx.pre_config_cb = bk_agora_pre_config;
+    g_ntwk_trans_ctx.update_cb = bk_agora_update_agent;
+    g_ntwk_trans_ctx.network_type = NETWORK_TYPE_AGORA_RTC;
     #endif
 
     // 执行预配置回调
