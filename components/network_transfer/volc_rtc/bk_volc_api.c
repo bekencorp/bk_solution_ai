@@ -541,7 +541,9 @@ int bk_byte_start(void *device_id)
     if (ret < 0)
     {
         LOGE("bk_byte_agent_start fail, ret:%d \r\n", ret);
+        #if CONFIG_APP_EVT
         app_event_send_msg(APP_EVT_AGENT_START_FAIL, 0);
+        #endif
         return ret;
     }
 

@@ -41,33 +41,26 @@ static uint8_t audio_engine_volume_get_diag_gain(void)
 }
 static int audio_engine_volume_init(void)
 {
+    LOGI("audio_engine_volume_init\n");
+
+    #if CONFIG_BK_FACTORY_CONFIG
     int g_volume_level_size = 0;
 
-    LOGI("audio_engine_volume_init\n");
-    #if CONFIG_BK_FACTORY_CONFIG
     g_volume_level_size = bk_config_read("volume", (void *)&g_volume_level, 4);
-    #endif
-
     if (g_volume_level_size != 4)
     {
         LOGE("read volume config fail, use default config g_volume_level_size:%d\n", g_volume_level_size);
-        return AUDIO_ENGINE_ERR_INVALID_PARAM;
     }
 
     LOGI("Saved volume level: %d\n", g_volume_level);
 
-    if (g_volume_level > (SPK_VOLUME_LEVEL-1)) {
-        g_volume_level = SPK_VOLUME_LEVEL-1;
-        #if CONFIG_BK_FACTORY_CONFIG
-        if (0 != bk_config_write("volume", (void *)&g_volume_level, 4))
-        {
-            LOGE("storage g_volume_level: %d fail\n", g_volume_level);
-        }
-        #else
-        LOGE("audio_engine_volume_init: not support factory config\n");
-        return AUDIO_ENGINE_ERR_INVALID_PARAM;
-        #endif
+    if (0 != bk_config_write("volume", (void *)&g_volume_level, 4))
+    {
+        LOGE("storage g_volume_level: %d fail\n", g_volume_level);
     }
+    #else
+    LOGI("not support factory config, use default config g_volume_level: %d\n", g_volume_level);
+    #endif
 
     /* SPK_GAIN_MAX * [(exp(i/(SPK_VOLUME_LEVEL-1)-1)/(exp(1)-1)] */
     uint32_t step[SPK_VOLUME_LEVEL] = {0,6,12,20,28,37,47,58,71,84,100};
