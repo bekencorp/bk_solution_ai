@@ -133,7 +133,7 @@ static void video_engine_transfer_task(void *arg)
             ret = ntwk_trans_send_video(frame);
             if (ret != BK_OK)
             {
-                LOGW("%s: ntwk_trans_send_video failed, ret=%d\n", __func__, ret);
+                //LOGW("%s: ntwk_trans_send_video failed, ret=%d\n", __func__, ret);
             }
 
             /* 处理完成后释放帧 */
