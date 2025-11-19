@@ -75,11 +75,16 @@ static KeyConfig_t key_config[] = KEY_DEFAULT_CONFIG_TABLE;
  single task in sequence. If a handler function blocks or takes too
  long to execute, it will cause subsequent key events to be responded to untimely.*/
 
-static void handle_system_event(key_event_t event)
+static void handle_system_event(uint8_t event)
 {
+    if (IS_INVALID_EVENT(event))
+    {
+        LOGI("Invalid event: %d\r\n", event);
+        return;
+    }
+    
     uint32_t time;
 
-    // extern void bk_bt_app_avrcp_ct_vol_change(uint32_t platform_vol);
     switch (event)
     {
         case VOLUME_UP:
