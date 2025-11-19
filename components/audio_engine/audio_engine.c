@@ -21,6 +21,30 @@
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 #define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
 
+#if CONFIG_AE_AUDIO_DECODER_G722 && (!CONFIG_ADK_G722_DECODER || !CONFIG_VOICE_SERVICE_G722_DECODER)
+#error "CONFIG_AE_AUDIO_DECODER_G722 is enabled, but CONFIG_ADK_G722_DECODER or CONFIG_VOICE_SERVICE_G722_DECODER is not enabled"
+#endif
+
+#if CONFIG_AE_AUDIO_ENCODER_G722 && (!CONFIG_ADK_G722_ENCODER || !CONFIG_VOICE_SERVICE_G722_ENCODER)
+#error "CONFIG_AE_AUDIO_ENCODER_G722 is enabled, but CONFIG_ADK_G722_ENCODER or CONFIG_VOICE_SERVICE_G722_ENCODER is not enabled"
+#endif
+
+#if CONFIG_AE_AUDIO_DECODER_OPUS && (!CONFIG_ADK_OPUS_DECODER || !CONFIG_VOICE_SERVICE_OPUS_DECODER)
+#error "CONFIG_AE_AUDIO_DECODER_OPUS is enabled, but CONFIG_ADK_OPUS_DECODER or CONFIG_VOICE_SERVICE_OPUS_DECODER is not enabled"
+#endif
+
+#if CONFIG_AE_AUDIO_ENCODER_OPUS && (!CONFIG_ADK_OPUS_ENCODER || !CONFIG_VOICE_SERVICE_OPUS_ENCODER)
+#error "CONFIG_AE_AUDIO_ENCODER_OPUS is enabled, but CONFIG_ADK_OPUS_ENCODER or CONFIG_VOICE_SERVICE_OPUS_ENCODER is not enabled"
+#endif
+
+#if (CONFIG_AE_AUDIO_ENCODER_G711A || CONFIG_AE_AUDIO_ENCODER_G711U) && (!CONFIG_ADK_G711_ENCODER || !CONFIG_VOICE_SERVICE_G711_ENCODER)
+#error "(CONFIG_AE_AUDIO_ENCODER_G711A || CONFIG_AE_AUDIO_ENCODER_G711U) is enabled, but CONFIG_ADK_G711_ENCODER or CONFIG_VOICE_SERVICE_G711_ENCODER is not enabled"
+#endif
+
+#if (CONFIG_AE_AUDIO_DECODER_G711A || CONFIG_AE_AUDIO_DECODER_G711U) && (!CONFIG_ADK_G711_DECODER || !CONFIG_VOICE_SERVICE_G711_DECODER)
+#error "(CONFIG_AE_AUDIO_DECODER_G711A || CONFIG_AE_AUDIO_DECODER_G711U) is enabled, but CONFIG_ADK_G711_DECODER or CONFIG_VOICE_SERVICE_G711_DECODER is not enabled"
+#endif
+
 /* Global handles for audio engine */
 struct audio_engine_ctx g_audio_engine = {0};
 audio_engine_cfg_t g_audio_engine_cfg = {0};
@@ -353,6 +377,13 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
         voice_cfg.read_pool_size = (cfg->mic_sample_rate == 8000) ? 160 : 320;
     }
     #endif
+    #if CONFIG_VOICE_SERVICE_OPUS_ENCODER
+    else if (cfg->enc_type == AUDIO_ENC_TYPE_OPUS)
+    {
+        opus_enc_cfg_t opus_enc_cfg = DEFAULT_OPUS_ENC_CONFIG();
+        voice_cfg.enc_cfg.opus_enc_cfg = opus_enc_cfg;
+    }
+    #endif
     else if (cfg->enc_type == AUDIO_ENC_TYPE_PCM) {
         voice_cfg.read_pool_size = (cfg->mic_sample_rate == 8000) ? 320 : 640;
     }
@@ -386,6 +417,13 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
         voice_cfg.write_pool_size = (cfg->spk_sample_rate == 8000) ? 80 : 160;
     }
     #endif
+    #if CONFIG_VOICE_SERVICE_OPUS_DECODER
+    else if (cfg->dec_type == AUDIO_DEC_TYPE_OPUS)
+    {
+        opus_dec_cfg_t opus_dec_cfg = DEFAULT_OPUS_DEC_CONFIG();
+        voice_cfg.dec_cfg.opus_dec_cfg = opus_dec_cfg;
+    }
+#endif
     else if (cfg->dec_type == AUDIO_DEC_TYPE_PCM) {
         voice_cfg.write_pool_size = (cfg->spk_sample_rate == 8000) ? 320 : 640;
     }
@@ -518,6 +556,14 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     voice_write_cfg.node_size = voice_cfg.write_pool_size;
     voice_write_cfg.node_num = 10;// 10 frames buffer
 
+    #if CONFIG_VOICE_SERVICE_OPUS_DECODER
+    if(cfg->enc_type == AUDIO_ENC_TYPE_OPUS)
+    {
+        voice_write_cfg.write_buf_type = PORT_TYPE_FB;
+        voice_write_cfg.node_size = 160;
+        voice_write_cfg.node_num = 16;
+    }
+    #endif
     g_audio_engine.write_handle = bk_voice_write_init(&voice_write_cfg);
     if (!g_audio_engine.write_handle) {
         LOGE("Voice write init failed\n");

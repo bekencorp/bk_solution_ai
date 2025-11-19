@@ -1,4 +1,4 @@
-menu "audio engine"
+menu "Audio Engine"
 	config BK_AUDIO_ENGINE
 		bool "enable audio engine"
 		default y
@@ -16,51 +16,61 @@ menu "audio engine"
 		int "DAC sample rate"
 		default 16000
 
-	choice
+	choice AE_AUDIO_ENCODER
 		prompt "Audio encoder type"
 		default AE_AUDIO_ENCODER_G722
 		config AE_AUDIO_ENCODER_G722
 			bool "G722"
+			depends on ADK_G722_ENCODER && VOICE_SERVICE_G722_ENCODER
 		config AE_AUDIO_ENCODER_G711A
 			bool "G711A"
+			depends on ADK_G711_ENCODER && VOICE_SERVICE_G711_ENCODER
 		config AE_AUDIO_ENCODER_G711U
 			bool "G711U"
+			depends on ADK_G711_ENCODER && VOICE_SERVICE_G711_ENCODER
 		config AE_AUDIO_ENCODER_OPUS
 			bool "OPUS"
+			depends on ADK_OPUS_ENCODER && VOICE_SERVICE_OPUS_ENCODER
 		config AE_AUDIO_ENCODER_PCM
 			bool "PCM"
 	endchoice
 
 	config AE_AUDIO_ENCODER_TYPE
-		string "audio encoder type"
+		string
 		default "G722" if AE_AUDIO_ENCODER_G722
 		default "G711A" if AE_AUDIO_ENCODER_G711A
 		default "G711U" if AE_AUDIO_ENCODER_G711U
 		default "OPUS" if AE_AUDIO_ENCODER_OPUS
 		default "PCM" if AE_AUDIO_ENCODER_PCM
+		default "G722"
 
-	choice
+	choice AE_AUDIO_DECODER
 		prompt "Audio decoder type"
 		default AE_AUDIO_DECODER_G722
 		config AE_AUDIO_DECODER_G722
 			bool "G722"
+			depends on ADK_G722_DECODER && VOICE_SERVICE_G722_DECODER
 		config AE_AUDIO_DECODER_G711A
 			bool "G711A"
+			depends on ADK_G711_DECODER && VOICE_SERVICE_G711_DECODER
 		config AE_AUDIO_DECODER_G711U
 			bool "G711U"
+			depends on ADK_G711_DECODER && VOICE_SERVICE_G711_DECODER
 		config AE_AUDIO_DECODER_OPUS
 			bool "OPUS"
+			depends on ADK_OPUS_DECODER && VOICE_SERVICE_OPUS_DECODER
 		config AE_AUDIO_DECODER_PCM
 			bool "PCM"
 	endchoice
 
 	config AE_AUDIO_DECODER_TYPE
-		string "audio decoder type"
+		string
 		default "G722" if AE_AUDIO_DECODER_G722
 		default "G711A" if AE_AUDIO_DECODER_G711A
 		default "G711U" if AE_AUDIO_DECODER_G711U
 		default "OPUS" if AE_AUDIO_DECODER_OPUS
 		default "PCM" if AE_AUDIO_DECODER_PCM
+		default "G722"
 
 	config AE_ENABLE_PA_CNTRL
 		bool "enable PA control"
