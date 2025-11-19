@@ -24,6 +24,7 @@
 #define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
 
 extern char *bk_get_bk_server_url(uint8_t index);
+extern bool byte_rtc_license_valid;
 
 /* Common utility functions for agent operations */
 static int volc_agent_send_request(const char *uri, const char *post_data, 
@@ -194,14 +195,11 @@ int volc_start_agent_from_bk_server(byte_rtc_room_info_t *room_info, void *devic
     cJSON_AddStringToObject(agent_param, "mode", "text");
     #endif
     
-    bool volc_license_valid = false;
-    volc_file_exists("/VolcEngineRTCLite.lic", &volc_license_valid);
-
     // license and TTS burst function are only supported after VOLC RTC v1.0.6
     if (BYTE_RTC_API_VERSION_NUM >= 0x1006)
     {
         cJSON_AddBoolToObject(agent_param, "enable_burst", true);
-        if (volc_license_valid)
+        if (byte_rtc_license_valid)
         {
             cJSON_AddStringToObject(agent_param, "enable_license", "true");
         }
@@ -281,7 +279,6 @@ int volc_upate_agent_from_bk_server(byte_rtc_room_info_t *room_info, void *devic
     //char *device_id = (char *)device_id;
     int url_len = 0, ret = BK_FAIL;
     uint32_t rand_flag = 0;
-    bool volc_license_valid = false;
     cJSON *root = NULL, *agent_param = NULL;
 
     if (!room_info)
@@ -321,14 +318,12 @@ int volc_upate_agent_from_bk_server(byte_rtc_room_info_t *room_info, void *devic
     
     // Add mode to agent_param
     cJSON_AddStringToObject(agent_param, "mode", update_info);
-    
-    volc_file_exists("/VolcEngineRTCLite.lic", &volc_license_valid);
-    
+
     // license and TTS burst function are only supported after VOLC RTC v1.0.6
     if (BYTE_RTC_API_VERSION_NUM >= 0x1006)
     {
         cJSON_AddBoolToObject(agent_param, "enable_burst", true);
-        if (volc_license_valid)
+        if (byte_rtc_license_valid)
         {
             cJSON_AddStringToObject(agent_param, "enable_license", "true");
         }

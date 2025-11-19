@@ -63,5 +63,5 @@ endif()
 armino_component_register(
     SRCS "${srcs}"
     INCLUDE_DIRS "${incs}"
-    PRIV_REQUIRES bk_common bk_init lwip_intf_v2_1 psa_mbedtls json VolcEngineRTCLite video_engine audio_engine bk_smart_config bk_app_event
+    PRIV_REQUIRES bk_common bk_init lwip_intf_v2_1 psa_mbedtls json VolcEngineRTCLite video_engine audio_engine bk_smart_config bk_app_event bk_vfs
 )

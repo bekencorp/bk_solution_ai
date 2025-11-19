@@ -26,6 +26,8 @@
 #include "cli.h"
 #include "components/bk_uid.h"
 #include <driver/aon_rtc.h>
+#include "bk_posix.h"
+#include "volc_fileio.h"
 
 #define TAG "volc_main"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -47,12 +49,61 @@ static beken_semaphore_t byte_sem = NULL;
 bool byte_runing = false;
 static byte_rtc_config_t byte_rtc_config = DEFAULT_BYTE_RTC_CONFIG();
 static byte_rtc_option_t byte_rtc_option = DEFAULT_BYTE_RTC_OPTION();
+bool byte_rtc_license_valid = false;
+static bool bk_byte_rtc_sdcard_is_mount = false;
 
-//static uint32_t g_target_bps = BANDWIDTH_ESTIMATE_MIN_BITRATE;
-#if CONFIG_BK_SMART_CONFIG
-//extern bool smart_config_running;
-#endif
+/* mount sdcard */
+static int bk_byte_rtc_mount_sd0_fatfs(void)
+{
+    int ret = BK_OK;
 
+    if(!bk_byte_rtc_sdcard_is_mount)
+    {
+        struct bk_fatfs_partition partition;
+        char *fs_name = NULL;
+        fs_name = "fatfs";
+        partition.part_type = FATFS_DEVICE;
+        partition.part_dev.device_name = FATFS_DEV_SDCARD;
+        partition.mount_path = VFS_SD_0_PATITION_0;
+        ret = mount("SOURCE_NONE", partition.mount_path, fs_name, 0, &partition);
+        bk_byte_rtc_sdcard_is_mount = true;
+        LOGI("func %s, mount /sd0 \n", __func__);
+    }
+
+    return ret;
+}
+
+/* unmount sdcard */
+static bk_err_t bk_byte_rtc_unmount_sd0_fatfs(void)
+{
+    bk_err_t ret = BK_OK;
+
+    if (!bk_byte_rtc_sdcard_is_mount)
+    {
+        return BK_OK;
+    }
+
+    LOGD("func %s, unmount /sd0 \n", __func__);
+    if (BK_OK != umount(VFS_SD_0_PATITION_0))
+    {
+        LOGE("func %s, unmount /sd0 fail\n", __func__);
+        ret = BK_FAIL;
+    }
+    else
+    {
+        bk_byte_rtc_sdcard_is_mount = false;
+    }
+
+    return ret;
+}
+static void bk_byte_rtc_license_check(void)
+{
+    char cFileName[VFS_FILE_MAX_LEN] = {0};
+ 
+    sprintf(cFileName, "%s/%s", VFS_SD_0_PATITION_0, "VolcEngineRTCLite.lic");
+    volc_file_exists(cFileName, &byte_rtc_license_valid);
+    LOGI("byte_rtc_license_valid:%d\r\n", byte_rtc_license_valid);
+}
 
 static void bk_byte_rtc_print_finger()
 {
@@ -452,6 +503,7 @@ fail:
 }
 int bk_byte_agent_start(byte_rtc_room_info_t *room_info, void *device_id)
 {
+    bk_byte_rtc_license_check();
     return volc_agent_start(room_info, device_id);
 }
 int bk_byte_agent_stop(byte_rtc_room_info_t *room_info, void *device_id)
@@ -462,6 +514,12 @@ int bk_byte_start(void *device_id)
 {
     int ret = 0;
     LOGI("%s %d device_id:%s\r\n", __func__, __LINE__, device_id);
+
+    ret = bk_byte_rtc_mount_sd0_fatfs();
+    if (ret < 0)
+    {
+        LOGE("bk_byte_rtc_mount_sd0_fatfs fail, ret:%d \r\n", ret);
+    }
 
     if (byte_runing)
     {
@@ -516,6 +574,12 @@ int bk_byte_stop(void *device_id)
     {
         psram_free((char *)volc_room_info);
         volc_room_info = NULL;
+    }
+
+    ret = bk_byte_rtc_unmount_sd0_fatfs();
+    if (ret < 0)
+    {
+        LOGE("bk_byte_rtc_unmount_sd0_fatfs fail, ret:%d \r\n", ret);
     }
 
     return ret;

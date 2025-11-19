@@ -10,6 +10,7 @@
 #include "volc_rtc_engine.h"
 #include "volc_config.h"
 #include "volc_fileio.h"
+#include "bk_posix.h"
 
 #define TAG "byte_rtc"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -19,6 +20,7 @@
 #define LOGV(...) BK_LOGV(TAG, ##__VA_ARGS__)
 
 static byte_rtc_t byte_rtc = {0};
+extern bool byte_rtc_license_valid;
 
 byte_rtc_t *__byte_rtc_get_instance(void)
 {
@@ -344,12 +346,13 @@ static int32_t __byte_init(byte_rtc_config_t *p_config)
     rtc->engine = byte_rtc_create(rtc->byte_rtc_config.p_appid, &rtc->byte_rtc_event_handler);
 
 #if CONFIG_VOLC_RTC_ENABLE_LICENSE
-    bool volc_license_valid = false;
-
-    volc_file_exists("/VolcEngineRTCLite.lic", &volc_license_valid);
-    if (volc_license_valid)
+    if (byte_rtc_license_valid)
     {
-        ret = byte_rtc_set_params(rtc->engine,"{\"rtc\":{\"root_path\":\"/\"}}");
+        char root_path_str[50] = {0};
+        sprintf(root_path_str, "{\"rtc\":{\"root_path\":\"%s\"}}", VFS_SD_0_PATITION_0);
+        LOGI("root_path_str: %s \n", root_path_str);
+
+        ret = byte_rtc_set_params(rtc->engine, root_path_str);
         if (ret < 0)
         {
             LOGI("byte_rtc_set_params root_path failed, ret=%d error=%s\n", ret, byte_rtc_err_2_str(ret));
