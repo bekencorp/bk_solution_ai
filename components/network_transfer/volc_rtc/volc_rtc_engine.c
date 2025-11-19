@@ -523,21 +523,25 @@ bk_err_t __byte_rtc_stop(void)
 
     __rtc_stopped(rtc);
 
-    /*  maybe lost connect. but API has covered this case */
-    rval = byte_rtc_leave_room(rtc->engine, rtc->byte_rtc_option.room->room_id);
-    if (rval < 0)
+    if (rtc->byte_rtc_option.room && (os_strlen(rtc->byte_rtc_option.room->room_id) > 0)) 
     {
-        LOGI("byte_rtc_leave_room fail, rval=%d error=%s \n", rval, byte_rtc_err_2_str(rval));
-        return BK_FAIL;
+        /*  maybe lost connect. but API has covered this case */
+        rval = byte_rtc_leave_room(rtc->engine, rtc->byte_rtc_option.room->room_id);
+        if (rval < 0)
+        {
+            LOGI("byte_rtc_leave_room fail, rval=%d error=%s \n", rval, byte_rtc_err_2_str(rval));
+        }
     }
 
     rval = byte_rtc_fini(rtc->engine);
     if (rval < 0)
     {
         LOGI("byte_rtc_fini fail, rval=%d error=%s \n", rval, byte_rtc_err_2_str(rval));
-        return BK_FAIL;
+        goto stop_error;
     }
+    rval = BK_OK;
 
+stop_error:
     if (rtc->byte_rtc_config.p_appid != NULL)
     {
         psram_free((void *)rtc->byte_rtc_config.p_appid);
@@ -550,7 +554,7 @@ bk_err_t __byte_rtc_stop(void)
         rtc->byte_rtc_option.room = NULL;
     }
 
-    return BK_OK;
+    return rval;
 }
 
 ///YT TODO
