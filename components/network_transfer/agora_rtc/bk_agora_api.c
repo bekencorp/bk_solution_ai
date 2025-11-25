@@ -354,16 +354,19 @@ void bk_agora_rtc_main(void)
     
     LOGI("-----Agora RTC join channel success-----\n");
     /* Main loop */
-    while (agora_runing)
-    {
-        rtos_delay_milliseconds(100);
-    }
 
     ret = __agora_rtc_register_audio_rx_handle((agora_rtc_audio_rx_data_handle)bk_agora_user_audio_rx_data_handle);
     if (ret != BK_OK)
     {
        LOGE("Failed to register audio RX handle, ret:%d\n", ret);
-     }    
+    }    
+
+     while (agora_runing)
+     {
+         rtos_delay_milliseconds(100);
+     }
+
+
 exit:
     __agora_rtc_register_audio_rx_handle(NULL);
 
@@ -500,6 +503,7 @@ int bk_agora_start(void *device_id)
         app_event_send_msg(APP_EVT_AGENT_START_FAIL, 0);
         return ret;
     }
+    os_strcpy(channel_name, device_id);
 
 
     ret = bk_agora_rtc_start(device_id);
