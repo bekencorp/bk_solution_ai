@@ -308,7 +308,7 @@ int agora_upate_agent_from_bk_server(agora_rtc_agent_info_t *option_info, void *
     char *response_buffer = NULL;
     char uri[256] = {0};
     int url_len = 0, ret = BK_FAIL;
-    cJSON *root = NULL, *agent_param = NULL;
+    cJSON *root = NULL;
 
     if (!option_info)
     {
@@ -333,9 +333,8 @@ int agora_upate_agent_from_bk_server(agora_rtc_agent_info_t *option_info, void *
 
     /* Generate JSON data */
     root = cJSON_CreateObject();
-    agent_param = cJSON_CreateObject();
     
-    if (!root || !agent_param)
+    if (!root)
     {
         LOGE("no memory for cJSON objects\n");
         ret = BK_FAIL;
@@ -344,13 +343,18 @@ int agora_upate_agent_from_bk_server(agora_rtc_agent_info_t *option_info, void *
 
     // Add channel
     cJSON_AddStringToObject(root, "channel", device_id);
-    
-    // Add mode to agent_param
-    cJSON_AddStringToObject(agent_param, "mode", update_info);
-    
 
-    // Add agent_param to root
-    cJSON_AddItemToObject(root, "agent_param", agent_param);
+
+    if (update_info && os_strcmp((char *)update_info, "vision") == 0)
+    {
+        cJSON_AddStringToObject(root, "model_type", "text_and_image");
+        
+    }
+    else
+    {
+        cJSON_AddStringToObject(root, "model_type", "text");
+    }
+
       
     // Generate JSON string
     post_data = cJSON_PrintUnformatted(root);
