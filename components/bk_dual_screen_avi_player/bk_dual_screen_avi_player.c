@@ -130,7 +130,7 @@ static bk_err_t bk_avi_player_vfs_deinit(void)
 
 static avdk_err_t display_frame_free_cb(void *frame)
 {
-
+    lcd_backlight_open(LCD_BL_IO);
     return AVDK_ERR_OK;
 }
 
@@ -167,7 +167,6 @@ static void dual_screen_avi_player_thread(beken_thread_arg_t data)
             lcd_frame_buffer->frame = handle->framebuffer;
         }
 
-        lcd_backlight_open(LCD_BL_IO);
         bk_display_flush(lcd_display_handle, lcd_frame_buffer, display_frame_free_cb);
         end_time = rtos_get_time();
         LOGV("bk_avi_player_video_parse time: %d ms\n", end_time - start_time);
@@ -308,8 +307,6 @@ bk_err_t bk_dual_screen_avi_player_stop(void)
         return ret;
     }
 
-    lcd_backlight_close(LCD_BL_IO);
-
     ret = bk_display_close(lcd_display_handle);
     if (ret != BK_OK) {
         LOGE("%s %d bk_display_close failed\r\n", __func__, __LINE__);
@@ -338,7 +335,7 @@ bk_err_t bk_dual_screen_avi_player_stop(void)
         LOGE("%s g_dual_screen_avi_player_sem deinit failed\n", __func__);
         return ret;
     }
-
+    lcd_backlight_close(LCD_BL_IO);
     LOGI("%s complete\n", __func__);
 
     return BK_OK;
