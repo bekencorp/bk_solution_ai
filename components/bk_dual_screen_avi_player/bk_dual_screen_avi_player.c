@@ -266,7 +266,7 @@ bk_err_t bk_dual_screen_avi_player_start(char *file_path)
     lcd_frame_buffer->fmt = PIXEL_FMT_RGB565;
 
     ret = rtos_create_thread(&g_dual_screen_avi_player_thread,
-                             BEKEN_DEFAULT_WORKER_PRIORITY,
+                             BEKEN_DEFAULT_WORKER_PRIORITY - 1,
                              "dual_screen_avi_player_thread",
                              (beken_thread_function_t)dual_screen_avi_player_thread,
                              1024 * 4,
@@ -300,8 +300,6 @@ bk_err_t bk_dual_screen_avi_player_stop(void)
         return BK_OK;
     }
 
-    lcd_backlight_close(LCD_BL_IO);
-
     g_dual_screen_avi_player_is_running = false;
 
     ret = rtos_get_semaphore(&g_dual_screen_avi_player_sem, BEKEN_NEVER_TIMEOUT);
@@ -309,6 +307,8 @@ bk_err_t bk_dual_screen_avi_player_stop(void)
         LOGE("%s g_dual_screen_avi_player_sem get failed\n", __func__);
         return ret;
     }
+
+    lcd_backlight_close(LCD_BL_IO);
 
     ret = bk_display_close(lcd_display_handle);
     if (ret != BK_OK) {
