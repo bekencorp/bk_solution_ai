@@ -20,6 +20,9 @@
 
 #define LCD_BL_IO GPIO_25
 
+// Backlight initialization flag
+static bool lcd_backlight_initialized = false;
+
 static beken_thread_t g_dual_screen_avi_player_thread;
 static beken_semaphore_t g_dual_screen_avi_player_sem;
 static bool g_dual_screen_avi_player_is_running = false;
@@ -43,18 +46,34 @@ bk_display_dual_spi_ctlr_config_t dual_spi_ctlr_config = {
 
 static avdk_err_t lcd_backlight_open(uint8_t bl_io)
 {
+    // Initialize only once, skip if already initialized
+    if (lcd_backlight_initialized)
+    {
+        return AVDK_ERR_OK;
+    }
+
     gpio_dev_unmap(bl_io);
     BK_LOG_ON_ERR(bk_gpio_enable_output(bl_io));
     BK_LOG_ON_ERR(bk_gpio_pull_up(bl_io));
     bk_gpio_set_output_high(bl_io);
+
+    lcd_backlight_initialized = true;
 
     return AVDK_ERR_OK;
 }
 
 static avdk_err_t lcd_backlight_close(uint8_t bl_io)
 {
+    // Only close if already initialized
+    if (!lcd_backlight_initialized)
+    {
+        return AVDK_ERR_OK;
+    }
+
     BK_LOG_ON_ERR(bk_gpio_pull_down(bl_io));
     bk_gpio_set_output_low(bl_io);
+
+    lcd_backlight_initialized = false;
 
     return AVDK_ERR_OK;
 }
@@ -127,8 +146,6 @@ static void dual_screen_avi_player_thread(beken_thread_arg_t data)
     handle->pos = 0;
     delay_time = 1000 / (uint32_t)handle->avi->fps;
 
-    lcd_backlight_open(LCD_BL_IO);
-
     while (g_dual_screen_avi_player_is_running)
     {
         if (handle->pos == handle->video_num) {
@@ -149,13 +166,14 @@ static void dual_screen_avi_player_thread(beken_thread_arg_t data)
         } else {
             lcd_frame_buffer->frame = handle->framebuffer;
         }
-        bk_display_flush(lcd_display_handle, lcd_frame_buffer, display_frame_free_cb);
 
+        lcd_backlight_open(LCD_BL_IO);
+        bk_display_flush(lcd_display_handle, lcd_frame_buffer, display_frame_free_cb);
         end_time = rtos_get_time();
         LOGV("bk_avi_player_video_parse time: %d ms\n", end_time - start_time);
 
         if (end_time - start_time > delay_time) {
-            LOGI("bk_avi_player_video_parse time is too long, just delay 2ms\n");
+            LOGI("bk_avi_player_video_parse time is too long, just delay 2ms, %dms\n", end_time - start_time);
             rtos_delay_milliseconds(2);
         } else {
             rtos_delay_milliseconds(delay_time);
