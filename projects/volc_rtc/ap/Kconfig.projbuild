@@ -7,4 +7,8 @@ menu "VOLC_RTC demo Configuration"
         int "select HARDWARE_SPEAKER_VER"
         range 0 8
         default 0
+
+    config AUDIO_PARA
+        bool "Enable AUDIO_PARA"
+        default n
 endmenu

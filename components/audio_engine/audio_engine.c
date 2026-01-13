@@ -287,6 +287,77 @@ void bk_audio_engine_asr_result_handle(uint32_t param)
  *             - -6: Voice read start failed
  *             - -7: Voice write start failed
  */
+#if CONFIG_AUDIO_PARA
+extern app_aud_para_t *get_app_aud_cust_para(app_aud_service_type_t service_type);
+extern void set_app_aud_cust_service_handle(void *service_handle, app_aud_service_type_t service_type);
+
+void bk_audio_set_voc_cust_params(voice_cfg_t * voice_cfg, app_aud_service_type_t service_type)
+{
+	app_aud_para_t * cust_aud_para = NULL;
+	{
+		cust_aud_para = get_app_aud_cust_para(AUD_SERVICE_AI_VOC);
+		if (cust_aud_para == NULL)
+		{
+			LOGE("get_app_aud_cust_para fail\n");
+		} else
+		{
+			bk_aud_debug_get_audpara(cust_aud_para, AUD_SERVICE_AI_VOC);
+		}
+
+#if CONFIG_VOICE_SERVICE_EQ
+		if (voice_cfg->eq_en)
+		{
+			if (cust_aud_para && cust_aud_para->eq_dl_config.app_eq_en)
+			{
+				if (1)//(spk_sample_rate == cust_aud_para->eq_dl_config.eq_load.samplerate)
+				{
+					voice_cfg->eq_en = cust_aud_para->eq_dl_config.eq_en;
+					voice_cfg->eq_cfg.eq_alg_cfg.eq_cal_para.eq_en       = cust_aud_para->eq_dl_config.eq_en;
+					voice_cfg->eq_cfg.eq_alg_cfg.eq_cal_para.filters     = cust_aud_para->eq_dl_config.filters;
+					voice_cfg->eq_cfg.eq_alg_cfg.eq_cal_para.globle_gain = cust_aud_para->eq_dl_config.globle_gain;
+					os_memcpy(&voice_cfg->eq_cfg.eq_alg_cfg.eq_cal_para.eq_para, &cust_aud_para->eq_dl_config.eq_para, sizeof(eq_para_t)*cust_aud_para->eq_dl_config.filters);
+					os_memcpy(&voice_cfg->eq_cfg.eq_alg_cfg.eq_cal_para.eq_load, &cust_aud_para->eq_dl_config.eq_load, sizeof(app_eq_load_t));
+				} else
+				{
+					voice_cfg->eq_en = 0;
+					LOGE("voice dl eq init fail, spk_sample_rate not match\n");
+				}
+			}
+		}
+#endif
+
+		if (voice_cfg->mic_type == MIC_TYPE_ONBOARD)
+		{
+			if (cust_aud_para && cust_aud_para->sys_config.app_sys_en)
+			{
+				voice_cfg->mic_cfg.onboard_mic_cfg.adc_cfg.ana_gain = cust_aud_para->sys_config.mic0_analog_gain;
+				voice_cfg->mic_cfg.onboard_mic_cfg.adc_cfg.dig_gain = cust_aud_para->sys_config.mic0_digital_gain;
+			}
+		}
+		if (voice_cfg->spk_type == SPK_TYPE_ONBOARD)
+		{
+			if (cust_aud_para && cust_aud_para->sys_config.app_sys_en)
+			{
+				voice_cfg->spk_cfg.onboard_spk_cfg.ana_gain = cust_aud_para->sys_config.speaker_chan0_analog_gain;
+				voice_cfg->spk_cfg.onboard_spk_cfg.dig_gain = cust_aud_para->sys_config.speaker_chan0_digital_gain;
+			}
+		}
+		if (voice_cfg->aec_en)
+		{
+			if (cust_aud_para && cust_aud_para->aec_v3_config.app_aec_en)
+			{
+				voice_cfg->aec_en = cust_aud_para->aec_v3_config.aec_enable;
+				voice_cfg->aec_cfg.aec_alg_cfg.aec_cfg.delay_points = cust_aud_para->aec_v3_config.mic_delay;
+				voice_cfg->aec_cfg.aec_alg_cfg.aec_cfg.ec_depth     = cust_aud_para->aec_v3_config.ec_depth;
+				voice_cfg->aec_cfg.aec_alg_cfg.aec_cfg.ref_scale    = cust_aud_para->aec_v3_config.ref_scale;
+				voice_cfg->aec_cfg.aec_alg_cfg.aec_cfg.ns_level     = cust_aud_para->aec_v3_config.ns_level;
+				voice_cfg->aec_cfg.aec_alg_cfg.aec_cfg.ns_para      = cust_aud_para->aec_v3_config.ns_para;
+			}
+		}
+	}
+}
+#endif
+
 int audio_engine_start(audio_engine_cfg_t *cfg)
 {
     int ret = 0;
@@ -316,11 +387,15 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     }
 
     /* Initialize voice configuration */
-    voice_cfg_t voice_cfg = {0};
-    os_memset(&voice_cfg, 0, sizeof(voice_cfg_t));
-    
+    voice_cfg_t *voice_cfg = (voice_cfg_t *)os_malloc(sizeof(voice_cfg_t));
+    if (!voice_cfg) {
+        LOGE("Failed to allocate memory for voice_cfg\n");
+        return AUDIO_ENGINE_ERR_INIT_FAILED;
+    }
+    os_memset(voice_cfg, 0x00, sizeof(voice_cfg_t));
+
     /* Configure microphone */
-    voice_cfg.mic_type = MIC_TYPE_ONBOARD;
+    voice_cfg->mic_type = MIC_TYPE_ONBOARD;
     onboard_mic_stream_cfg_t onboard_mic_cfg = ONBOARD_MIC_ADC_STREAM_CFG_DEFAULT();
     onboard_mic_cfg.adc_cfg.dig_gain = 0x30;
     onboard_mic_cfg.adc_cfg.ana_gain = 0x08;
@@ -331,10 +406,10 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     } else {
         onboard_mic_cfg.frame_size = 320;
     }
-    voice_cfg.mic_cfg.onboard_mic_cfg = onboard_mic_cfg;
+    voice_cfg->mic_cfg.onboard_mic_cfg = onboard_mic_cfg;
 
     /* Configure AEC */
-    voice_cfg.aec_en = cfg->aec_enable;
+    voice_cfg->aec_en = cfg->aec_enable;
     aec_v3_algorithm_cfg_t aec_cfg;
     if (cfg->aec_enable) {
         aec_cfg = (aec_v3_algorithm_cfg_t)DEFAULT_AEC_V3_ALGORITHM_CONFIG();
@@ -343,14 +418,14 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
         if (aec_cfg.aec_cfg.mode == AEC_MODE_HARDWARE)
         {
             onboard_mic_cfg.adc_cfg.chl_num = 2;
-            voice_cfg.mic_cfg.onboard_mic_cfg = onboard_mic_cfg;
+            voice_cfg->mic_cfg.onboard_mic_cfg = onboard_mic_cfg;
         }
-        voice_cfg.aec_cfg.aec_alg_cfg = aec_cfg;
+        voice_cfg->aec_cfg.aec_alg_cfg = aec_cfg;
     }
     
     /* Configure encoder */
-    voice_cfg.enc_en = true;
-    voice_cfg.enc_type = cfg->enc_type;
+    voice_cfg->enc_en = true;
+    voice_cfg->enc_type = cfg->enc_type;
     if (cfg->enc_type == AUDIO_ENC_TYPE_G711A) {
         g711_encoder_cfg_t g711_enc_cfg = DEFAULT_G711_ENCODER_CONFIG();
         if (cfg->mic_sample_rate == 8000) {
@@ -360,8 +435,8 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
             g711_enc_cfg.buf_sz = 320;
             g711_enc_cfg.out_block_size = 320;
         }
-        voice_cfg.enc_cfg.g711_enc_cfg = g711_enc_cfg;
-        voice_cfg.read_pool_size = (cfg->mic_sample_rate == 8000) ? 160 : 320;
+        voice_cfg->enc_cfg.g711_enc_cfg = g711_enc_cfg;
+        voice_cfg->read_pool_size = (cfg->mic_sample_rate == 8000) ? 160 : 320;
     }
     #if CONFIG_VOICE_SERVICE_G722_ENCODER
     else if (cfg->enc_type == AUDIO_ENC_TYPE_G722) {
@@ -373,24 +448,24 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
             g722_enc_cfg.buf_sz = 320;
             g722_enc_cfg.out_block_size = 160;
         }
-        voice_cfg.enc_cfg.g722_enc_cfg = g722_enc_cfg;
-        voice_cfg.read_pool_size = (cfg->mic_sample_rate == 8000) ? 160 : 320;
+        voice_cfg->enc_cfg.g722_enc_cfg = g722_enc_cfg;
+        voice_cfg->read_pool_size = (cfg->mic_sample_rate == 8000) ? 160 : 320;
     }
     #endif
     #if CONFIG_VOICE_SERVICE_OPUS_ENCODER
     else if (cfg->enc_type == AUDIO_ENC_TYPE_OPUS)
     {
         opus_enc_cfg_t opus_enc_cfg = DEFAULT_OPUS_ENC_CONFIG();
-        voice_cfg.enc_cfg.opus_enc_cfg = opus_enc_cfg;
+        voice_cfg->enc_cfg.opus_enc_cfg = opus_enc_cfg;
     }
     #endif
     else if (cfg->enc_type == AUDIO_ENC_TYPE_PCM) {
-        voice_cfg.read_pool_size = (cfg->mic_sample_rate == 8000) ? 320 : 640;
+        voice_cfg->read_pool_size = (cfg->mic_sample_rate == 8000) ? 320 : 640;
     }
     
     /* Configure decoder */
-    voice_cfg.dec_en = true;
-    voice_cfg.dec_type = cfg->dec_type;
+    voice_cfg->dec_en = true;
+    voice_cfg->dec_type = cfg->dec_type;
     if (cfg->dec_type == AUDIO_DEC_TYPE_G711A) {
         g711_decoder_cfg_t g711_dec_cfg = DEFAULT_G711_DECODER_CONFIG();
         if (cfg->spk_sample_rate == 8000) {
@@ -400,8 +475,8 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
             g711_dec_cfg.buf_sz = 320;
             g711_dec_cfg.out_block_size = 640;
         }
-        voice_cfg.dec_cfg.g711_dec_cfg = g711_dec_cfg;
-        voice_cfg.write_pool_size = (cfg->spk_sample_rate == 8000) ? 160 : 320;
+        voice_cfg->dec_cfg.g711_dec_cfg = g711_dec_cfg;
+        voice_cfg->write_pool_size = (cfg->spk_sample_rate == 8000) ? 160 : 320;
     }
     #if CONFIG_VOICE_SERVICE_G722_DECODER
     else if (cfg->dec_type == AUDIO_DEC_TYPE_G722) {
@@ -413,23 +488,23 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
             g722_dec_cfg.buf_sz = 160;
             g722_dec_cfg.out_block_size = 640;
         }
-        voice_cfg.dec_cfg.g722_dec_cfg = g722_dec_cfg;
-        voice_cfg.write_pool_size = (cfg->spk_sample_rate == 8000) ? 80 : 160;
+        voice_cfg->dec_cfg.g722_dec_cfg = g722_dec_cfg;
+        voice_cfg->write_pool_size = (cfg->spk_sample_rate == 8000) ? 80 : 160;
     }
     #endif
     #if CONFIG_VOICE_SERVICE_OPUS_DECODER
     else if (cfg->dec_type == AUDIO_DEC_TYPE_OPUS)
     {
         opus_dec_cfg_t opus_dec_cfg = DEFAULT_OPUS_DEC_CONFIG();
-        voice_cfg.dec_cfg.opus_dec_cfg = opus_dec_cfg;
+        voice_cfg->dec_cfg.opus_dec_cfg = opus_dec_cfg;
     }
 #endif
     else if (cfg->dec_type == AUDIO_DEC_TYPE_PCM) {
-        voice_cfg.write_pool_size = (cfg->spk_sample_rate == 8000) ? 320 : 640;
+        voice_cfg->write_pool_size = (cfg->spk_sample_rate == 8000) ? 320 : 640;
     }
     
     /* Configure speaker */
-    voice_cfg.spk_type = SPK_TYPE_ONBOARD;
+    voice_cfg->spk_type = SPK_TYPE_ONBOARD;
     onboard_speaker_stream_cfg_t onboard_spk_cfg = ONBOARD_SPEAKER_STREAM_CFG_DEFAULT();
     onboard_spk_cfg.sample_rate = cfg->spk_sample_rate;
     onboard_spk_cfg.frame_size = (cfg->spk_sample_rate == 8000) ? 320 : 640;
@@ -445,17 +520,17 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     onboard_spk_cfg.multi_in_port_num++;
 #endif
 
-    voice_cfg.spk_cfg.onboard_spk_cfg = onboard_spk_cfg;
+    voice_cfg->spk_cfg.onboard_spk_cfg = onboard_spk_cfg;
     
     /* Configure EQ */
 #if CONFIG_VOICE_SERVICE_EQ
     if (cfg->eq_enable > 0) {
-        voice_cfg.eq_en = true;
+        voice_cfg->eq_en = true;
         eq_algorithm_cfg_t eq_cfg = DEFAULT_EQ_ALGORITHM_CONFIG();
         eq_cfg.eq_chl_num = cfg->eq_enable;
-        voice_cfg.eq_cfg.eq_alg_cfg = eq_cfg;
+        voice_cfg->eq_cfg.eq_alg_cfg = eq_cfg;
     } else {
-        voice_cfg.eq_en = false;
+        voice_cfg->eq_en = false;
     }
 #endif
 
@@ -478,20 +553,24 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     {
         asr_cfg.asr_rsp_en = false;
     }
-    if (voice_cfg.aec_en) {
-        voice_cfg.aec_cfg.aec_alg_cfg.multi_out_port_num++;
+    if (voice_cfg->aec_en) {
+        voice_cfg->aec_cfg.aec_alg_cfg.multi_out_port_num++;
     } else
     {
-        voice_cfg.mic_cfg.onboard_mic_cfg.multi_out_port_num++;
+        voice_cfg->mic_cfg.onboard_mic_cfg.multi_out_port_num++;
     }
 #endif
 
+#if CONFIG_AUDIO_PARA
+    bk_audio_set_voc_cust_params(voice_cfg, AUD_SERVICE_AI_VOC);
+#endif
+
     /* Configure event callback */
-    voice_cfg.event_handle = cfg->event_cb;
-    voice_cfg.args = cfg->user_data;
-    
+    voice_cfg->event_handle = cfg->event_cb;
+    voice_cfg->args = cfg->user_data;
+
     /* Initialize voice service */
-    g_audio_engine.voice_handle = bk_voice_init(&voice_cfg);
+    g_audio_engine.voice_handle = bk_voice_init(voice_cfg);
     if (!g_audio_engine.voice_handle) {
         LOGE("Voice init failed\n");
         ret = AUDIO_ENGINE_ERR_VOICE_INIT;
@@ -509,7 +588,7 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
             LOGE("asr init fail\n");
             goto cleanup_asr;
         }
-        g_audio_engine.asr_handle->mic_str = (audio_element_handle_t)bk_voice_get_mic_str(g_audio_engine.voice_handle, &voice_cfg);
+        g_audio_engine.asr_handle->mic_str = (audio_element_handle_t)bk_voice_get_mic_str(g_audio_engine.voice_handle, voice_cfg);
         if (cfg->mic_sample_rate == 16000) {
             asr_cfg.read_pool_size = cfg->mic_sample_rate * 2 * 20 / 1000;
         }
@@ -536,6 +615,11 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     }
 #endif
 
+#if CONFIG_AUDIO_PARA
+    bk_app_aud_get_service_handle((void *)g_audio_engine.voice_handle, AUD_SERVICE_AI_VOC);
+    set_app_aud_cust_service_handle((void *)g_audio_engine.voice_handle, AUD_SERVICE_AI_VOC);
+#endif
+
     /* Initialize voice read service */
     voice_read_cfg_t voice_read_cfg = VOICE_READ_CFG_DEFAULT();
     voice_read_cfg.voice_handle = g_audio_engine.voice_handle;
@@ -553,7 +637,7 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     /* Initialize voice write service */
     voice_write_cfg_t voice_write_cfg = VOICE_WRITE_CFG_DEFAULT();
     voice_write_cfg.voice_handle = g_audio_engine.voice_handle;
-    voice_write_cfg.node_size = voice_cfg.write_pool_size;
+    voice_write_cfg.node_size = voice_cfg->write_pool_size;
     voice_write_cfg.node_num = 10;// 10 frames buffer
 
     #if CONFIG_VOICE_SERVICE_OPUS_DECODER
@@ -607,7 +691,11 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
         }
     }
 #endif
-
+    if(voice_cfg)
+    {
+        os_free(voice_cfg);
+        voice_cfg = NULL;
+    }
     g_audio_engine.is_started = true;
     LOGI("Audio engine started successfully\n");
     return AUDIO_ENGINE_SUCCESS;
@@ -644,6 +732,11 @@ cleanup_asr:
 #endif
 
 cleanup:
+    if(voice_cfg)
+    {
+        os_free(voice_cfg);
+        voice_cfg = NULL;
+    }
     return ret;
 }
 
@@ -959,6 +1052,7 @@ int audio_engine_init(void)
     }
 
     cfg.dig_gain = audio_engine_volume_get_diag_gain();
+
     cfg.enc_type = audio_engine_str_to_enc_type(CONFIG_AE_AUDIO_ENCODER_TYPE);
     cfg.dec_type = audio_engine_str_to_dec_type(CONFIG_AE_AUDIO_DECODER_TYPE);
 
