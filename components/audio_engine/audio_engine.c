@@ -246,6 +246,18 @@ void bk_audio_engine_asr_result_handle(uint32_t param)
     g_audio_engine.asr_result = asr_result;
     LOGD("ASR result set to: %d\n", g_audio_engine.asr_result);
 
+    audio_element_handle_t spk_element = bk_voice_get_spk_element(g_audio_engine.voice_handle);
+    if (spk_element)
+    {
+        if (g_audio_engine.asr_result == 1) {
+            onboard_speaker_stream_set_input_port_data_valid(spk_element, 0, true);
+        } else if (g_audio_engine.asr_result == 2) {
+            onboard_speaker_stream_set_input_port_data_valid(spk_element, 0, false);
+        } else {
+            //nothing todo
+        }
+    }
+
 #if CONFIG_APP_EVT
     if (g_audio_engine.asr_result == 1) {
         ret = app_event_send_msg(APP_EVT_ASR_WAKEUP, 0);

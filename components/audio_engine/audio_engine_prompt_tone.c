@@ -149,7 +149,7 @@ static int player_not_playback_event_handler(int data, void *params, void *args)
             return BK_FAIL;
         }
 
-        audio_port_info_t port_info = {0};
+        audio_port_info_t port_info = DEFAULT_AUDIO_PORT_INFO();
         port_info.chl_num = music_info->channels;
         port_info.sample_rate = music_info->sample_rates;
         port_info.dig_gain = 0x2d;
@@ -274,7 +274,7 @@ audio_engine_prompt_tone_handle_t audio_engine_prompt_tone_init(audio_engine_pro
         goto fail;
     }
 
-    audio_port_info_t port_info = {0};
+    audio_port_info_t port_info = DEFAULT_AUDIO_PORT_INFO();
     port_info.chl_num = prompt_tone->chl_num;
     port_info.sample_rate = prompt_tone->sample_rate;
     port_info.dig_gain = 0x2d;
@@ -399,7 +399,7 @@ bk_err_t audio_engine_prompt_tone_deinit(audio_engine_prompt_tone_handle_t promp
 
     if (prompt_tone->output_port_handle)
     {
-        audio_port_info_t port_info = {0};
+        audio_port_info_t port_info = DEFAULT_AUDIO_PORT_INFO();
         port_info.chl_num = prompt_tone->chl_num;
         port_info.sample_rate = prompt_tone->sample_rate;
         port_info.dig_gain = 0x2d;
