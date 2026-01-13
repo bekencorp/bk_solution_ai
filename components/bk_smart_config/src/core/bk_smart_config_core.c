@@ -352,6 +352,7 @@ void bk_sconf_switch_ir_mode_handler(void)
         //TODO: switch to vision screen
         #endif
         is_enable_ir_mode = true;
+        LOGI("%s %d, Successfully switched to vision mode\r\n", __func__, __LINE__);
     }
     else {
         #if CONFIG_BK_VIDEO_ENGINE
@@ -371,6 +372,7 @@ void bk_sconf_switch_ir_mode_handler(void)
         //TODO: switch to text screen
         #endif
         is_enable_ir_mode = false;
+        LOGI("%s %d, Successfully switched to text mode\r\n", __func__, __LINE__);
     }
 
 exit:
