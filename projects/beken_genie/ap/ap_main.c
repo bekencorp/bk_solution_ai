@@ -201,6 +201,11 @@ int main(void)
         extern void battery_monitor_init(void);
         battery_monitor_init();
     #endif
+
+    #if CONFIG_USBD_MSC
+        extern void msc_storage_init(void);
+        msc_storage_init();
+    #endif
     }
     else
     {
