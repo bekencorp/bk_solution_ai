@@ -554,7 +554,6 @@ bk_err_t __agora_rtc_start(agora_rtc_option_t *option)
     if (channel_options.audio_codec_opt.audio_codec_type != AUDIO_CODEC_DISABLED)
     {
         channel_options.enable_audio_jitter_buffer = true;
-        channel_options.jitter_buffer_per_pcm_frame_ms = CONFIG_AE_AUDIO_FRAME_DURATION_MS;
     }
 
     LOGI("auto_subscribe_audio: %d, auto_subscribe_video: %d \n",
