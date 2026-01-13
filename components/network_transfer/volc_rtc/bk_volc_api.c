@@ -256,7 +256,8 @@ int bk_byte_rtc_video_data_send(frame_buffer_t *frame)
 
     if (false == g_connected_flag)
     {
-        LOGI("Failed to send video data, g_connected_flag:%d\n", g_connected_flag);
+        //LOGI("Failed to send video data, g_connected_flag:%d\n", g_connected_flag);
+        /* volc rtc is not running, do not send video. */
         return BK_FAIL;
     }
 
