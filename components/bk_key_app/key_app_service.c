@@ -126,6 +126,7 @@ static void handle_system_event(uint8_t event)
             break;
         case FACTORY_RESET:
             LOGI("trigger factory config reset\r\n");
+            bk_pm_module_vote_power_ctrl(PM_POWER_MODULE_NAME_BTSP, PM_POWER_MODULE_STATE_OFF);//power off btsp
             bk_factory_reset();
             #if CONFIG_BK_SMART_CONFIG
             bk_sconf_erase_smart_config();
