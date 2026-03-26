@@ -799,6 +799,7 @@ int audio_engine_stop(void)
         LOGE("deinit audio engine prompt tone fail\n");
         ret = BK_FAIL;
     }
+    g_audio_engine_prompt_tone = NULL;
 #endif
 
     /* Stop voice write service */
