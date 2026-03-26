@@ -276,7 +276,7 @@ Please replace the following strings before use:
 
 
 
-5. Reference Links
+3. Reference Links
 --------------------
 
 	Agora reference documentation: https://docs.agora.io/cn/Agora%20Platform/manage_projects?platform=Android

@@ -38,7 +38,7 @@ Agora
 1.3 APPID
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 
-	- 请使用声望账号登录 ``sso2.agora.io`` ，进入到控制台
+	- 请使用声网账号登录 ``sso2.agora.io`` ，进入到控制台
 
 	- 在项目管理 -> 项目列表中，可以看到App ID列表栏。请点击上面Copy按钮，获取对应Project的App ID
 
@@ -47,7 +47,7 @@ Agora
 1.4 RESTful
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 
-	- 请使用声望账号登录 ``sso2.agora.io`` ，进入到控制台
+	- 请使用声网账号登录 ``sso2.agora.io`` ，进入到控制台
 
 	- 在控制台 -> 点击，右侧个人头像位置 -> RESTful API -> 添加密钥
 
@@ -276,7 +276,7 @@ Agora
 
 
 
-5、参考链接
+3. 参考链接
 --------------------
 
 	声网参考文档：https://docs.agora.io/cn/Agora%20Platform/manage_projects?platform=Android
