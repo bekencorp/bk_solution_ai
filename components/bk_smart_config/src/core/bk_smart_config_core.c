@@ -148,15 +148,24 @@ static int bk_sconf_wifi_sta_connect(char *ssid, char *key)
 
     os_strcpy(sta_config.ssid, ssid);
 
-    key_len = os_strlen(key);
+    /* key NULL means open network */
+    key_len = key ? os_strlen(key) : 0;
 
-    if (64 < key_len || key_len < 8)
+    if (key_len > 63)
     {
-        LOGW("Invalid passphrase, expected: 8..63\r\n");
+        LOGW("Invalid passphrase, max 63 chars\r\n");
         return BK_FAIL;
     }
+    if (key_len > 0 && key_len < 8)
+    {
+        LOGW("Invalid passphrase, length %d (expected: 8..63)\r\n", key_len);
+    }
 
-    os_strcpy(sta_config.password, key);
+    if (key)
+        os_strcpy(sta_config.password, key);
+    else
+        sta_config.password[0] = '\0';
+
 #if CONFIG_STA_AUTO_RECONNECT
     sta_config.auto_reconnect_count = 5;
     sta_config.disable_auto_reconnect_after_disconnect = true;
