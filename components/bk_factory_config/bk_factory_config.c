@@ -261,7 +261,7 @@ void bk_factory_init(void)
     }
 
     // test_factory();
-    bk_reboot_callback_register(bk_reboot_sync_config);
+    //bk_reboot_callback_register(bk_reboot_sync_config);
 
     cli_register_commands(s_factory_commands, FACTORY_CMD_CNT);
 }
@@ -380,11 +380,13 @@ bk_err_t bk_config_sync_flash_safely(void)
     uint32_t ble_erase_wait_times_max = BLE_ERASE_WAIT_TIMES_MAX;
 
     for (i = 0; i < ble_erase_wait_times_max; i++) {
-        if(is_ble_erase_flash_ready() != BK_TRUE) {
-            rtos_delay_milliseconds(2);
-        } else {
-            break;
-        }
+        // if(is_ble_erase_flash_ready() != BK_TRUE) {
+        //     rtos_delay_milliseconds(2);
+        // } else {
+        //     break;
+        // }
+        // //Temporarily assume flash is always ready, break immediately
+        break;
     }
 
     if(i >= ble_erase_wait_times_max)

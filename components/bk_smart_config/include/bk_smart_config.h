@@ -53,6 +53,12 @@ typedef struct
 int bk_sconf_get_channel_name(char *chan);
 int bk_sconf_init(void);
 void bk_sconf_prepare_for_smart_config(void);
+int bk_sconf_start_rtc(void);
+int bk_sconf_stop_rtc(void);
+int bk_sconf_enter_text_mode(void);
+int bk_sconf_enter_vision_mode(void);
+int bk_sconf_exit_ai_mode(int from_vision);
+const char *bk_sconf_get_start_model_type(void);
 int bk_sconf_sync_flash_request(void);
 void bk_sconf_sync_flash_handler(void);
 void bk_sconf_erase_smart_config(void);

@@ -7,7 +7,11 @@
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
 #include "audio_engine_prompt_tone.h"
 #endif
+#if CONFIG_ADK_ONBOARD_SPEAKER_STREAM_V2
+#include <components/bk_audio/audio_streams/onboard_speaker_stream_v2.h>
+#else
 #include <components/bk_audio/audio_streams/onboard_speaker_stream.h>
+#endif
 #if CONFIG_BK_FACTORY_CONFIG
 #include "bk_factory_config.h"
 #endif
@@ -20,6 +24,57 @@
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 #define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
+
+/*
+ * ------------------------------------------------------------------------
+ *  Sound-source-direction -> on-screen arrow angle (page_5)
+ * ------------------------------------------------------------------------
+ * The AEC reports a per-slot phase metric (phs_sm2). At wake-word hit
+ * we classify the latest value into left / center / right and steer the
+ * page_5 arrow accordingly. LVGL rotation is CW positive, 0 deg = designer
+ * default orientation.
+ *
+ * Thresholds tuned from on-board captures:
+ *   logs/225degree.log  (right, 225 deg): n=10, range=[-6173, -3234], median=-4512
+ *   logs/315degree.log  (left,  315 deg): n=11, range=[ 7062, 13280], median= 8904
+ *
+ * Polarity on this hardware/AEC config:
+ *   phs_sm2 < 0  -> sound source on the RIGHT  (screen arrow at 225 deg)
+ *   phs_sm2 > 0  -> sound source on the LEFT   (screen arrow at 315 deg)
+ * This is the inverse of the sign convention used in the legacy
+ * GPIO-LED-blink debug code; the classifier below is adjusted accordingly.
+ *
+ * The two tuning clusters do not overlap (gap: -3234 .. 7062). We place
+ * thresholds inside the gap with healthy margin so that samples near zero
+ * (AEC failed to lock, or sound truly from the front) collapse into the
+ * center dead-zone and the arrow stays at 270 deg:
+ *     phs_sm2 <= RIGHT_MAX (0)      -> right, 225 deg
+ *     phs_sm2 >= LEFT_MIN  (5000)   -> left,  315 deg
+ *     otherwise                     -> center, 270 deg
+ *
+ * On the 21-sample tuning set this gives 100% direction accuracy with
+ * ~3200 margin on the right side and ~2000 margin on the left side.
+ * MIN/MAX are defensive clamps only; observed range [-6173, 13280] is
+ * well inside them.
+ */
+#define AE_ASR_PHSM2_MIN         (-16384)
+#define AE_ASR_PHSM2_MAX         ( 20000)
+#define AE_ASR_PHSM2_RIGHT_MAX   (    0)   /* <= this -> right (225 deg) */
+#define AE_ASR_PHSM2_LEFT_MIN    ( 5000)   /* >= this -> left  (315 deg) */
+
+#define AE_ARROW_ANGLE_LEFT      (135)
+#define AE_ARROW_ANGLE_RIGHT     (45)
+#define AE_ARROW_ANGLE_CENTER    (90)
+
+/*
+ * Weak reference to page_5_set_arrow_angle(). Projects that ship the
+ * beken_robot UI (which defines this symbol in page_5_init.c) get the
+ * real implementation at link time; other projects link to NULL and we
+ * skip the call, so no extra include path / CMake change is needed to
+ * reach projects/beken_robot/ap/include/page_5_api.h from this shared
+ * component.
+ */
+extern void page_5_set_arrow_angle(int degrees) __attribute__((weak));
 
 #if CONFIG_AE_AUDIO_DECODER_G722 && (!CONFIG_ADK_G722_DECODER || !CONFIG_VOICE_SERVICE_G722_DECODER)
 #error "CONFIG_AE_AUDIO_DECODER_G722 is enabled, but CONFIG_ADK_G722_DECODER or CONFIG_VOICE_SERVICE_G722_DECODER is not enabled"
@@ -49,12 +104,54 @@
 struct audio_engine_ctx g_audio_engine = {0};
 audio_engine_cfg_t g_audio_engine_cfg = {0};
 
+/* Latest AEC phase metric, refreshed per-slot by bk_aec_phase_callback(). */
+static volatile int32_t s_wakeup_phsm2 = 0;
+
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
 audio_engine_prompt_tone_handle_t g_audio_engine_prompt_tone = NULL;
 #endif
 uint8_t g_volume_level = 7;   // volume level, not gain.
-uint8_t g_volume_gain[SPK_VOLUME_LEVEL] = {0};
+static const float g_volume_gain[SPK_VOLUME_LEVEL] = {
+	-36.00f, -33.06f, -29.82f, -26.22f, -22.26f, -17.88f,
+	-13.03f, -7.68f, -1.76f, 4.77f, 12.00f
+};
 
+/*
+ * Map the cached AEC phase metric to an on-screen arrow angle.
+ * The input is clamped first to defend against upstream drift.
+ */
+static int audio_engine_phsm2_to_arrow_angle(int32_t phs_sm2)
+{
+    if (phs_sm2 < AE_ASR_PHSM2_MIN) {
+        phs_sm2 = AE_ASR_PHSM2_MIN;
+    } else if (phs_sm2 > AE_ASR_PHSM2_MAX) {
+        phs_sm2 = AE_ASR_PHSM2_MAX;
+    }
+
+    if (phs_sm2 <= AE_ASR_PHSM2_RIGHT_MAX) {
+        return AE_ARROW_ANGLE_RIGHT;
+    } else if (phs_sm2 >= AE_ASR_PHSM2_LEFT_MIN) {
+        return AE_ARROW_ANGLE_LEFT;
+    }
+
+    return AE_ARROW_ANGLE_CENTER;
+}
+
+/*
+ * Called at wake-word hit: classify the latest phase metric and push
+ * the resulting angle into the page_5 arrow, if the UI is linked in.
+ */
+static void audio_engine_update_arrow_on_wakeup(void)
+{
+    int32_t phsm2 = s_wakeup_phsm2;
+    int deg = audio_engine_phsm2_to_arrow_angle(phsm2);
+
+    LOGI("ASR wakeup phs_sm2=%d -> arrow=%d deg\r\n", (int)phsm2, deg);
+
+    if (page_5_set_arrow_angle != NULL) {
+        page_5_set_arrow_angle(deg);
+    }
+}
 
 static uint8_t audio_engine_volume_get_diag_gain(void)
 {
@@ -63,6 +160,7 @@ static uint8_t audio_engine_volume_get_diag_gain(void)
     }
     return g_volume_gain[g_volume_level];
 }
+
 static int audio_engine_volume_init(void)
 {
     LOGI("audio_engine_volume_init\n");
@@ -86,15 +184,14 @@ static int audio_engine_volume_init(void)
     LOGI("not support factory config, use default config g_volume_level: %d\n", g_volume_level);
     #endif
 
-    /* SPK_GAIN_MAX * [(exp(i/(SPK_VOLUME_LEVEL-1)-1)/(exp(1)-1)] */
-    uint32_t step[SPK_VOLUME_LEVEL] = {0,6,12,20,28,37,47,58,71,84,100};
-    for (uint32_t i = 0; i < SPK_VOLUME_LEVEL; i++) {
-        g_volume_gain[i] = SPK_GAIN_MAX * step[i]/100;
+    if (g_volume_level >= SPK_VOLUME_LEVEL) {
+        g_volume_level = SPK_VOLUME_LEVEL - 1;
     }
 
     return AUDIO_ENGINE_SUCCESS;
 }
-static int audio_engine_adjust_voice_gain(uint8_t dig_gain)
+
+static int audio_engine_adjust_voice_gain(float gain_db)
 {
     voice_handle_t voice_handle = (voice_handle_t)g_audio_engine.voice_handle;
     audio_element_handle_t spk_str = NULL;
@@ -110,7 +207,10 @@ static int audio_engine_adjust_voice_gain(uint8_t dig_gain)
 
     if (spk_str && spk_type == SPK_TYPE_ONBOARD)
     {
-        onboard_speaker_stream_set_digital_gain(spk_str, dig_gain);
+        if (BK_OK != onboard_speaker_stream_set_digital_gain(spk_str, gain_db)) {
+            LOGE("onboard_speaker_stream_set_digital_gain failed\n");
+            return AUDIO_ENGINE_ERR_INVALID_PARAM;
+        }
     }
     else
     {
@@ -123,15 +223,15 @@ static int audio_engine_adjust_voice_gain(uint8_t dig_gain)
 
 void audio_engine_volume_increase(void)
 {
-    LOGI(" volume up\r\n");
+    LOGI("volume up\r\n");
 
-    if (g_volume_level == (SPK_VOLUME_LEVEL-1))
+    if (g_volume_level >= (SPK_VOLUME_LEVEL - 1))
     {
-        LOGI("volume have reached maximum volume: %d\n", SPK_GAIN_MAX);
+        LOGI("volume have reached maximum: level %u, +12 dB\n", (SPK_VOLUME_LEVEL - 1));
         return;
     }
 
-    if (BK_OK == audio_engine_adjust_voice_gain(g_volume_gain[g_volume_level+1]))
+    if (BK_OK == audio_engine_adjust_voice_gain(g_volume_gain[g_volume_level + 1]))
     {
         g_volume_level += 1;
         #if CONFIG_BK_FACTORY_CONFIG
@@ -142,7 +242,7 @@ void audio_engine_volume_increase(void)
         #else
         LOGE("not support factory config, storage volume: %d fail\n", g_volume_level);
         #endif
-        LOGI("current volume: %d\n", g_volume_level);
+        LOGI("current volume level: %u, %.1f dB\n", g_volume_level, g_volume_gain[g_volume_level]);
     }
     else
     {
@@ -152,15 +252,15 @@ void audio_engine_volume_increase(void)
 
 void audio_engine_volume_decrease(void)
 {
-    LOGI(" volume down\r\n");
+    LOGI("volume down\r\n");
 
     if (g_volume_level == 0)
     {
-        LOGI("volume have reached minimum volume: 0\n");
+        LOGI("volume have reached minimum: level 0, %.1f dB\n", g_volume_gain[0]);
         return;
     }
 
-    if (BK_OK == audio_engine_adjust_voice_gain(g_volume_gain[g_volume_level-1]))
+    if (BK_OK == audio_engine_adjust_voice_gain(g_volume_gain[g_volume_level - 1]))
     {
         g_volume_level -= 1;
         #if CONFIG_BK_FACTORY_CONFIG
@@ -171,7 +271,7 @@ void audio_engine_volume_decrease(void)
         #else
         LOGE("not support factory config, storage volume: %d fail\n", g_volume_level);
         #endif
-        LOGI("current volume: %d\n", g_volume_level);
+        LOGI("current volume level: %u, %.1f dB\n", g_volume_level, g_volume_gain[g_volume_level]);
     }
     else
     {
@@ -180,12 +280,65 @@ void audio_engine_volume_decrease(void)
 }
 
 #if (CONFIG_ASR_SERVICE)
+#if CONFIG_WANSON_ARMINO_ASR
 #include "bk_wanson_asr_intf.h"
-void bk_audio_engine_asr_result_handle(uint32_t param)
+#elif CONFIG_BEKEN_KWS
+#include "bk_kws_asr.h"
+#endif
+static const char *g_audio_engine_asr_text = NULL;
+static float g_audio_engine_asr_score = 0.0f;
+
+void bk_audio_engine_asr_result_handle(void *p1, void *p2)
 {
-    bk_err_t ret = BK_FAIL;
-    char *result = (char *)param;
+    const char *result = NULL;
     uint8_t asr_result = 0;
+
+    /* BK7259 ASR callback passes result and score via p1/p2 pointers. */
+    if (p1 != NULL) {
+        result = *((char **)p1);
+    }
+    if (result == NULL) {
+        LOGE("ASR result is NULL\n");
+        return;
+    }
+    (void)p2;
+
+#if CONFIG_BEKEN_KWS
+    //LOGD("result : %s\n", result);
+    if (os_strcmp(result, "nihaobotong") == 0)
+    {
+        LOGI("nihaobotong\r\n");
+        asr_result = BK_KWS_ARMINO;
+    } else if ((os_strcmp(result, "zaijianbotong") == 0))
+    {
+        LOGI("%s \n", "zaijianbotong");
+        asr_result = BK_KWS_BYEBYE;
+    } else if (os_strcmp(result, "Play Music") == 0)
+    {
+        LOGI("play music\r\n");
+        asr_result = BK_KWS_PLAY_MUSIC;
+    } else if (os_strcmp(result, "Stop Play") == 0)
+    {
+        LOGI("stop play\r\n");
+        asr_result = BK_KWS_STOP_PLAY;
+    }else if (os_strcmp(result, "Next song") == 0)
+    {
+        LOGI("next song\r\n");
+        asr_result = BK_KWS_NEXT_SONG;
+    } else if (os_strcmp(result, "Volume Up") == 0)
+    {
+        LOGI("volume up\r\n");
+        asr_result = BK_KWS_VOLUME_UP;
+    } else if (os_strcmp(result, "Volume Down") == 0)
+    {
+        LOGI("volume down\r\n");
+        asr_result = BK_KWS_VOLUME_DOWN;
+    } else {
+        LOGE("Invalid asr result: %s\n", result);
+        asr_result = BK_KWS_NONE;
+    }
+#endif
+
 #if (CONFIG_WANSON_ASR_GROUP_VERSION_WORDS_V1)
     if (os_strcmp(result, "嗨阿米诺") == 0)
     {
@@ -238,14 +391,21 @@ void bk_audio_engine_asr_result_handle(uint32_t param)
     }
 #endif
 
+#if CONFIG_BEKEN_KWS
+    if ((asr_result <= BK_KWS_NONE) || (asr_result >= BK_KWS_MAX_WORDS)) {
+        LOGE("Invalid asr_result: %d, valid range is %d-%d\n", asr_result, BK_KWS_NONE+1, BK_KWS_MAX_WORDS-1);
+        return;
+    }
+#else
     if ((asr_result == 0) || (asr_result > 2)) {
         LOGE("Invalid asr_result: %d, valid range is 1-2\n", asr_result);
         return;
     }
-
+#endif
     g_audio_engine.asr_result = asr_result;
     LOGD("ASR result set to: %d\n", g_audio_engine.asr_result);
 
+#if 0
     audio_element_handle_t spk_element = bk_voice_get_spk_element(g_audio_engine.voice_handle);
     if (spk_element)
     {
@@ -257,9 +417,44 @@ void bk_audio_engine_asr_result_handle(uint32_t param)
             //nothing todo
         }
     }
+#endif
 
 #if CONFIG_APP_EVT
+#if CONFIG_BEKEN_KWS
+    bk_err_t ret = BK_FAIL;
+    if (g_audio_engine.asr_result == BK_KWS_ARMINO) {
+        audio_engine_update_arrow_on_wakeup();
+        ret = app_event_send_msg(APP_EVT_ASR_WAKEUP, 0);
+        if (BK_OK != ret) {
+            LOGE("Failed to send APP_EVT_ASR_WAKEUP event, ret: %d\n", ret);
+        } else {
+            LOGD("APP_EVT_ASR_WAKEUP event sent successfully\n");
+        }
+    }
+    else if (g_audio_engine.asr_result == BK_KWS_BYEBYE) {
+        ret = app_event_send_msg(APP_EVT_ASR_STANDBY, 0);
+        if (BK_OK != ret) {
+            LOGE("Failed to send APP_EVT_ASR_STANDBY event, ret: %d\n", ret);
+        } else {
+            LOGD("APP_EVT_ASR_STANDBY event sent successfully\n");
+        }
+    }
+    else if (g_audio_engine.asr_result == BK_KWS_VOLUME_UP) {
+        audio_engine_volume_increase();
+    }
+    else if (g_audio_engine.asr_result == BK_KWS_VOLUME_DOWN) {
+        audio_engine_volume_decrease();
+    }
+    else if (g_audio_engine.asr_result >= BK_KWS_PLAY_MUSIC && g_audio_engine.asr_result <= BK_KWS_NEXT_SONG) {
+        //nothing to do
+    }
+    else {
+        LOGE("Unexpected asr_result: %d\n", g_audio_engine.asr_result);
+    }
+#else
+    bk_err_t ret = BK_FAIL;
     if (g_audio_engine.asr_result == 1) {
+        audio_engine_update_arrow_on_wakeup();
         ret = app_event_send_msg(APP_EVT_ASR_WAKEUP, 0);
         if (BK_OK != ret) {
             LOGE("Failed to send APP_EVT_ASR_WAKEUP event, ret: %d\n", ret);
@@ -274,13 +469,30 @@ void bk_audio_engine_asr_result_handle(uint32_t param)
         } else {
             LOGD("APP_EVT_ASR_STANDBY event sent successfully\n");
         }
-    } else {
-        LOGE("Unexpected asr_result: %d\n", g_audio_engine.asr_result);
     }
+ #endif
 #else
-    LOGW("CONFIG_APP_EVT is not enabled, skipping event notification\n");
+    //LOGW("CONFIG_APP_EVT is not enabled, skipping event notification\n");
 #endif
 }
+
+#if CONFIG_BEKEN_KWS
+
+int bk_tflite_asr_init(void)
+{
+	bk_kws_init(NULL);
+	return 1;
+}
+
+int bk_tflite_asr_recog(void *read_buf, uint32_t read_size, void *p1, void *p2)
+{
+	int16_t result = 0;
+	bk_tflite_ASR_Recog((short*)read_buf, read_size, p1, p2, &result);
+	//LOGD("%s , %d\n", g_audio_engine_asr_text, result);
+	return result;
+}
+
+#endif
 
 #endif
 
@@ -342,16 +554,16 @@ void bk_audio_set_voc_cust_params(voice_cfg_t * voice_cfg, app_aud_service_type_
 		{
 			if (cust_aud_para && cust_aud_para->sys_config.app_sys_en)
 			{
-				voice_cfg->mic_cfg.onboard_mic_cfg.adc_cfg.ana_gain = cust_aud_para->sys_config.mic0_analog_gain;
-				voice_cfg->mic_cfg.onboard_mic_cfg.adc_cfg.dig_gain = cust_aud_para->sys_config.mic0_digital_gain;
+				// voice_cfg->mic_cfg.onboard_mic_cfg.adc_cfg.ana_gain = cust_aud_para->sys_config.mic0_analog_gain;
+				// voice_cfg->mic_cfg.onboard_mic_cfg.adc_cfg.dig_gain = cust_aud_para->sys_config.mic0_digital_gain;
 			}
 		}
 		if (voice_cfg->spk_type == SPK_TYPE_ONBOARD)
 		{
 			if (cust_aud_para && cust_aud_para->sys_config.app_sys_en)
 			{
-				voice_cfg->spk_cfg.onboard_spk_cfg.ana_gain = cust_aud_para->sys_config.speaker_chan0_analog_gain;
-				voice_cfg->spk_cfg.onboard_spk_cfg.dig_gain = cust_aud_para->sys_config.speaker_chan0_digital_gain;
+				// voice_cfg->spk_cfg.onboard_spk_cfg.ana_gain = cust_aud_para->sys_config.speaker_chan0_analog_gain;
+				// voice_cfg->spk_cfg.onboard_spk_cfg.dig_gain = cust_aud_para->sys_config.speaker_chan0_digital_gain;
 			}
 		}
 		if (voice_cfg->aec_en)
@@ -370,29 +582,39 @@ void bk_audio_set_voc_cust_params(voice_cfg_t * voice_cfg, app_aud_service_type_
 }
 #endif
 
+#if CONFIG_ADK_AEC_V3_ALGORITHM_COMPONENT_V2
+static int bk_aec_phase_callback(int32_t phs_sm2, int vad_state)
+{
+    (void)vad_state;
+    /* Cache latest estimate so the wake-word handler can steer the arrow. */
+    s_wakeup_phsm2 = phs_sm2;
+    return 1;
+}
+#endif
+
 int audio_engine_start(audio_engine_cfg_t *cfg)
 {
     int ret = 0;
-    
+
     if (!cfg) {
         LOGE("Invalid configuration pointer\n");
         return AUDIO_ENGINE_ERR_INVALID_PARAM;
     }
-    
+
     /* Check if already started */
     if (g_audio_engine.is_started) {
         LOGD("Audio engine already started\n");
         return AUDIO_ENGINE_SUCCESS;
     }
-    
+
     os_memcpy(&g_audio_engine_cfg, cfg, sizeof(audio_engine_cfg_t));
-    
+
     /* Validate parameters */
     if (cfg->mic_sample_rate != 8000 && cfg->mic_sample_rate != 16000) {
         LOGE("Invalid mic sample rate: %d\n", cfg->mic_sample_rate);
         return AUDIO_ENGINE_ERR_INVALID_PARAM;
     }
-    
+
     if (cfg->spk_sample_rate != 8000 && cfg->spk_sample_rate != 16000) {
         LOGE("Invalid spk sample rate: %d\n", cfg->spk_sample_rate);
         return AUDIO_ENGINE_ERR_INVALID_PARAM;
@@ -409,15 +631,31 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     /* Configure microphone */
     voice_cfg->mic_type = MIC_TYPE_ONBOARD;
     onboard_mic_stream_cfg_t onboard_mic_cfg = ONBOARD_MIC_ADC_STREAM_CFG_DEFAULT();
-    onboard_mic_cfg.adc_cfg.dig_gain = 0x30;
-    onboard_mic_cfg.adc_cfg.ana_gain = 0x08;
+    // onboard_mic_cfg.adc_cfg.dig_gain = 0x30;
+    // onboard_mic_cfg.adc_cfg.ana_gain = 0x08;
     onboard_mic_cfg.adc_cfg.sample_rate = cfg->mic_sample_rate;
     /* one frame size, 20ms */
     if (cfg->mic_sample_rate == 8000) {
-        onboard_mic_cfg.frame_size = 160;
+            onboard_mic_cfg.frame_size = 160;
     } else {
-        onboard_mic_cfg.frame_size = 320;
+            onboard_mic_cfg.frame_size = 320*2;
     }
+
+#if CONFIG_ADK_ONBOARD_MIC_STREAM_V2
+    onboard_mic_cfg.ch_bitmap = ONBOARD_MIC_ADC_DEFAULT_ACTIVE_CH_BITS;
+    onboard_mic_cfg.adc_cfg.chl_num = 0;
+    for(uint32_t j = 0; j < AUD_ADC_CHL_MAX; j++)
+    {
+        if(onboard_mic_cfg.ch_bitmap & (1 << j))
+        {
+            onboard_mic_cfg.adc_cfg.chl_num++;
+        }
+    }
+    onboard_mic_cfg.adc_cfg.aec_en = cfg->aec_enable;
+    onboard_mic_cfg.dmic_cfg.dmic_clk_gpio  = GPIO_50;
+    onboard_mic_cfg.dmic_cfg.dmic_data_gpio = GPIO_49;
+#endif
+
     voice_cfg->mic_cfg.onboard_mic_cfg = onboard_mic_cfg;
 
     /* Configure AEC */
@@ -426,15 +664,25 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     if (cfg->aec_enable) {
         aec_cfg = (aec_v3_algorithm_cfg_t)DEFAULT_AEC_V3_ALGORITHM_CONFIG();
         aec_cfg.aec_cfg.mode = AEC_MODE_HARDWARE;
-
         if (aec_cfg.aec_cfg.mode == AEC_MODE_HARDWARE)
         {
-            onboard_mic_cfg.adc_cfg.chl_num = 2;
+            //onboard_mic_cfg.adc_cfg.chl_num = 2;
+        #if CONFIG_ADK_AEC_V3_ALGORITHM_COMPONENT_V2
+            aec_cfg.aec_cfg.ns_type        = NS_TRADITION;
+            aec_cfg.aec_phase_cb           = bk_aec_phase_callback;
+            aec_cfg.aec_cfg.ec_only_output = 1;
+            aec_cfg.aec_cfg.multi_output_use_ec_out = 1;
+            aec_cfg.dual_ch            = 1;
+            aec_cfg.multi_in_port_num  = 0;
+            aec_cfg.vad_cfg.vad_enable = 1;
+            aec_cfg.vad_cfg.vad_eng_threshold = 500;
+        #endif
             voice_cfg->mic_cfg.onboard_mic_cfg = onboard_mic_cfg;
         }
+
         voice_cfg->aec_cfg.aec_alg_cfg = aec_cfg;
     }
-    
+
     /* Configure encoder */
     voice_cfg->enc_en = true;
     voice_cfg->enc_type = cfg->enc_type;
@@ -474,7 +722,7 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     else if (cfg->enc_type == AUDIO_ENC_TYPE_PCM) {
         voice_cfg->read_pool_size = (cfg->mic_sample_rate == 8000) ? 320 : 640;
     }
-    
+
     /* Configure decoder */
     voice_cfg->dec_en = true;
     voice_cfg->dec_type = cfg->dec_type;
@@ -514,26 +762,35 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     else if (cfg->dec_type == AUDIO_DEC_TYPE_PCM) {
         voice_cfg->write_pool_size = (cfg->spk_sample_rate == 8000) ? 320 : 640;
     }
-    
+
     /* Configure speaker */
     voice_cfg->spk_type = SPK_TYPE_ONBOARD;
     onboard_speaker_stream_cfg_t onboard_spk_cfg = ONBOARD_SPEAKER_STREAM_CFG_DEFAULT();
+#if CONFIG_ADK_ONBOARD_SPEAKER_STREAM_V2
+    for (uint32_t i = 0; i < AUD_DAC_SOURCE_MAX; i++)
+    {
+        onboard_spk_cfg.sample_rate[i] = cfg->spk_sample_rate;
+        onboard_spk_cfg.frame_size[i]  = (cfg->spk_sample_rate == 8000) ? 320 : 640;
+    }
+    onboard_spk_cfg.dac_source_bitmap = ONBOARD_SPEAKER_STREAM_DAC_SOURCE_A2DP_BIT | ONBOARD_SPEAKER_STREAM_DAC_SOURCE_CALL_BIT;
+#else
     onboard_spk_cfg.sample_rate = cfg->spk_sample_rate;
     onboard_spk_cfg.frame_size = (cfg->spk_sample_rate == 8000) ? 320 : 640;
+#endif
 
-    onboard_spk_cfg.pa_ctrl_en = cfg->pa_enable;
+    onboard_spk_cfg.pa_ctrl_en   = cfg->pa_enable;
     onboard_spk_cfg.pa_ctrl_gpio = cfg->pa_gpio;
-    onboard_spk_cfg.pa_on_level = cfg->pa_on_level;
-    onboard_spk_cfg.pa_on_delay = cfg->pa_on_delay;
+    onboard_spk_cfg.pa_on_level  = cfg->pa_on_level;
+    onboard_spk_cfg.pa_on_delay  = cfg->pa_on_delay;
     onboard_spk_cfg.pa_off_delay = cfg->pa_off_delay;
-    onboard_spk_cfg.dig_gain = cfg->dig_gain;
-    onboard_spk_cfg.ana_gain = cfg->ana_gain;
+    // onboard_spk_cfg.dig_gain = cfg->dig_gain;
+    // onboard_spk_cfg.ana_gain = cfg->ana_gain;
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
     onboard_spk_cfg.multi_in_port_num++;
 #endif
 
     voice_cfg->spk_cfg.onboard_spk_cfg = onboard_spk_cfg;
-    
+
     /* Configure EQ */
 #if CONFIG_VOICE_SERVICE_EQ
     if (cfg->eq_enable > 0) {
@@ -614,9 +871,21 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
             aud_asr_cfg_t aud_asr_cfg = AUDIO_ASR_CFG_DEFAULT();
             aud_asr_cfg.asr_handle	  = g_audio_engine.asr_handle;
             aud_asr_cfg.aud_asr_result_handle = bk_audio_engine_asr_result_handle;
-            aud_asr_cfg.aud_asr_init          = bk_wanson_asr_common_init;
-            aud_asr_cfg.aud_asr_deinit        = bk_wanson_asr_common_deinit;
-            aud_asr_cfg.aud_asr_recog         = bk_wanson_asr_recog;
+            #if CONFIG_WANSON_ARMINO_ASR
+            aud_asr_cfg.aud_asr_init    = bk_wanson_asr_common_init;
+            aud_asr_cfg.aud_asr_deinit  = bk_wanson_asr_common_deinit;
+            aud_asr_cfg.aud_asr_recog   = bk_wanson_asr_recog;
+            aud_asr_cfg.max_read_size   = 960;
+            #elif CONFIG_BEKEN_KWS
+            aud_asr_cfg.aud_asr_init   = bk_tflite_asr_init;
+            aud_asr_cfg.aud_asr_deinit = NULL;
+            aud_asr_cfg.aud_asr_recog  = bk_tflite_asr_recog;
+            aud_asr_cfg.max_read_size  = 1280;
+            aud_asr_cfg.task_stack     = 25 * 1024;
+            aud_asr_cfg.mem_type       = AUDIO_MEM_TYPE_SRAM;
+            #endif
+            aud_asr_cfg.p1                    = (void *)&g_audio_engine_asr_text;
+            aud_asr_cfg.p2                    = (void *)&g_audio_engine_asr_score;
             g_audio_engine.aud_asr_handle = bk_aud_asr_init(&aud_asr_cfg);
             if (!g_audio_engine.aud_asr_handle)
             {
@@ -635,10 +904,10 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     /* Initialize voice read service */
     voice_read_cfg_t voice_read_cfg = VOICE_READ_CFG_DEFAULT();
     voice_read_cfg.voice_handle = g_audio_engine.voice_handle;
-    voice_read_cfg.max_read_size = (cfg->mic_sample_rate * 2 * 20 / 1000)/4; // one frame size(20ms)
+    voice_read_cfg.max_read_size = (cfg->mic_sample_rate * 2 * 20 / 1000) / 4; // one frame size(20ms)
     voice_read_cfg.voice_read_callback = cfg->read_cb;
     voice_read_cfg.args = cfg->user_data;
-    
+
     g_audio_engine.read_handle = bk_voice_read_init(&voice_read_cfg);
     if (!g_audio_engine.read_handle) {
         LOGE("Voice read init failed\n");
@@ -666,6 +935,12 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
         ret = AUDIO_ENGINE_ERR_WRITE_INIT;
         goto cleanup_read;
     }
+
+#if CONFIG_ADK_ONBOARD_SPEAKER_STREAM_V2
+    if (BK_OK != audio_engine_adjust_voice_gain(g_volume_gain[g_volume_level])) {
+        LOGE("apply initial speaker digital gain failed\n");
+    }
+#endif
 
     /* Start voice service */
     if (BK_OK != bk_voice_start(g_audio_engine.voice_handle)) {
@@ -788,7 +1063,11 @@ int audio_engine_stop(void)
     if (g_audio_engine.asr_handle) {
         bk_asr_deinit(g_audio_engine.asr_handle);
     }
+#if CONFIG_BEKEN_KWS
+    g_audio_engine.asr_result = BK_KWS_NONE;
+#else
     g_audio_engine.asr_result = 0;
+#endif
     g_audio_engine.asr_handle = NULL;
     g_audio_engine.aud_asr_handle = NULL;
 #endif
@@ -809,7 +1088,7 @@ int audio_engine_stop(void)
             ret = AUDIO_ENGINE_ERR_WRITE_STOP;
         }
     }
-    
+
     /* Stop voice read service */
     if (g_audio_engine.read_handle) {
         if (BK_OK != bk_voice_read_stop(g_audio_engine.read_handle)) {
@@ -817,7 +1096,7 @@ int audio_engine_stop(void)
             ret = AUDIO_ENGINE_ERR_READ_STOP;
         }
     }
-    
+
     /* Stop voice service */
     if (g_audio_engine.voice_handle) {
         if (BK_OK != bk_voice_stop(g_audio_engine.voice_handle)) {
@@ -825,25 +1104,25 @@ int audio_engine_stop(void)
             ret = AUDIO_ENGINE_ERR_VOICE_STOP;
         }
     }
-    
+
     /* Deinit voice write service */
     if (g_audio_engine.write_handle) {
         bk_voice_write_deinit(g_audio_engine.write_handle);
         g_audio_engine.write_handle = NULL;
     }
-    
+
     /* Deinit voice read service */
     if (g_audio_engine.read_handle) {
         bk_voice_read_deinit(g_audio_engine.read_handle);
         g_audio_engine.read_handle = NULL;
     }
-    
+
     /* Deinit voice service */
     if (g_audio_engine.voice_handle) {
         bk_voice_deinit(g_audio_engine.voice_handle);
         g_audio_engine.voice_handle = NULL;
     }
-    
+
     g_audio_engine.is_started = false;
     LOGI("Audio engine stopped successfully\n");
     return ret;
@@ -901,7 +1180,11 @@ static int voice_read_callback(unsigned char *data, unsigned int len, void *args
 
     #if CONFIG_BK_NETWORK_TRANSFER
     #if (CONFIG_ASR_SERVICE)
-    if (g_audio_engine.asr_result == 1)
+    #if CONFIG_BEKEN_KWS
+        if (g_audio_engine.asr_result == BK_KWS_ARMINO)
+    #else
+        if (g_audio_engine.asr_result == 1)
+    #endif
     #endif
     {
         ret = ntwk_trans_send_audio(data, len, g_audio_engine_cfg.enc_type);
@@ -928,7 +1211,11 @@ int audio_engine_write_data(const uint8_t *data, uint32_t size, uint32_t timeout
     }
 
     #if (CONFIG_ASR_SERVICE)
-    if (g_audio_engine.asr_result != 1)
+    #if CONFIG_BEKEN_KWS
+        if (g_audio_engine.asr_result == BK_KWS_BYEBYE)
+    #else
+        if (g_audio_engine.asr_result != 1)
+    #endif
     {
         return AUDIO_ENGINE_ERR_ASR_STOP;
     }
@@ -992,7 +1279,7 @@ audio_enc_type_t audio_engine_str_to_enc_type(const char *enc_str)
         LOGE("Invalid encoder type string pointer\n");
         return AUDIO_ENC_TYPE_INVALID;
     }
-    
+
     if (strcasecmp(enc_str, "PCM") == 0) {
         return AUDIO_ENC_TYPE_PCM;
     } else if (strcasecmp(enc_str, "G711A") == 0) {
@@ -1021,7 +1308,7 @@ audio_dec_type_t audio_engine_str_to_dec_type(const char *dec_str)
         LOGE("Invalid decoder type string pointer\n");
         return AUDIO_DEC_TYPE_INVALID;
     }
-    
+
     if (strcasecmp(dec_str, "PCM") == 0) {
         return AUDIO_DEC_TYPE_PCM;
     } else if (strcasecmp(dec_str, "G711A") == 0) {
@@ -1043,20 +1330,28 @@ int audio_engine_init(void)
     audio_engine_cfg_t cfg = {
         .mic_sample_rate = CONFIG_AE_AUDIO_ADC_SAMP_RATE,
         .spk_sample_rate = CONFIG_AE_AUDIO_DAC_SAMP_RATE,
-        .aec_enable = 3,
-        .eq_enable = 0,
-        .enc_type = AUDIO_ENC_TYPE_INVALID,
-        .dec_type = AUDIO_DEC_TYPE_INVALID,
-        .event_cb = voice_event_callback,
-        .read_cb = voice_read_callback,
-        .user_data = NULL,
-        .pa_enable = CONFIG_AE_ENABLE_PA_CNTRL,
-        .pa_gpio = CONFIG_AE_PA_CNTRL_GPIO,
-        .pa_on_level = CONFIG_AE_PA_ON_LEVEL,
-        .pa_on_delay = CONFIG_AE_PA_ON_DELAY,
+        .aec_enable   = 3,
+        .eq_enable    = 0,
+        .enc_type     = AUDIO_ENC_TYPE_INVALID,
+        .dec_type     = AUDIO_DEC_TYPE_INVALID,
+        .event_cb     = voice_event_callback,
+        .read_cb      = voice_read_callback,
+        .user_data    = NULL,
+        #if CONFIG_AE_ENABLE_PA_CNTRL
+        .pa_enable    = true,
+        .pa_gpio      = CONFIG_AE_PA_CNTRL_GPIO,
+        .pa_on_level  = CONFIG_AE_PA_ON_LEVEL,
+        .pa_on_delay  = CONFIG_AE_PA_ON_DELAY,
         .pa_off_delay = CONFIG_AE_PA_OFF_DELAY,
-        .dig_gain = CONFIG_AE_DEFAULT_DIG_GAIN,
-        .ana_gain = CONFIG_AE_DEFAULT_ANA_GAIN,
+        #else
+        .pa_enable    = false,
+        .pa_gpio      = 0,
+        .pa_on_level  = 0,
+        .pa_on_delay  = 0,
+        .pa_off_delay = 0,
+        #endif
+        // .dig_gain = CONFIG_AE_DEFAULT_DIG_GAIN,
+        // .ana_gain = CONFIG_AE_DEFAULT_ANA_GAIN,
     };
 
     if (AUDIO_ENGINE_SUCCESS != audio_engine_volume_init()) {
@@ -1064,8 +1359,8 @@ int audio_engine_init(void)
         return AUDIO_ENGINE_ERR_INIT_FAILED;
     }
 
-    cfg.dig_gain = audio_engine_volume_get_diag_gain();
-
+    LOGD("audio encoder type: %s\n", CONFIG_AE_AUDIO_ENCODER_TYPE);
+    LOGD("audio decoder type: %s\n", CONFIG_AE_AUDIO_DECODER_TYPE);
     cfg.enc_type = audio_engine_str_to_enc_type(CONFIG_AE_AUDIO_ENCODER_TYPE);
     cfg.dec_type = audio_engine_str_to_dec_type(CONFIG_AE_AUDIO_DECODER_TYPE);
 
@@ -1084,15 +1379,12 @@ int audio_engine_init(void)
         LOGE("Failed to init prompt tone\n");
         return AUDIO_ENGINE_ERR_INIT_FAILED;
     }
-#endif
 
-#if CONFIG_AE_SUPPORT_PROMPT_TONE
     extern int bk_aud_engine_cli_init(void);
     bk_aud_engine_cli_init();
 #endif
 
     LOGI("audio engine started successfully\n");
-
     return AUDIO_ENGINE_SUCCESS;
 }
 

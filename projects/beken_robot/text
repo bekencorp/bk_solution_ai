@@ -1,0 +1,4 @@
+"Project: beken_robot"
+"SDK_DIR: /home/jinyue.huo/bk7259_smp_solution/bk_avdk_smp_dev_7259v2_bringup_25W4801"
+"TARGET: bk7259"
+make bk7259 PROJECT=beken_robot PROJECT_DIR=/home/jinyue.huo/bk7259_smp_solution/bk_solution_ai_dev_7259v2_bringup_25W4801/projects/beken_robot BUILD_DIR=/home/jinyue.huo/bk7259_smp_solution/bk_solution_ai_dev_7259v2_bringup_25W4801/projects/beken_robot/build -C /home/jinyue.huo/bk7259_smp_solution/bk_avdk_smp_dev_7259v2_bringup_25W4801

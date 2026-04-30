@@ -548,7 +548,7 @@ bk_err_t __agora_rtc_start(agora_rtc_option_t *option)
     //channel_options.audio_codec_opt.audio_codec_type = AUDIO_CODEC_DISABLED;
     channel_options.audio_codec_opt.pcm_sample_rate = option->audio_config.pcm_sample_rate;
     channel_options.audio_codec_opt.pcm_channel_num = option->audio_config.pcm_channel_num;
-    channel_options.audio_codec_opt.pcm_duration = CONFIG_AE_AUDIO_FRAME_DURATION_MS;
+    channel_options.audio_codec_opt.pcm_duration = 20;//CONFIG_AE_AUDIO_FRAME_DURATION_MS;
 
     // open jitter buffer
     if (channel_options.audio_codec_opt.audio_codec_type != AUDIO_CODEC_DISABLED)

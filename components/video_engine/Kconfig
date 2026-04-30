@@ -13,6 +13,12 @@ menu "video_engine"
 		help
 			Select DVP camera
 
+		config VIDEO_ENGINE_USE_MIPI_CAMERA
+		bool "Select MIPI CSI camera"
+		depends on ISP && MIPI_CSI && CSI_CAMERA
+		help
+			Select BK7259 MIPI CSI camera through ISP and H.264 encoder.
+
 		config VIDEO_ENGINE_USE_UVC_CAMERA
 		bool "Select UVC camera"
 		help
@@ -47,5 +53,29 @@ menu "video_engine"
 	default 720
 	help
 		Set the size of the resolution height, The recommended value is 720 .
+
+	config VIDEO_ENGINE_MIPI_SENSOR_WIDTH
+	int "MIPI sensor width"
+	depends on VIDEO_ENGINE_USE_MIPI_CAMERA
+	range 1 2000
+	default 1280
+	help
+		Set the MIPI sensor input width.
+
+	config VIDEO_ENGINE_MIPI_SENSOR_HEIGHT
+	int "MIPI sensor height"
+	depends on VIDEO_ENGINE_USE_MIPI_CAMERA
+	range 1 2000
+	default 720
+	help
+		Set the MIPI sensor input height.
+
+	config VIDEO_ENGINE_MIPI_SENSOR_FPS
+	int "MIPI sensor FPS"
+	depends on VIDEO_ENGINE_USE_MIPI_CAMERA
+	range 1 120
+	default 25
+	help
+		Set the MIPI sensor input frame rate.
 
 endmenu

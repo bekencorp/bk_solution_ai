@@ -24,6 +24,7 @@
 #include "components/bk_uid.h"
 #include <driver/h264.h>
 #include <driver/aon_rtc.h>
+#include <modules/vcenc/vcenc_common.h>
 #if CONFIG_APP_EVT
 #include "app_event.h"
 #endif
@@ -51,6 +52,19 @@ static agora_rtc_config_t agora_rtc_config = DEFAULT_AGORA_RTC_CONFIG();
 static agora_rtc_option_t agora_rtc_option = DEFAULT_AGORA_RTC_OPTION();
 
 agora_rtc_agent_info_t *agora_rtc_agent_info;
+
+static bool bk_agora_is_h264_key_frame(uint32_t h264_type)
+{
+    if (h264_type == VCENC_OUT_IFRAME) {
+        return true;
+    }
+
+    if (h264_type & (1U << H264_NAL_I_FRAME)) {
+        return true;
+    }
+
+    return false;
+}
 
 static uint8_t bk_agora_audio_codec_type_mapping(audio_enc_type_t codec_type)
 {
@@ -103,9 +117,9 @@ static void bk_agora_user_notify_msg_handle(agora_rtc_msg_t *p_msg)
         case AGORA_RTC_MSG_USER_JOINED:
             LOGI("User joined\n");
             g_agent_offline = false;
-            #if CONFIG_APP_EVT
-            app_event_send_msg(APP_EVT_AGENT_JOINED, 0);
-            #endif
+            // #if CONFIG_APP_EVT
+            // app_event_send_msg(APP_EVT_AGENT_JOINED, 0);
+            // #endif
             break;
             
         case AGORA_RTC_MSG_USER_OFFLINE:
@@ -206,10 +220,10 @@ int bk_agora_rtc_video_data_send(frame_buffer_t *frame)
     
     /* Setup video frame info based on format */
     info.stream_type = VIDEO_STREAM_HIGH;
-    if (frame->fmt == PIXEL_FMT_H264)
+    if ((frame->fmt == PIXEL_FMT_H264) || (frame->fmt == IMAGE_H264))
     {
         /* Check if it's an I-frame (only send I-frames) */
-        if ((frame->h264_type & (1 << H264_NAL_I_FRAME)) == 0)
+        if (!bk_agora_is_h264_key_frame(frame->h264_type))
         {
             // LOGD("%s: skip non-I frame\n", __func__);
             return BK_OK;
@@ -217,14 +231,14 @@ int bk_agora_rtc_video_data_send(frame_buffer_t *frame)
         
         info.data_type = VIDEO_DATA_TYPE_H264;
         info.frame_type = VIDEO_FRAME_AUTO_DETECT;
-        // info.frame_rate = 1000/VIDEO_FRAME_INTERVAL;
+         //info.frame_rate = 1000/VIDEO_FRAME_INTERVAL;
     }
-    else if (frame->fmt == PIXEL_FMT_JPEG)
+    else if ((frame->fmt == PIXEL_FMT_JPEG) || (frame->fmt == IMAGE_MJPEG))
     {
         info.data_type = VIDEO_DATA_TYPE_GENERIC_JPEG;
         info.frame_type = VIDEO_FRAME_KEY;
     }
-    else if (frame->fmt == PIXEL_FMT_H265)
+    else if ((frame->fmt == PIXEL_FMT_H265) || (frame->fmt == IMAGE_H265))
     {
         info.data_type = VIDEO_DATA_TYPE_H265;
         info.frame_type = VIDEO_FRAME_AUTO_DETECT;
@@ -250,20 +264,22 @@ int bk_agora_rtc_video_data_send(frame_buffer_t *frame)
     
     /* Send video data to agora_rtc */
     rval = agora_rtc_send_video_data(rtc->conn_id, (uint8_t *)frame->frame, (size_t)frame->length, &info);
+    //LOGI("send video data to agora_rtc, rval:%d, rtc->conn_id:%d, frame->length:%d, frame->fmt:%d\n", rval,rtc->conn_id,frame->length,frame->fmt,info.data_type,info.frame_type);
     if (rval < 0)
     {
-        // LOGW("%s: send video data failed, rval=%d data_type=%d len=%d frame_type=%d\n",
-        //      __func__, rval, info.data_type, (int)frame->length, info.frame_type);  // Disabled: too verbose
+         LOGW("%s: send video data failed, rval=%d data_type=%d len=%d frame_type=%d fmt=%d\n",
+             __func__, rval, info.data_type, (int)frame->length, info.frame_type,frame->fmt);  // Disabled: too verbose
+         return BK_FAIL;
     }
     else
     {
-        // LOGD("%s: send video data successfully, len=%d\n", __func__, (int)frame->length);
+         LOGD("%s: send video data successfully, len=%d\n", __func__, (int)frame->length);
     }
     
     /* Update timestamp */
     before = curr;
     
-    return BK_OK;
+    return (int)frame->length;
 }
 
 /* ============================= Audio RX Handler ============================= */

@@ -152,8 +152,6 @@ static int player_not_playback_event_handler(int data, void *params, void *args)
         audio_port_info_t port_info = DEFAULT_AUDIO_PORT_INFO();
         port_info.chl_num = music_info->channels;
         port_info.sample_rate = music_info->sample_rates;
-        port_info.dig_gain = 0x2d;
-        port_info.ana_gain = 0x01;
         port_info.bits = music_info->bits;
         port_info.port_id = 1;
         port_info.priority = 1;
@@ -195,14 +193,14 @@ audio_engine_prompt_tone_handle_t audio_engine_prompt_tone_init(audio_engine_pro
     AUDIO_PROMPT_TONE_CHECK_NULL(prompt_tone, return NULL);
     os_memset(prompt_tone, 0, sizeof(struct audio_engine_prompt_tone));
 
-    prompt_tone->port_id = cfg->port_id;
-    prompt_tone->priority = cfg->priority;
-    prompt_tone->notify_cb = cfg->notify_cb;
-    prompt_tone->user_data = cfg->user_data;
+    prompt_tone->port_id    = cfg->port_id;
+    prompt_tone->priority   = cfg->priority;
+    prompt_tone->notify_cb  = cfg->notify_cb;
+    prompt_tone->user_data  = cfg->user_data;
     prompt_tone->spk_stream = cfg->spk_stream;
-    prompt_tone->chl_num = cfg->chl_num;
+    prompt_tone->chl_num    = cfg->chl_num;
     prompt_tone->sample_rate = cfg->sample_rate;
-    prompt_tone->bits = cfg->bits;
+    prompt_tone->bits        = cfg->bits;
 
     /* step 1: create player */
     bk_player_cfg_t player_cfg = DEFAULT_PLAYER_NOT_PLAYBACK_CONFIG();
@@ -252,8 +250,8 @@ audio_engine_prompt_tone_handle_t audio_engine_prompt_tone_init(audio_engine_pro
     }
 
     /* step 3: set output port */
-    ringbuf_port_cfg_t port_cfg = RINGBUF_PORT_CFG_DEFAULT();
-    port_cfg.ringbuf_size = cfg->port_rb_size;
+    ringbuf_port_cfg_t port_cfg     = RINGBUF_PORT_CFG_DEFAULT();
+    port_cfg.ringbuf_size           = cfg->port_rb_size;
     prompt_tone->output_port_handle = ringbuf_port_init(&port_cfg);
     if (prompt_tone->output_port_handle == NULL)
     {
@@ -275,16 +273,14 @@ audio_engine_prompt_tone_handle_t audio_engine_prompt_tone_init(audio_engine_pro
     }
 
     audio_port_info_t port_info = DEFAULT_AUDIO_PORT_INFO();
-    port_info.chl_num = prompt_tone->chl_num;
+    port_info.chl_num     = prompt_tone->chl_num;
     port_info.sample_rate = prompt_tone->sample_rate;
-    port_info.dig_gain = 0x2d;
-    port_info.ana_gain = 0x01;
-    port_info.bits = prompt_tone->bits;
-    port_info.port = prompt_tone->output_port_handle;
-    port_info.port_id = prompt_tone->port_id;
-    port_info.priority = prompt_tone->priority;
-    port_info.notify_cb = player_not_playback_port_state_notify_handler;
-    port_info.user_data = prompt_tone;
+    port_info.bits        = prompt_tone->bits;
+    port_info.port        = prompt_tone->output_port_handle;
+    port_info.port_id     = prompt_tone->port_id;
+    port_info.priority    = prompt_tone->priority;
+    port_info.notify_cb   = player_not_playback_port_state_notify_handler;
+    port_info.user_data   = prompt_tone;
     if (BK_OK != onboard_speaker_stream_set_input_port_info(prompt_tone->spk_stream, &port_info))
     {
         LOGE("%s, %d, onboard_speaker_stream_set_input_port_info fail\n", __func__, __LINE__);
@@ -349,6 +345,10 @@ bk_err_t audio_engine_prompt_tone_start(audio_engine_prompt_tone_handle_t prompt
     AUDIO_PROMPT_TONE_CHECK_NULL(uri_info, return BK_FAIL);
     AUDIO_PROMPT_TONE_CHECK_NULL(uri_info->uri, return BK_FAIL);
 
+    bk_player_state_t state = PLAYER_STATE_NONE;
+    bk_player_get_state(prompt_tone->player_handle, &state);
+    LOGD("%s, %d, bk_player_state: %d\n", __func__, __LINE__, state);
+
     bk_player_stop(prompt_tone->player_handle);
 
 #if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
@@ -360,8 +360,8 @@ bk_err_t audio_engine_prompt_tone_start(audio_engine_prompt_tone_handle_t prompt
 #endif
 
     player_uri_info_t player_uri_info = {0};
-    player_uri_info.uri_type = prompt_tone->uri_type;
-    player_uri_info.uri = uri_info->uri;
+    player_uri_info.uri_type  = prompt_tone->uri_type;
+    player_uri_info.uri       = uri_info->uri;
     player_uri_info.total_len = uri_info->total_len;
 
     if (BK_OK != bk_player_set_uri(prompt_tone->player_handle, &player_uri_info))
@@ -400,24 +400,20 @@ bk_err_t audio_engine_prompt_tone_deinit(audio_engine_prompt_tone_handle_t promp
     if (prompt_tone->output_port_handle)
     {
         audio_port_info_t port_info = DEFAULT_AUDIO_PORT_INFO();
-        port_info.chl_num = prompt_tone->chl_num;
+        port_info.chl_num     = prompt_tone->chl_num;
         port_info.sample_rate = prompt_tone->sample_rate;
-        port_info.dig_gain = 0x2d;
-        port_info.ana_gain = 0x01;
-        port_info.bits = prompt_tone->bits;
-        port_info.port = NULL;
-        port_info.port_id = prompt_tone->port_id;
-        port_info.priority = prompt_tone->priority;
-        port_info.notify_cb = NULL;
-        port_info.user_data = prompt_tone;
+        port_info.bits        = prompt_tone->bits;
+        port_info.port        = NULL;
+        port_info.port_id     = prompt_tone->port_id;
+        port_info.priority    = prompt_tone->priority;
+        port_info.notify_cb   = NULL;
+        port_info.user_data   = prompt_tone;
         onboard_speaker_stream_set_input_port_info(prompt_tone->spk_stream, &port_info);
 
         audio_port_deinit(prompt_tone->output_port_handle);
         prompt_tone->output_port_handle = NULL;
     }
-
     psram_free(prompt_tone);
-
     LOGD("%s complete\n", __func__);
     return BK_OK;
 }

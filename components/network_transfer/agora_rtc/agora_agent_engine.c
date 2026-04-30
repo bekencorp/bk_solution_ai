@@ -11,7 +11,9 @@
 #include "cJSON.h"
 #include "driver/trng.h"
 #include "agora_config.h"
+#if CONFIG_BK_VIDEO_ENGINE
 #include "video_engine.h"
+#endif
 #if CONFIG_BK_SMART_CONFIG
 #include "bk_smart_config.h"
 #endif
@@ -233,9 +235,27 @@ int agora_start_agent_from_bk_server(agora_rtc_agent_info_t *option_info, void *
     // Add channel
     cJSON_AddStringToObject(root, "channel", device_id);
     
-    cJSON_AddNumberToObject(agent_param, "audio_duration", CONFIG_AE_AUDIO_FRAME_DURATION_MS);
+    cJSON_AddNumberToObject(agent_param, "audio_duration", 20);
+
+    #if CONFIG_AE_AUDIO_ENCODER_OPUS
     // Add audio codec
-    cJSON_AddStringToObject(agent_param, "out_acodec", CONFIG_AE_AUDIO_ENCODER_TYPE);
+    cJSON_AddStringToObject(agent_param, "out_acodec", "OPUS");
+    #elif CONFIG_AE_AUDIO_ENCODER_G722
+    cJSON_AddStringToObject(agent_param, "out_acodec", "G722");
+    #else
+    cJSON_AddStringToObject(agent_param, "out_acodec", "PCM");
+    #endif
+
+#if CONFIG_BK_SMART_CONFIG
+    if (os_strcmp(bk_sconf_get_start_model_type(), "vision") == 0)
+    {
+        cJSON_AddStringToObject(root, "model_type", "text_and_image");
+    }
+    else
+#endif
+    {
+        cJSON_AddStringToObject(root, "model_type", "text");
+    }
 
     // Add agent_param to root
     cJSON_AddItemToObject(root, "agent_param", agent_param);

@@ -15,13 +15,8 @@
 #ifndef _VIDEO_ENGINE_H_
 #define _VIDEO_ENGINE_H_
 
-#include "frame_buffer.h"
+#include <stdbool.h>
 #include <common/bk_include.h>
-#include <components/bk_camera_ctlr.h>
-#include <components/bk_video_pipeline/bk_video_pipeline_types.h>
-#include "components/bk_display.h"
-#include <components/avdk_utils/avdk_error.h>
-#include <components/dvp_camera_types.h>
 
 #ifdef __cplusplus
 extern "C" {

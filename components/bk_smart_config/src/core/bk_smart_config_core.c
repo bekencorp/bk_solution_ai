@@ -14,6 +14,7 @@
 
 #include <components/event.h>
 #include <components/netif.h>
+#include <driver/gpio.h>
 #include "bk_wifi.h"
 #include "bk_wifi_types.h"
 #include "bk_cli.h"
@@ -22,6 +23,7 @@
 #include "cli.h"
 #include "bk_smart_config.h"
 #include "components/bk_uid.h"
+#include "components/system.h"
 #include "cJSON.h"
 #if CONFIG_APP_EVT
 #include "app_event.h"
@@ -48,6 +50,7 @@
 #include "bk_factory_config.h"
 #endif
 
+#include "phy_client.h"
 
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
@@ -62,7 +65,13 @@ bool g_ble_split_pkt = false;
 beken_semaphore_t sync_flash_sema = NULL;
 bool smart_config_running = false;
 static beken_thread_t config_ir_mode_switch_thread_handle = NULL;
-static bool first_network_provisioning = false;
+static beken_thread_t s_sconf_cli_mode_thread_handle = NULL;
+static const char *s_sconf_start_model_type = "text";
+
+const char *bk_sconf_get_start_model_type(void)
+{
+    return s_sconf_start_model_type;
+}
 
 static uint8_t bk_sconf_get_supported_engine(void)
 {
@@ -117,13 +126,22 @@ int bk_sconf_get_channel_name(char *chan)
 
     return 0;
 }
+
 static uint16_t bk_sconf_send_agent_info(char *payload, uint16_t max_len)
 {
     unsigned char uid[32] = {0};
     char uid_str[65] = {0};
     uint16 len = 0;
 
-    bk_uid_get_data(uid);
+    //bk_uid_get_data(uid);
+    /* BK7259: bk_uid_get_data returns all zeros; use MAC as stable substitute, same length (24 bytes -> 48 hex chars) */
+    uint8_t hwaddr[6] = {0};
+    if (bk_ap_get_mac(hwaddr, MAC_TYPE_BASE) == BK_OK) {
+        for (int i = 0; i < 24; i++) {
+            uid[i] = hwaddr[i % 6];
+        }
+    }
+    /* else: keep uid all-zero, same as original when UID unavailable */
     for (int i = 0; i < 24; i++)
     {
         sprintf(uid_str + i * 2, "%02x", uid[i]);
@@ -221,22 +239,68 @@ exit:
 
 static int bk_sconf_start_network_transfer(char *device_id)
 {
-    BK_LOGI(TAG, "%s, device_id: %s, start network trasfer\r\n", __func__, (void *)device_id, device_id);
-
-    if (os_strlen(device_id) == 0) {
+    if (!device_id || os_strlen(device_id) == 0) {
         BK_LOGI(TAG, "%s, device_id is empty, do nothing\r\n", __func__);
         return BK_FAIL;
     }
+
+    BK_LOGI(TAG, "%s, device_id: %s, start network transfer\r\n", __func__, device_id);
 
 // #if CONFIG_BK_AUDIO_ENGINE
 //     audio_engine_init();
 // #endif
 
 #if CONFIG_BK_NETWORK_TRANSFER
-    ntwk_trans_start(device_id);
+    return ntwk_trans_start(device_id);
+#else
+    LOGW("%s, Network transfer not supported\r\n", __func__);
+    return BK_FAIL;
 #endif
+}
 
-    return BK_OK;
+static int bk_sconf_stop_network_transfer(char *device_id)
+{
+    BK_LOGI(TAG, "%s, device_id: %s, stop network transfer\r\n", __func__, device_id ? device_id : "");
+
+    if (!device_id || os_strlen(device_id) == 0) {
+        BK_LOGI(TAG, "%s, device_id is empty, do nothing\r\n", __func__);
+        return BK_FAIL;
+    }
+
+#if CONFIG_BK_NETWORK_TRANSFER
+    return ntwk_trans_stop(device_id);
+#else
+    LOGW("%s, Network transfer not supported\r\n", __func__);
+    return BK_FAIL;
+#endif
+}
+
+int bk_sconf_start_rtc(void)
+{
+    int ret = 0;
+    char device_id[128] = {0};
+
+    ret = bk_sconf_get_channel_name(device_id);
+    if ((ret != 0) || (os_strlen(device_id) == 0)) {
+        LOGW("No RTC channel, do nothing\r\n");
+        return BK_FAIL;
+    }
+
+    return bk_sconf_start_network_transfer(device_id);
+}
+
+int bk_sconf_stop_rtc(void)
+{
+    int ret = 0;
+    char device_id[128] = {0};
+
+    ret = bk_sconf_get_channel_name(device_id);
+    if ((ret != 0) || (os_strlen(device_id) == 0)) {
+        LOGW("No RTC channel, do nothing\r\n");
+        return BK_FAIL;
+    }
+
+    return bk_sconf_stop_network_transfer(device_id);
 }
 void bk_sconf_prase_agent_info(char *payload, uint8_t reset)
 {
@@ -261,8 +325,9 @@ void bk_sconf_prase_agent_info(char *payload, uint8_t reset)
         BK_LOGE(TAG, "[Error] not find msg\n");
     }
 
-    bk_sconf_start_network_transfer(tmp_channel);
-    bk_sconf_save_channel_name(tmp_channel);
+    if (tmp_channel && (os_strlen(tmp_channel) > 0)) {
+        bk_sconf_save_channel_name(tmp_channel);
+    }
     #if CONFIG_APP_EVT
     app_event_send_msg(APP_EVT_CLOSE_BLUETOOTH, 0);
     #endif
@@ -318,6 +383,35 @@ int bk_sconf_upate_agent_info(char *device_id, char *update_info)
     #endif
 }
 
+static int bk_sconf_start_rtc_for_model(char *device_id, const char *model_type, bool *was_running)
+{
+    int ret = 0;
+
+    if (device_id == NULL || os_strlen(device_id) == 0) {
+        LOGW("sconf mode: device_id is empty\r\n");
+        return BK_FAIL;
+    }
+
+    if (was_running != NULL) {
+        *was_running = false;
+    }
+
+#if CONFIG_BK_NETWORK_TRANSFER
+    if (was_running != NULL) {
+        *was_running = ntwk_trans_is_started();
+    }
+#endif
+
+    s_sconf_start_model_type = model_type ? model_type : "text";
+    ret = bk_sconf_start_network_transfer(device_id);
+    if (ret != BK_OK) {
+        LOGW("sconf mode: start RTC failed, ret=%d\r\n", ret);
+        return ret;
+    }
+
+    return BK_OK;
+}
+
 void bk_sconf_switch_ir_mode_handler(void)
 {
     static bool is_enable_ir_mode = false;
@@ -364,19 +458,19 @@ void bk_sconf_switch_ir_mode_handler(void)
         LOGI("%s %d, Successfully switched to vision mode\r\n", __func__, __LINE__);
     }
     else {
-        #if CONFIG_BK_VIDEO_ENGINE
-        ret = video_engine_deinit();
-        if (ret != BK_OK) {
-            LOGE("%s: Failed to deinitialize video engine, ret=%d\n", __func__, ret);
-            goto exit;
-        } 
-        #endif
-
         ret = bk_sconf_upate_agent_info(device_id, "text");
         if (ret != 0) {
             LOGW("%s %d ret:%d, Failed to update agent info\r\n", __func__, __LINE__, ret);
             goto exit;
         }
+
+        #if CONFIG_BK_VIDEO_ENGINE
+        ret = video_engine_deinit();
+        if (ret != BK_OK) {
+            LOGE("%s: Failed to deinitialize video engine, ret=%d\n", __func__, ret);
+            goto exit;
+        }
+        #endif
         #if (CONFIG_DUAL_SCREEN_AVI_PLAY)
         //TODO: switch to text screen
         #endif
@@ -470,7 +564,7 @@ void bk_sconf_ble_msg_handler(ble_prov_msg_t *msg)
             status = 0;
 #endif
             uint8_t bt_mac[6];
-            bk_get_mac(bt_mac, MAC_TYPE_BLUETOOTH);
+            bk_ap_get_mac(bt_mac, MAC_TYPE_BLUETOOTH);
             bk_ble_provisioning_event_notify_with_data(BOARDING_OP_NET_PAN_START, status, (char *)bt_mac, 6);
         }
         break;
@@ -478,9 +572,17 @@ void bk_sconf_ble_msg_handler(ble_prov_msg_t *msg)
         case BOARDING_OP_START_BK_MODEM:
         {
             int ret = 0;
-            ret = bk_modem_init(1, 1);
+
+            // let the 4G module power on
+            bk_err_t gpio_dev_unmap(gpio_id_t gpio_id);
+            gpio_dev_unmap(GPIO_21);
+            bk_gpio_disable_pull(GPIO_21);
+            bk_gpio_enable_output(GPIO_21); 
+            bk_gpio_set_output_low(GPIO_21);
+            
+            ret = bk_modem_init(UART_NIC_MODE, UART_IF);
             if (ret) {
-                bk_modem_init(1, 1);
+                bk_modem_init(UART_NIC_MODE, UART_IF);
             }
         }
         break;
@@ -488,13 +590,6 @@ void bk_sconf_ble_msg_handler(ble_prov_msg_t *msg)
         case BOARDING_OP_NETWORK_PROVISIONING_FIRST_TIME:
         {
             LOGI("BOARDING_OP_NETWORK_PROVISIONING_FIRST_TIME, %d\r\n", *(uint8_t *)(msg->param));
-
-            // First network provisioning means add new device in APP side, otherwise it means add new network
-            // connection to the existing device. param is 0 means first network provisioning,
-            if (*(uint8_t *)(msg->param))
-                first_network_provisioning = false;
-            else
-                first_network_provisioning = true;
         }
         break;
         case BOARDING_OP_AGENT_RSP:
@@ -534,9 +629,6 @@ void bk_sconf_ble_msg_handler(ble_prov_msg_t *msg)
 
 void bk_sconf_network_provisioning_status_cb(bk_network_provisioning_status_t status, void *user_data)
 {
-    int ret = 0;
-    char device_id[128] = {0};
-
     LOGI("demo network provisioning status: %d\n", status);
     switch (status)
     {
@@ -566,18 +658,7 @@ void bk_sconf_network_provisioning_status_cb(bk_network_provisioning_status_t st
                 bk_ble_provisioning_event_notify_with_data(BOARDING_OP_SET_AGENT_INFO, 0, payload, len);
                 #endif
 
-                if (first_network_provisioning == false) {
-                    ret = bk_sconf_get_channel_name(device_id);
-                    if ((ret == 0) && (os_strlen(device_id) > 0)) {
-                        bk_sconf_start_network_transfer(device_id);
-                    }
-                    else {
-                        LOGW("No device_id, do nothing\r\n");
-                    }
-                }
-                else {
-                    LOGI("First network provisioning, do nothing\r\n");
-                }
+                LOGI("Network provisioning success, RTC start is controlled by UI\r\n");
             }
             break;
         case BK_NETWORK_PROVISIONING_STATUS_FAILED:
@@ -601,13 +682,7 @@ void bk_sconf_network_provisioning_status_cb(bk_network_provisioning_status_t st
             app_event_send_msg(APP_EVT_RECONNECT_NETWORK_SUCCESS, 0);
             #endif
 
-            ret = bk_sconf_get_channel_name(device_id);
-            if ((ret == 0) && (os_strlen(device_id) > 0)) {
-                bk_sconf_start_network_transfer(device_id);
-            }
-            else {
-                LOGW("No device_id, do nothing\r\n");
-            }
+            LOGI("Network reconnect success, RTC start is controlled by UI\r\n");
         }
         break;
         default:
@@ -621,17 +696,7 @@ void bk_sconf_erase_smart_config(void)
 }
 void bk_sconf_prepare_for_smart_config(void)
 {
-    int ret = 0;
-    char device_id[128] = {0};
-
     smart_config_running = true;
-
-    ret = bk_sconf_get_channel_name(device_id);
-    if ((ret == 0) && (os_strlen(device_id) > 0)) {
-        #if CONFIG_BK_NETWORK_TRANSFER
-        ntwk_trans_stop(device_id);
-        #endif
-    }
 
     bk_wifi_sta_stop();
 
@@ -680,6 +745,143 @@ void bk_sconf_sync_flash_handler(void)
     }
 }
 
+static void bk_sconf_cli_mode_switch_handler(beken_thread_arg_t arg)
+{
+    char device_id[128] = {0};
+    int to_vision = (arg != NULL);
+    int ret;
+    bool rtc_was_running = false;
+
+    if (bk_sconf_get_channel_name(device_id) != 0
+        || os_strlen(device_id) == 0) {
+        LOGW("sconf mode: no RTC channel\r\n");
+        goto done;
+    }
+
+    if (to_vision) {
+#if CONFIG_BK_VIDEO_ENGINE
+        if (!video_engine_is_running()) {
+            ret = video_engine_init();
+            if (ret != BK_OK) {
+                LOGE("sconf vision: video_engine_init failed ret=%d\r\n", ret);
+                goto done;
+            }
+        }
+#endif
+        ret = bk_sconf_start_rtc_for_model(device_id, "vision", &rtc_was_running);
+        if (ret != BK_OK) {
+            goto done;
+        }
+
+        if (rtc_was_running) {
+            ret = bk_sconf_upate_agent_info(device_id, "vision");
+            if (ret != BK_OK) {
+                LOGW("sconf vision: agent update failed ret=%d\r\n", ret);
+            } else {
+                LOGI("sconf vision: OK\r\n");
+            }
+        } else {
+            LOGI("sconf vision: started directly\r\n");
+        }
+    } else {
+        /* CLI sconf text: stop UVC/pipeline before Agora/HTTP to avoid URB OOM and stream_stop fault */
+#if CONFIG_BK_VIDEO_ENGINE
+        if (video_engine_is_running()) {
+            ret = video_engine_deinit();
+            if (ret != BK_OK) {
+                LOGE("sconf text: video_engine_deinit failed ret=%d\r\n", ret);
+            } else {
+                rtos_delay_milliseconds(50);
+            }
+        }
+#endif
+        ret = bk_sconf_start_rtc_for_model(device_id, "text", &rtc_was_running);
+        if (ret != BK_OK) {
+            goto done;
+        }
+
+        if (rtc_was_running) {
+            ret = bk_sconf_upate_agent_info(device_id, "text");
+            if (ret != BK_OK) {
+                LOGW("sconf text: agent update failed ret=%d\r\n", ret);
+            } else {
+                LOGI("sconf text: OK\r\n");
+            }
+        } else {
+            LOGI("sconf text: started directly\r\n");
+        }
+    }
+
+done:
+    s_sconf_cli_mode_thread_handle = NULL;
+    rtos_delete_thread(NULL);
+}
+
+static int bk_sconf_begin_cli_mode_switch(int to_vision)
+{
+    int ret;
+
+    if (s_sconf_cli_mode_thread_handle) {
+        LOGW("sconf mode switch already running\r\n");
+        return BK_FAIL;
+    }
+#if CONFIG_PSRAM_AS_SYS_MEMORY
+    ret = rtos_create_psram_thread(&s_sconf_cli_mode_thread_handle,
+                                   CONFIG_IR_MODE_SWITCH_TASK_PRIORITY,
+                                   "sconf_mode",
+                                   (beken_thread_function_t)bk_sconf_cli_mode_switch_handler,
+                                   4096,
+                                   to_vision ? (beken_thread_arg_t)(void *)1 : (beken_thread_arg_t)0);
+#else
+    ret = rtos_create_thread(&s_sconf_cli_mode_thread_handle,
+                             CONFIG_IR_MODE_SWITCH_TASK_PRIORITY,
+                             "sconf_mode",
+                             (beken_thread_function_t)bk_sconf_cli_mode_switch_handler,
+                             4096,
+                             to_vision ? (beken_thread_arg_t)(void *)1 : (beken_thread_arg_t)0);
+#endif
+    if (ret != kNoErr) {
+        LOGE("sconf mode thread fail: %d\r\n", ret);
+        s_sconf_cli_mode_thread_handle = NULL;
+        return BK_FAIL;
+    }
+
+    return BK_OK;
+}
+
+int bk_sconf_enter_text_mode(void)
+{
+    return bk_sconf_begin_cli_mode_switch(0);
+}
+
+int bk_sconf_enter_vision_mode(void)
+{
+    return bk_sconf_begin_cli_mode_switch(1);
+}
+
+int bk_sconf_exit_ai_mode(int from_vision)
+{
+    int ret = BK_OK;
+
+    ret = bk_sconf_stop_rtc();
+
+#if CONFIG_BK_VIDEO_ENGINE
+    if (from_vision && video_engine_is_running()) {
+        int video_ret = video_engine_deinit();
+        if (video_ret != BK_OK) {
+            LOGE("sconf exit: video_engine_deinit failed ret=%d\r\n", video_ret);
+            if (ret == BK_OK) {
+                ret = video_ret;
+            }
+        }
+    }
+#else
+    (void)from_vision;
+#endif
+
+    return ret;
+}
+
 static void bk_sconf_cli_handler(char *pcWriteBuffer, int xWriteBufferLen, int argC, char **argV)
 {
     if ((argC == 2) && (os_strcmp(argV[1], "start") == 0)) {
@@ -689,6 +891,14 @@ static void bk_sconf_cli_handler(char *pcWriteBuffer, int xWriteBufferLen, int a
         bk_sconf_erase_channel_name();
     } else if ((argC == 2) && (os_strcmp(argV[1], "reset") == 0)) {
         bk_sconf_prepare_for_smart_config();
+    } else if ((argC == 2) && (os_strcmp(argV[1], "vision") == 0)) {
+        bk_sconf_begin_cli_mode_switch(1);
+    } else if ((argC == 2) && (os_strcmp(argV[1], "text") == 0)) {
+        bk_sconf_begin_cli_mode_switch(0);
+    } else if ((argC == 2) && (os_strcmp(argV[1], "rtc_start") == 0)) {
+        bk_sconf_start_rtc();
+    } else if ((argC == 2) && (os_strcmp(argV[1], "rtc_stop") == 0)) {
+        bk_sconf_stop_rtc();
     } else if (argC == 3) {
         if (os_strcmp(argV[2], "ble") == 0) {
             bk_network_provisioning_start(BK_NETWORK_PROVISIONING_TYPE_BLE);
@@ -775,7 +985,7 @@ int bk_sconf_wifi_event_cb(void *arg, event_module_t event_module,
 #endif
 #define BK_SCONF_CMD_COUNT (sizeof(s_bk_sconf_commands) / sizeof(s_bk_sconf_commands[0]))
 static const struct cli_command s_bk_sconf_commands[] = {
-    {"sconf", "sconf [start]|[erase] [ble]|[console]", bk_sconf_cli_handler},
+    {"sconf", "sconf start|erase|reset|vision|text|rtc_start|rtc_stop [ble|console]", bk_sconf_cli_handler},
 };
 
 int bk_sconf_cli_network_provisioning_init(void)
@@ -791,7 +1001,8 @@ int bk_sconf_init(void)
     bk_ble_provisioning_set_msg_handle_cb(bk_sconf_ble_msg_handler);
     // bk_event_register_cb(EVENT_MOD_WIFI, EVENT_ID_ALL, bk_sconf_wifi_event_cb, NULL);
     // bk_event_register_cb(EVENT_MOD_NETIF, EVENT_ID_ALL, bk_sconf_netif_event_cb, NULL);
-    bk_network_provisioning_init(BK_NETWORK_PROVISIONING_TYPE_BLE);
+
+    bk_network_auto_reconnect_init(NULL);
     bk_sconf_cli_network_provisioning_init();
 
     return BK_OK;

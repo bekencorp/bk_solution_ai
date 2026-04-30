@@ -1,0 +1,23 @@
+menu "Multimedia device service (camera/display/gpu/h264 helpers)"
+    config MULTIMEDIA_DEVICE_SERVICE
+        bool "Enable multimedia_device_service helpers"
+        default y
+        help
+            Provides high-level helpers (app_camera/app_display/app_gpu and
+            optional app_codec for H.264 encoding) ported from the doorbell
+            reference project for the MIPI CSI camera + ISP + GPU + DPU
+            pipeline used in beken_robot.
+
+    config MULTIMEDIA_H264_ENCODE
+        bool "Enable H.264 encode of MIPI camera (HW flexa)"
+        default y
+        depends on MULTIMEDIA_DEVICE_SERVICE
+        help
+            Compile app_codec.c + multimedia_img_manager.c so the MIPI
+            camera ISP MP NV12 stream can be encoded to H.264 via the
+            hardware flexa encoder. The encoded H.264 frames are stored
+            in a producer/consumer queue exposed via
+            bk_encoded_complete_data_request() / _free_request() so that
+            transmitter modules (e.g. WiFi/RTP) can consume them without
+            having to know about the camera/encoder details.
+endmenu

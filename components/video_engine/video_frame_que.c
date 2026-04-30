@@ -16,9 +16,8 @@
 #include <os/mem.h>
 #include <driver/int.h>
 #include <components/log.h>
-#include "avdk_crc.h"
 #include "video_frame_que.h"
-#include "frame_buffer.h"
+#include <common/avdk_pixel_types.h>
 
 #define TAG "frame_buffer"
 

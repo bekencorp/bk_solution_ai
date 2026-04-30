@@ -81,6 +81,12 @@ int ntwk_trans_start(void *user_data)
     
     return 0;
 }
+
+bool ntwk_trans_is_started(void)
+{
+    return g_ntwk_trans_ctx.initialized && g_ntwk_trans_ctx.is_started;
+}
+
 /**
  * @brief 停止网络传输
  * @param user_data 用户数据指针，传递给停止回调函数

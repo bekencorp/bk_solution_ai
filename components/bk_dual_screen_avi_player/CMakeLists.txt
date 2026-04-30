@@ -12,5 +12,5 @@ endif()
 armino_component_register(
     SRCS "${srcs}"
     INCLUDE_DIRS "${incs}"
-    PRIV_REQUIRES bk_video_player bk_peripheral bk_vfs multimedia
+    PRIV_REQUIRES bk_video_player bk_peripheral bk_vfs
 )

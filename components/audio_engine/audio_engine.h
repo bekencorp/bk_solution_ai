@@ -19,7 +19,6 @@
 extern "C" {
 #endif
 
-#define SPK_GAIN_MAX            (0X20)
 #define SPK_VOLUME_LEVEL        (11) //[0,10], 11 is max volume.
 
 /* Global handles for audio engine */
@@ -83,7 +82,7 @@ typedef struct {
     audio_dec_type_t dec_type;     /**< AUDIO_DEC_TYPE_PCM, AUDIO_DEC_TYPE_G711A, AUDIO_DEC_TYPE_G711U, AUDIO_DEC_TYPE_G722 */
     
     /* Audio gain */
-    uint8_t dig_gain;              /**< Audio dac digital gain */
+    int32_t dig_gain;
     uint8_t ana_gain;              /**< Audio dac analog gain */
     
     /* PA control */

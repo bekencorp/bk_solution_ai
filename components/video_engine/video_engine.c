@@ -18,8 +18,20 @@
 #include <components/log.h>
 #include <driver/gpio.h>
 #include <driver/flash.h>
+#if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
 #include "video_frame_que.h"
+#include <components/bk_camera_ctlr_types.h>
+#include <components/dvp_camera_types.h>
+#endif
 #include "network_transfer.h"
+
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+#include <components/bk_flexa_bond.h>
+#include "app_camera.h"
+#include "app_camera_types.h"
+#include "app_codec.h"
+#include "multimedia_img_manager.h"
+#endif
 
 #define TAG "video_engine"
 
@@ -41,23 +53,58 @@
 #define VIDEO_TRANSFER_TASK_STACK_SIZE  (4 * 1024)
 #define VIDEO_TRANSFER_QUEUE_TIMEOUT    (BEKEN_WAIT_FOREVER)
 
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+#define VIDEO_ENGINE_MIPI_CAM_SCL       GPIO_70
+#define VIDEO_ENGINE_MIPI_CAM_SDA       GPIO_71
+#define VIDEO_ENGINE_MIPI_CAM_RESET     GPIO_31
+#define VIDEO_ENGINE_MIPI_CAM_XCLK      GPIO_59
+#define VIDEO_ENGINE_MIPI_CAM_I2C_ID    1
+
+#ifndef CONFIG_VIDEO_ENGINE_MIPI_SENSOR_WIDTH
+#define CONFIG_VIDEO_ENGINE_MIPI_SENSOR_WIDTH 1280
+#endif
+#ifndef CONFIG_VIDEO_ENGINE_MIPI_SENSOR_HEIGHT
+#define CONFIG_VIDEO_ENGINE_MIPI_SENSOR_HEIGHT 720
+#endif
+#ifndef CONFIG_VIDEO_ENGINE_MIPI_SENSOR_FPS
+#define CONFIG_VIDEO_ENGINE_MIPI_SENSOR_FPS 25
+#endif
+#endif
+
+typedef enum {
+    VIDEO_ENGINE_CAMERA_UNKNOWN = 0,
+    VIDEO_ENGINE_CAMERA_DVP,
+    VIDEO_ENGINE_CAMERA_MIPI,
+} video_engine_camera_type_t;
+
 /**
  * @brief Video engine internal context structure
  */
 typedef struct {
+#if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
     bk_camera_ctlr_handle_t camera_handle;      /**< Camera controller handle */
+#endif
     image_format_t transfer_format;             /**< Transfer format (IMAGE_MJPEG/IMAGE_H264/IMAGE_H265) */
     beken_thread_t transfer_task_handle;        /**< Transfer task handle */
     bool transfer_task_running;                 /**< Transfer task running flag */
+    bool camera_opened;                         /**< Camera pipeline opened flag */
+    bool use_encoded_manager;                   /**< Frames come from multimedia encoded-frame manager */
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+    void *h264_bond;                            /**< ISP MP -> H.264 encoder flexa bond */
+    uint16_t encoded_width;                     /**< Encoded frame width for metadata fixup */
+    uint16_t encoded_height;                    /**< Encoded frame height for metadata fixup */
+#endif
     /* Engine state */
     bool is_started;                            /**< Video engine started flag */
 } video_engine_ctx_t;
 
 /* Global video engine context */
 static video_engine_ctx_t *g_video_engine_ctx = NULL;
+static video_engine_camera_type_t curr_cam_type = VIDEO_ENGINE_CAMERA_UNKNOWN;
 
 static void video_engine_transfer_task(void *arg);
 
+#if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
 /**
  * @brief Frame buffer allocation callback
  */
@@ -90,6 +137,97 @@ static const bk_dvp_callback_t dvp_camera_cbs = {
     .malloc = video_engine_frame_malloc,
     .complete = video_engine_frame_complete,
 };
+#endif
+
+static const char *video_engine_frame_format_name(uint32_t fmt)
+{
+    if (fmt == IMAGE_H264 || fmt == PIXEL_FMT_H264)
+    {
+        return "H264";
+    }
+    if (fmt == IMAGE_MJPEG || fmt == PIXEL_FMT_JPEG)
+    {
+        return "MJPEG";
+    }
+    if (fmt == IMAGE_H265 || fmt == PIXEL_FMT_H265)
+    {
+        return "H265";
+    }
+    if (fmt == IMAGE_YUV)
+    {
+        return "YUV";
+    }
+    return "UNKNOWN";
+}
+
+static const char *video_engine_h264_frame_type_name(uint32_t h264_type)
+{
+    if (h264_type == 0 || (h264_type & (1U << 24)))
+    {
+        return "I";
+    }
+    if (h264_type == 1 || (h264_type & (1U << 23)))
+    {
+        return "P";
+    }
+    if (h264_type == 2 || (h264_type & (1U << 22)))
+    {
+        return "B";
+    }
+    return "UNKNOWN";
+}
+
+static void video_engine_log_frame_info(const frame_buffer_t *frame)
+{
+    static uint32_t s_debug_count = 0;
+    bool is_h264 = false;
+    bool is_key_frame = false;
+
+    if (frame == NULL)
+    {
+        return;
+    }
+
+    is_h264 = (frame->fmt == IMAGE_H264 || frame->fmt == PIXEL_FMT_H264);
+    is_key_frame = is_h264 && (video_engine_h264_frame_type_name(frame->h264_type)[0] == 'I');
+
+    s_debug_count++;
+    if ((s_debug_count % 30) != 0 && !is_key_frame)
+    {
+        //return;
+    }
+
+    LOGI("frame info: seq=%u fmt=%s(0x%x) h264=%s(type=0x%x) %ux%u len=%u size=%u ts=%u data=%p\n",
+         frame->sequence,
+         video_engine_frame_format_name(frame->fmt),
+         frame->fmt,
+         video_engine_h264_frame_type_name(frame->h264_type),
+         frame->h264_type,
+         frame->width,
+         frame->height,
+         frame->length,
+         frame->size,
+         frame->timestamp,
+         frame->frame);
+}
+
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+static void video_engine_fill_encoded_frame_info(frame_buffer_t *frame)
+{
+    if (g_video_engine_ctx == NULL || frame == NULL)
+    {
+        return;
+    }
+
+    frame->fmt = IMAGE_H264;
+    frame->width = g_video_engine_ctx->encoded_width;
+    frame->height = g_video_engine_ctx->encoded_height;
+    if (frame->timestamp == 0)
+    {
+        frame->timestamp = rtos_get_time();
+    }
+}
+#endif
 
 
 /**
@@ -114,22 +252,44 @@ static void video_engine_transfer_task(void *arg)
             break;
         }
         
-        /* 使用 frame_queue_get_frame 从 frame_queue 取帧 
-         * 该函数内部调用 rtos_pop_from_queue() 从 ready_queue 中 pop 取帧
-         */
-        frame = frame_queue_get_frame(g_video_engine_ctx->transfer_format, 
-                                      VIDEO_TRANSFER_QUEUE_TIMEOUT);
-        
+        if (g_video_engine_ctx->use_encoded_manager)
+        {
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+            frame = (frame_buffer_t *)bk_encoded_complete_data_request(100);
+#else
+            frame = NULL;
+#endif
+        }
+        else
+        {
+#if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
+            /* 使用 frame_queue_get_frame 从 frame_queue 取帧
+             * 该函数内部调用 rtos_pop_from_queue() 从 ready_queue 中 pop 取帧
+             */
+            frame = frame_queue_get_frame(g_video_engine_ctx->transfer_format,
+                                          VIDEO_TRANSFER_QUEUE_TIMEOUT);
+#else
+            frame = NULL;
+#endif
+        }
+
         if (frame != NULL)
         {
             /* Check context before sending */
             if (g_video_engine_ctx == NULL) {
                 LOGE("%s: g_video_engine_ctx became NULL, releasing frame\n", __func__);
-                frame_queue_free(g_video_engine_ctx->transfer_format, frame);
                 break;
             }
 
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+            if (g_video_engine_ctx->use_encoded_manager)
+            {
+                video_engine_fill_encoded_frame_info(frame);
+            }
+#endif
+
             /* 直接调用 ntwk_trans_send_video() 发送帧数据 */
+            //video_engine_log_frame_info(frame);
             ret = ntwk_trans_send_video(frame);
             if (ret != BK_OK)
             {
@@ -137,7 +297,18 @@ static void video_engine_transfer_task(void *arg)
             }
 
             /* 处理完成后释放帧 */
-            frame_queue_free(g_video_engine_ctx->transfer_format, frame);
+            if (g_video_engine_ctx->use_encoded_manager)
+            {
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+                bk_encoded_complete_data_free_request((uint8_t *)frame);
+#endif
+            }
+            else
+            {
+#if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
+                frame_queue_free(g_video_engine_ctx->transfer_format, frame);
+#endif
+            }
             frame = NULL;
         }
         else
@@ -180,6 +351,7 @@ int video_engine_init(void)
     
     memset(g_video_engine_ctx, 0, sizeof(video_engine_ctx_t));
     
+#if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
     ret = frame_queue_init_all();
     if (ret != BK_OK) {
         LOGE("%s: frame_queue_init_all failed, ret=%d\n", __func__, ret);
@@ -188,13 +360,16 @@ int video_engine_init(void)
         return ret;
     }
     LOGI("%s: frame_queue initialized\n", __func__);
+#endif
     
     /* Start video engine with default configuration */
     ret = video_engine_start();
     if (ret != BK_OK) {
         LOGE("%s: video_engine_start failed, ret=%d\n", __func__, ret);
         
+#if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
         frame_queue_deinit_all();
+#endif
         os_free(g_video_engine_ctx);
         g_video_engine_ctx = NULL;
         
@@ -222,8 +397,10 @@ int video_engine_deinit(void)
         LOGE("%s: video_engine_stop failed, ret=%d\n", __func__, ret);
     }
     
+#if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
     frame_queue_deinit_all();
     LOGI("%s: frame_queue deinitialized\n", __func__);
+#endif
     
     os_free(g_video_engine_ctx);
     g_video_engine_ctx = NULL;
@@ -233,6 +410,7 @@ int video_engine_deinit(void)
     return BK_OK;
 }
 
+#if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
 int video_engine_dvp_camera_open(camera_parameters_t *parameters)
 {
     avdk_err_t ret = AVDK_ERR_OK;
@@ -302,6 +480,8 @@ int video_engine_dvp_camera_open(camera_parameters_t *parameters)
         }
         else
         {
+            g_video_engine_ctx->camera_opened = true;
+            g_video_engine_ctx->use_encoded_manager = false;
             LOGI("%s: Camera opened successfully\n", __func__);
         }
     }
@@ -312,6 +492,169 @@ int video_engine_dvp_camera_open(camera_parameters_t *parameters)
 
     return ret;
 }
+#else
+int video_engine_dvp_camera_open(camera_parameters_t *parameters)
+{
+    (void)parameters;
+    LOGE("%s: DVP camera is not enabled\n", __func__);
+    return BK_FAIL;
+}
+#endif
+
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+static int video_engine_mipi_camera_open(camera_parameters_t *parameters)
+{
+#if !(CONFIG_ISP && CONFIG_MIPI_CSI && CONFIG_CSI_CAMERA && CONFIG_MULTIMEDIA_H264_ENCODE)
+    (void)parameters;
+    LOGE("%s: BK7259 MIPI/H264 camera dependencies are not enabled\n", __func__);
+    return BK_FAIL;
+#else
+    bk_err_t ret = BK_OK;
+
+    if (parameters == NULL)
+    {
+        LOGE("%s: parameters is NULL\n", __func__);
+        return BK_FAIL;
+    }
+
+    if (g_video_engine_ctx == NULL)
+    {
+        LOGE("%s: g_video_engine_ctx is NULL\n", __func__);
+        return BK_FAIL;
+    }
+
+    if (g_video_engine_ctx->camera_opened)
+    {
+        LOGW("%s: camera already opened\n", __func__);
+        return BK_OK;
+    }
+
+    if (parameters->format != 1)
+    {
+        LOGE("%s: BK7259 MIPI path only supports H264 transfer\n", __func__);
+        return BK_FAIL;
+    }
+
+    camera_board_config_t cfg = {0};
+    cfg.mipi.enable             = true;
+    cfg.mipi.pin_scl            = VIDEO_ENGINE_MIPI_CAM_SCL;
+    cfg.mipi.pin_sda            = VIDEO_ENGINE_MIPI_CAM_SDA;
+    cfg.mipi.i2c_id             = VIDEO_ENGINE_MIPI_CAM_I2C_ID;
+    cfg.mipi.pin_reset          = VIDEO_ENGINE_MIPI_CAM_RESET;
+    cfg.mipi.pin_pwdn           = -1;
+    cfg.mipi.pin_xclk           = VIDEO_ENGINE_MIPI_CAM_XCLK;
+    cfg.mipi.sensor_max_width   = CONFIG_VIDEO_ENGINE_MIPI_SENSOR_WIDTH;
+    cfg.mipi.sensor_max_height  = CONFIG_VIDEO_ENGINE_MIPI_SENSOR_HEIGHT;
+    cfg.mipi.sensor_fps         = CONFIG_VIDEO_ENGINE_MIPI_SENSOR_FPS;
+
+    cfg.isp.mp_enable = true;
+    cfg.isp.mp_flexa  = true;
+    cfg.isp.mp_width  = parameters->width;
+    cfg.isp.mp_height = parameters->height;
+    cfg.isp.mp_format = BK_PIXEL_FORMAT_NV12;
+
+    ret = app_camera_board_config_set(&cfg);
+    if (ret != BK_OK)
+    {
+        LOGE("%s: app_camera_board_config_set failed, ret=%d\n", __func__, ret);
+        return ret;
+    }
+
+    ret = app_isp_mipi_camera_turn_on(app_camera_board_config_get());
+    if (ret != BK_OK)
+    {
+        LOGE("%s: app_isp_mipi_camera_turn_on failed, ret=%d\n", __func__, ret);
+        return ret;
+    }
+
+    ret = app_h264e_turn_on();
+    if (ret != BK_OK)
+    {
+        LOGE("%s: app_h264e_turn_on failed, ret=%d\n", __func__, ret);
+        app_isp_camera_turn_off();
+        return ret;
+    }
+
+    void *isp_handle = app_isp_handle_get();
+    void *enc_handle = app_h264_encode_handle_get();
+    if (isp_handle == NULL || enc_handle == NULL)
+    {
+        LOGE("%s: isp_handle=%p enc_handle=%p\n", __func__, isp_handle, enc_handle);
+        app_h264e_turn_off();
+        app_isp_camera_turn_off();
+        return BK_FAIL;
+    }
+
+    ret = bk_flexa_isp_h264e_bond_start(&g_video_engine_ctx->h264_bond, isp_handle, enc_handle);
+    if (ret != BK_OK)
+    {
+        LOGE("%s: bk_flexa_isp_h264e_bond_start failed, ret=%d\n", __func__, ret);
+        g_video_engine_ctx->h264_bond = NULL;
+        app_h264e_turn_off();
+        app_isp_camera_turn_off();
+        return ret;
+    }
+
+    g_video_engine_ctx->transfer_format = IMAGE_H264;
+    g_video_engine_ctx->encoded_width = parameters->width;
+    g_video_engine_ctx->encoded_height = parameters->height;
+    g_video_engine_ctx->use_encoded_manager = true;
+    g_video_engine_ctx->camera_opened = true;
+
+    LOGI("%s: MIPI camera opened: sensor %ux%u@%u -> ISP MP %ux%u H264\n",
+         __func__,
+         CONFIG_VIDEO_ENGINE_MIPI_SENSOR_WIDTH,
+         CONFIG_VIDEO_ENGINE_MIPI_SENSOR_HEIGHT,
+         CONFIG_VIDEO_ENGINE_MIPI_SENSOR_FPS,
+         parameters->width,
+         parameters->height);
+
+    return BK_OK;
+#endif
+}
+
+static int video_engine_mipi_camera_close(void)
+{
+#if !(CONFIG_ISP && CONFIG_MIPI_CSI && CONFIG_CSI_CAMERA && CONFIG_MULTIMEDIA_H264_ENCODE)
+    return BK_OK;
+#else
+    bk_err_t ret = BK_OK;
+    bk_err_t final_ret = BK_OK;
+
+    if (g_video_engine_ctx == NULL)
+    {
+        return BK_OK;
+    }
+
+    if (g_video_engine_ctx->h264_bond != NULL)
+    {
+        bk_flexa_isp_h264e_bond_stop(g_video_engine_ctx->h264_bond);
+        g_video_engine_ctx->h264_bond = NULL;
+    }
+
+    ret = app_h264e_turn_off();
+    if (ret != BK_OK)
+    {
+        LOGE("%s: app_h264e_turn_off failed, ret=%d\n", __func__, ret);
+        final_ret = ret;
+    }
+
+    ret = app_isp_camera_turn_off();
+    if (ret != BK_OK)
+    {
+        LOGE("%s: app_isp_camera_turn_off failed, ret=%d\n", __func__, ret);
+        final_ret = ret;
+    }
+
+    g_video_engine_ctx->use_encoded_manager = false;
+    g_video_engine_ctx->encoded_width = 0;
+    g_video_engine_ctx->encoded_height = 0;
+    g_video_engine_ctx->camera_opened = false;
+
+    return final_ret;
+#endif
+}
+#endif
 
 int video_engine_camera_close(void)
 {
@@ -323,10 +666,26 @@ int video_engine_camera_close(void)
         return BK_FAIL;
     }
 
+    if (!g_video_engine_ctx->camera_opened)
+    {
+        LOGE("%s: camera is not opened\n", __func__);
+        return ret;
+    }
+
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+    if (curr_cam_type == VIDEO_ENGINE_CAMERA_MIPI)
+    {
+        ret = video_engine_mipi_camera_close();
+        curr_cam_type = VIDEO_ENGINE_CAMERA_UNKNOWN;
+        return ret;
+    }
+#endif
+
+#if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
     if (g_video_engine_ctx->camera_handle == NULL)
     {
         LOGE("%s: camera_handle is NULL\n", __func__);
-        return ret;
+        return BK_FAIL;
     }
 
     ret = bk_camera_close(g_video_engine_ctx->camera_handle);
@@ -353,6 +712,13 @@ int video_engine_camera_close(void)
     {
         GPIO_DOWN(DVP_POWER_GPIO_ID);
     }
+#else
+    LOGE("%s: unsupported camera type %d\n", __func__, curr_cam_type);
+    return BK_FAIL;
+#endif
+
+    g_video_engine_ctx->camera_opened = false;
+    curr_cam_type = VIDEO_ENGINE_CAMERA_UNKNOWN;
 
     return BK_OK;
 }
@@ -376,7 +742,7 @@ int video_engine_transfer_start(void)
         return BK_FAIL;
     }
 
-    if (g_video_engine_ctx->camera_handle == NULL)
+    if (!g_video_engine_ctx->camera_opened)
     {
         LOGE("%s: camera not open!\n", __func__);
         return BK_FAIL;
@@ -446,21 +812,18 @@ int video_engine_transfer_stop(void)
     return ret;
 }
 
-
-static camera_type_t curr_cam_type = UNKNOW_CAMERA;
 int video_engine_camera_turn_on(camera_parameters_t *parameters)
 {
     bk_err_t ret = BK_FAIL;
-
-    LOGI("%s: Camera params - id:%d, %dx%d, format:%d\n", __func__,
-        parameters->id, parameters->width, parameters->height, parameters->format);
-
 
     if (parameters == NULL)
     {
         LOGE("%s: parameters is NULL\n", __func__);
         return BK_FAIL;
     }
+
+    LOGI("%s: Camera params - id:%d, %dx%d, format:%d\n", __func__,
+        parameters->id, parameters->width, parameters->height, parameters->format);
     
     if (parameters->width == 0 || parameters->height == 0)
     {
@@ -477,13 +840,20 @@ int video_engine_camera_turn_on(camera_parameters_t *parameters)
 
     if (parameters->id == 0)
     {
-        curr_cam_type = DVP_CAMERA;
+        curr_cam_type = VIDEO_ENGINE_CAMERA_DVP;
         ret = video_engine_dvp_camera_open(parameters);
     }
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+    else if (parameters->id == 2)
+    {
+        curr_cam_type = VIDEO_ENGINE_CAMERA_MIPI;
+        ret = video_engine_mipi_camera_open(parameters);
+    }
+#endif
     else
     {
         LOGE("%s: unknown camera id %d\n", __func__, parameters->id);
-        curr_cam_type = UNKNOW_CAMERA;
+        curr_cam_type = VIDEO_ENGINE_CAMERA_UNKNOWN;
         ret = BK_FAIL;
     }
 
@@ -511,7 +881,7 @@ int video_engine_camera_turn_on(camera_parameters_t *parameters)
 int video_engine_start(void)
 {
     camera_parameters_t camera_parameters= {
-        /* Camera ID: 0 = DVP camera, 1 = UVC camera */
+        /* Camera ID: 0 = DVP camera, 1 = UVC camera, 2 = MIPI/ISP camera */
     #if (CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA)
         .id = 0,  // DVP camera
         .width = CONFIG_VIDEO_ENGINE_RESOLUTION_WIDTH, //640,
@@ -521,7 +891,21 @@ int video_engine_start(void)
         #elif (CONFIG_VIDEO_ENGINE_H264_FORMAT)
         .format = 1,    //H264_MODE,
         #endif
-     #endif   
+    #elif (CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA)
+        .id = 2,  // MIPI/ISP camera
+        .width = CONFIG_VIDEO_ENGINE_RESOLUTION_WIDTH,
+        .height = CONFIG_VIDEO_ENGINE_RESOLUTION_HEIGHT,
+        .format = 1,    // BK7259 MIPI path produces H264 through HW encoder
+    #elif (CONFIG_VIDEO_ENGINE_USE_UVC_CAMERA)
+        .id = 1,  // UVC camera
+        .width = CONFIG_VIDEO_ENGINE_RESOLUTION_WIDTH,
+        .height = CONFIG_VIDEO_ENGINE_RESOLUTION_HEIGHT,
+        #if (CONFIG_VIDEO_ENGINE_JPEG_FORMAT)
+        .format = 0,
+        #elif (CONFIG_VIDEO_ENGINE_H264_FORMAT)
+        .format = 1,
+        #endif
+    #endif
     };
 
     bk_err_t ret = BK_OK;
@@ -596,7 +980,7 @@ int video_engine_stop(void)
         }
     }
     
-    if (g_video_engine_ctx->camera_handle != NULL) {
+    if (g_video_engine_ctx->camera_opened) {
         ret = video_engine_camera_close();
         if (ret != BK_OK) {
             LOGE("%s: video_engine_camera_close failed, ret=%d\n", __func__, ret);

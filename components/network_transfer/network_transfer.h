@@ -117,6 +117,7 @@ int ntwk_trans_update(void *user_data, void *update_info);
  * @return int 0表示成功，负数表示失败
  */
 int ntwk_trans_start(void *user_data);
+bool ntwk_trans_is_started(void);
 /**
  * @brief 停止网络传输
  * @param user_data 用户数据指针，传递给停止回调函数

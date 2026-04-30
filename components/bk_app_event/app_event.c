@@ -13,8 +13,19 @@
 
 #include "app_event.h"
 // #include "media_app.h"
-#include "led_app.h"
+// #include "led_app.h"
+#if CONFIG_COUNTDOWN
 #include "countdown_app.h"
+#else
+// Define countdown ticket types when COUNTDOWN is disabled
+typedef enum {
+    COUNTDOWN_TICKET_PROVISIONING = 0,
+    COUNTDOWN_TICKET_NETWORK_ERROR,
+    COUNTDOWN_TICKET_STANDBY,
+    COUNTDOWN_TICKET_OTA,
+    COUNTDOWN_TICKET_MAX
+} countdown_ticket_t;
+#endif
 // #include "components/bluetooth/bk_dm_bluetooth.h"
 // #include "boarding_service.h"
 #include "bk_factory_config.h"
@@ -43,7 +54,7 @@
 #if (CONFIG_A2DP_SINK_DEMO || CONFIG_HFP_HF_DEMO)
 #include "app_audio_arbiter.h"
 #endif
-#include "audio_engine.h"
+// #include "audio_engine.h"
 
 #define TAG "app_evt"
 
@@ -461,12 +472,12 @@ static void app_event_thread(beken_thread_arg_t data)
 
     // uint32_t is_network_provisioning = 0;
 
-    uint32_t s_active_tickets = (1 << COUNTDOWN_TICKET_STANDBY);
-
-
-    ota_event_callback_register(ota_event_callback);
 #if CONFIG_COUNTDOWN
+    uint32_t s_active_tickets = (1 << COUNTDOWN_TICKET_STANDBY);
+    //ota_event_callback_register(ota_event_callback);
     update_countdown(s_active_tickets);
+#else
+    uint32_t s_active_tickets = 0;
 #endif
 #if CONFIG_BAT_MONITOR
     battery_event_callback_register(battery_event_callback);
@@ -528,7 +539,8 @@ static void app_event_thread(beken_thread_arg_t data)
                     bk_dual_screen_avi_player_stop();
 #endif
                     //bk_wifi_sta_pm_enable();
-                    bk_pm_module_vote_cpu_freq(PM_DEV_ID_AUDIO, PM_CPU_FRQ_240M);
+
+                    //bk_pm_module_vote_cpu_freq(PM_DEV_ID_AUDIO, PM_CPU_FRQ_240M); // Temporarily disabled (2026-03-20)
                     break;
 
 //-------------------network event start ------------------------------------------------------------------
@@ -602,7 +614,7 @@ static void app_event_thread(beken_thread_arg_t data)
                         indicates_state |= (1<<INDICATES_AGENT_CONNECT);
                     }
 
-					warning_state &= ~(1<<WARNING_WIFI_FAIL);
+                    warning_state &= ~(1<<WARNING_WIFI_FAIL);
                     indicates_state &= ~(1<<INDICATES_WIFI_RECONNECT);
 
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
@@ -757,10 +769,10 @@ static void app_event_thread(beken_thread_arg_t data)
 #endif
             }
 
-#if CONFIG_LED_BLINK
-			      //led blink by states
-            led_blink(&warning_state, indicates_state);
-#endif
+// #if CONFIG_LED_BLINK
+// 			      //led blink by states
+//             led_blink(&warning_state, indicates_state);
+// #endif
 
             rtos_lock_mutex(&s_event_mutex);
             app_event_handler_t *handler = s_event_handlers;

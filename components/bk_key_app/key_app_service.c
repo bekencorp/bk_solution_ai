@@ -6,6 +6,9 @@
 #include <key_app_config.h>
 #include <driver/gpio.h>
 #include "gpio_driver.h"
+#if CONFIG_ADC_KEY
+#include "adc_key_main.h"
+#endif
 #if (0)
 #include "audio_config.h"
 #include "aud_intf.h"
@@ -44,7 +47,6 @@
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 #define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
 
-
 #if CONFIG_BUTTON
 
 static void power_off(void)
@@ -68,7 +70,9 @@ static void ai_agent_config(void)
     //BK_LOGW(TAG, " ************TODO:AI Agent doesn't complete!\r\n");
 }
 
+#if !CONFIG_ADC_KEY
 static KeyConfig_t key_config[] = KEY_DEFAULT_CONFIG_TABLE;
+#endif
 
 /*Do not execute blocking or time-consuming long code in event handler
  functions. The reason is that key_thread processes messages in a
@@ -82,7 +86,7 @@ static void handle_system_event(uint8_t event)
         LOGI("Invalid event: %d\r\n", event);
         return;
     }
-    
+
     uint32_t time;
 
     switch (event)
@@ -140,12 +144,68 @@ static void handle_system_event(uint8_t event)
             bk_wss_state_event(WSS_EVENT_RECORDING_START, NULL);
             break;
 #endif
-        // 其他事件处理...
+#if CONFIG_ADC_KEY
+        case ADC_KEY_S4_SHORT:
+            LOGI("ADC_KEY_S4_SHORT\r\n");
+#if CONFIG_LVGL
+            bk_key_app_notify_ui_nav(event);
+#endif
+            break;
+        case ADC_KEY_S4_DOUBLE:
+            LOGI("ADC_KEY_S4_DOUBLE\r\n");
+#if CONFIG_LVGL
+            bk_key_app_notify_ui_nav(event);
+#endif
+            break;
+        case ADC_KEY_S4_LONG:
+            LOGI("ADC_KEY_S4_LONG\r\n");
+#if CONFIG_LVGL
+            bk_key_app_notify_ui_nav(event);
+#endif
+            break;
+        case ADC_KEY_S5_SHORT:
+            LOGI("ADC_KEY_S5_SHORT\r\n");
+#if CONFIG_LVGL
+            bk_key_app_notify_ui_nav(event);
+#endif
+            break;
+        case ADC_KEY_S5_DOUBLE:
+            LOGI("ADC_KEY_S5_DOUBLE\r\n");
+#if CONFIG_LVGL
+            bk_key_app_notify_ui_nav(event);
+#endif
+            break;
+        case ADC_KEY_S5_LONG:
+            LOGI("ADC_KEY_S5_LONG\r\n");
+#if CONFIG_LVGL
+            bk_key_app_notify_ui_nav(event);
+#endif
+            break;
+        case GPIO_KEY1_ANY_SHORT:
+            LOGI("GPIO_KEY1_ANY_SHORT\r\n");
+#if CONFIG_LVGL
+            bk_key_app_notify_ui_nav(event);
+#endif
+            break;
+        case GPIO_KEY1_ANY_DOUBLE:
+            LOGI("GPIO_KEY1_ANY_DOUBLE\r\n");
+#if CONFIG_LVGL
+            bk_key_app_notify_ui_nav(event);
+#endif
+            break;
+        case GPIO_KEY1_ANY_LONG:
+            LOGI("GPIO_KEY1_ANY_LONG\r\n");
+#if CONFIG_LVGL
+            bk_key_app_notify_ui_nav(event);
+#endif
+            break;
+#endif
         default:
             break;
     }
 }
 
+#if CONFIG_GPIO_WAKEUP_SOURCE_ENABLE
 void bk_key_register_wakeup_source(void)
 {
     for (uint8_t i = 0; i < sizeof(key_config) / sizeof(KeyConfig_t); i++)
@@ -165,14 +225,24 @@ void bk_key_register_wakeup_source(void)
         }
     }
 }
-
+#endif
 
 void bk_key_service_init(void)
 {
+#if CONFIG_ADC_KEY
+    bk_all_keys_init(handle_system_event);
+#else
     bk_key_register_event_handler(handle_system_event);
-
     bk_key_driver_init(key_config, sizeof(key_config) / sizeof(KeyConfig_t));
+#endif
 }
 
+#if CONFIG_LVGL
+__attribute__((weak))
+void bk_key_app_notify_ui_nav(uint8_t event)
+{
+    (void)event;
+}
+#endif
 
 #endif

@@ -1,7 +1,7 @@
 menu "net_transfer"
 	config BK_NETWORK_TRANSFER
 		bool "Enable BEKEN Network Transfer"
-		default n
+		default y
 
 	config BK_WSS_TRANS
 		bool "Enable Beken Websocket Transmit for AI"
