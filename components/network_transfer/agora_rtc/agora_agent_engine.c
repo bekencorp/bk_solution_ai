@@ -205,6 +205,11 @@ int agora_start_agent_from_bk_server(agora_rtc_agent_info_t *option_info, void *
     int url_len = 0, ret = BK_FAIL;
     uint32_t rand_flag = 0;
     cJSON *root = NULL, *agent_param = NULL;
+#if CONFIG_BK_SMART_CONFIG
+    int start_as_vision = (os_strcmp(bk_sconf_get_start_model_type(), "vision") == 0);
+#else
+    int start_as_vision = 0;
+#endif
 
     LOGI("agora_start_agent_from_bk_server device_id:%s\r\n", device_id);
 
@@ -214,7 +219,11 @@ int agora_start_agent_from_bk_server(agora_rtc_agent_info_t *option_info, void *
         return BK_FAIL;
     }
 
-    url_len = os_snprintf(uri, AGORA_AGENT_MAX_URL_LEN, "%s/activate_agent/", bk_get_bk_server_url(0));
+    url_len = os_snprintf(uri,
+                          AGORA_AGENT_MAX_URL_LEN,
+                          "%s/%s/",
+                          bk_get_bk_server_url(0),
+                          start_as_vision ? "switch_model_type" : "activate_agent");
     if ((url_len < 0) || (url_len >= AGORA_AGENT_MAX_URL_LEN))
     {
         LOGE("URL len overflow\r\n");
@@ -246,13 +255,11 @@ int agora_start_agent_from_bk_server(agora_rtc_agent_info_t *option_info, void *
     cJSON_AddStringToObject(agent_param, "out_acodec", "PCM");
     #endif
 
-#if CONFIG_BK_SMART_CONFIG
-    if (os_strcmp(bk_sconf_get_start_model_type(), "vision") == 0)
+    if (start_as_vision)
     {
         cJSON_AddStringToObject(root, "model_type", "text_and_image");
     }
     else
-#endif
     {
         cJSON_AddStringToObject(root, "model_type", "text");
     }

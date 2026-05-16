@@ -52,6 +52,9 @@
 #define VIDEO_TRANSFER_TASK_PRIORITY    5
 #define VIDEO_TRANSFER_TASK_STACK_SIZE  (4 * 1024)
 #define VIDEO_TRANSFER_QUEUE_TIMEOUT    (BEKEN_WAIT_FOREVER)
+#define VIDEO_TRANSFER_STOP_WAIT_MS     (1000)
+#define VIDEO_TRANSFER_STOP_POLL_MS     (20)
+#define VIDEO_MIPI_ENCODER_DRAIN_MS     (80)
 
 #if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
 #define VIDEO_ENGINE_MIPI_CAM_SCL       GPIO_70
@@ -630,6 +633,7 @@ static int video_engine_mipi_camera_close(void)
     {
         bk_flexa_isp_h264e_bond_stop(g_video_engine_ctx->h264_bond);
         g_video_engine_ctx->h264_bond = NULL;
+        rtos_delay_milliseconds(VIDEO_MIPI_ENCODER_DRAIN_MS);
     }
 
     ret = app_h264e_turn_off();
@@ -800,12 +804,18 @@ int video_engine_transfer_stop(void)
 
     g_video_engine_ctx->transfer_task_running = false;
 
+    for (uint32_t waited_ms = 0;
+         g_video_engine_ctx->transfer_task_handle != NULL && waited_ms < VIDEO_TRANSFER_STOP_WAIT_MS;
+         waited_ms += VIDEO_TRANSFER_STOP_POLL_MS)
+    {
+        rtos_delay_milliseconds(VIDEO_TRANSFER_STOP_POLL_MS);
+    }
 
     if (g_video_engine_ctx->transfer_task_handle != NULL)
     {
-        LOGW("%s: transfer task did not exit gracefully, force delete\n", __func__);
-        ret = rtos_delete_thread(&g_video_engine_ctx->transfer_task_handle);
-        g_video_engine_ctx->transfer_task_handle = NULL;
+        LOGW("%s: transfer task did not exit within %u ms\n",
+             __func__, VIDEO_TRANSFER_STOP_WAIT_MS);
+        ret = BK_FAIL;
     }
 
     LOGI("%s: video transfer task stopped\n", __func__);

@@ -273,7 +273,7 @@ int bk_agora_rtc_video_data_send(frame_buffer_t *frame)
     }
     else
     {
-         LOGD("%s: send video data successfully, len=%d\n", __func__, (int)frame->length);
+         //LOGD("%s: send video data successfully, len=%d\n", __func__, (int)frame->length);
     }
     
     /* Update timestamp */
