@@ -1,0 +1,13 @@
+menu "AVDK NN Module"
+
+	config TFLM_YOLOFACE_V1
+		depends on TFLITE_MICRO
+		bool "Enable tflm YOLOFACE_V1"
+		default n
+
+	config TFLM_PALM_DETECTION_V1
+		depends on TFLITE_MICRO
+		bool "Enable tflm PALM_V1"
+		default n
+
+endmenu

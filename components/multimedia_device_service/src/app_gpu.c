@@ -115,6 +115,8 @@ avdk_err_t app_gpu_turn_on(gpu_board_config_t *config)
     gpu_config.dst_height = config->flexa.dst_height;
     gpu_config.src_format = config->flexa.src_format;
     gpu_config.dst_format = config->flexa.dst_format;
+    gpu_config.tess_width = config->flexa.tess_width;
+    gpu_config.tess_height = config->flexa.tess_height;
     gpu_config.compress = config->flexa.dst_compress;
     gpu_config.scale = config->flexa.scale;
     gpu_config.src_buffer = (uint8_t *)(isp_control->chn[APP_ISP_MP_CHN_ID].y_addr);
