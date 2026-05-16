@@ -34,6 +34,23 @@ extern "C" {
 #include "event_runtime.h"
 
 // add custom functions here
+void ui_music_play(void);
+void ui_music_stop(void);
+void ui_music_next(void);
+const char *ui_music_state_text(void);
+const char *ui_music_track_text(void);
+void ui_asr_demo_reset(void);
+void ui_asr_demo_execute(void);
+void ui_asr_demo_next_command(void);
+void ui_asr_demo_stop(void);
+void ui_asr_demo_anim_step(void);
+const char *ui_asr_demo_state_text(void);
+const char *ui_asr_demo_command_text(void);
+const char *ui_asr_demo_anim_text(void);
+const char *ui_asr_demo_result_text(void);
+void ui_asr_demo_notify_nihaobotong(void);
+void ui_asr_demo_notify_zaijianbotong(void);
+int ui_asr_demo_consume_phrase_trigger(char *phrase_buf, int phrase_buf_len);
 
 #ifdef __cplusplus
 } /*extern "C"*/

@@ -13,6 +13,7 @@
 #include "lv_vendor.h"
 #include "beken_ui.h"
 #include "ui_nav_router.h"
+#include "custom_func.h"
 #ifdef ROBOT_TEST
 #include "page_5_api.h"
 #include "page_5_eyes.h"
@@ -121,6 +122,22 @@ static bk_err_t bk_robot_lvgl_init(bk_display_ctlr_handle_t dpu_handle)
 
     LOGI("LVGL started on %dx%d MIPI\n", LVGL_DISP_WIDTH, LVGL_DISP_HEIGHT);
     return BK_OK;
+}
+#endif
+
+#if CONFIG_APP_EVT
+static void bk_robot_asr_phrase_evt_cb(app_evt_msg_t *msg, void *user_data)
+{
+    (void)user_data;
+    if (msg == NULL) {
+        return;
+    }
+
+    if (msg->event == APP_EVT_ASR_NIHAOBOTONG) {
+        ui_asr_demo_notify_nihaobotong();
+    } else if (msg->event == APP_EVT_ASR_ZAIJIANBOTONG) {
+        ui_asr_demo_notify_zaijianbotong();
+    }
 }
 #endif
 
@@ -271,12 +288,17 @@ int main(void)
     
     #if CONFIG_APP_EVT
         app_event_init();
+        (void)app_event_register_handler(APP_EVT_ASR_NIHAOBOTONG,
+                                         bk_robot_asr_phrase_evt_cb,
+                                         NULL);
+        (void)app_event_register_handler(APP_EVT_ASR_ZAIJIANBOTONG,
+                                         bk_robot_asr_phrase_evt_cb,
+                                         NULL);
     #endif
 
     #if CONFIG_LVGL
         wifi_status_ui_init();
     #endif
-
     #if CONFIG_BK_NETWORK_TRANSFER
         ntwk_trans_init();
     #endif

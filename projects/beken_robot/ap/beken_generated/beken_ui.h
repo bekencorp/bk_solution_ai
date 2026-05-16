@@ -63,6 +63,8 @@ typedef struct
     lv_obj_t *page_3_button_5_label;
     lv_obj_t *page_3_button_6;
     lv_obj_t *page_3_button_6_label;
+    lv_obj_t *page_3_button_7;
+    lv_obj_t *page_3_button_7_label;
     /* Page: 3 objects */
     lv_obj_t *page_4;
     lv_obj_t *page_4_button_1;
@@ -80,6 +82,35 @@ typedef struct
     /* Page: 6 objects */
     lv_obj_t *page_7;
     lv_obj_t *page_7_label_1;
+    /* Page: 7 objects */
+    lv_obj_t *page_8;
+    /* Page: 8 objects */
+    lv_obj_t *page_9;
+    lv_obj_t *page_9_label_title;
+    lv_obj_t *page_9_label_state;
+    lv_obj_t *page_9_label_track;
+    lv_obj_t *page_9_button_play;
+    lv_obj_t *page_9_button_play_label;
+    lv_obj_t *page_9_button_stop;
+    lv_obj_t *page_9_button_stop_label;
+    lv_obj_t *page_9_button_next;
+    lv_obj_t *page_9_button_next_label;
+    /* Page: 9 objects */
+    lv_obj_t *page_10;
+    lv_obj_t *page_10_label_title;
+    lv_obj_t *page_10_icon_speaker;
+    lv_obj_t *page_10_icon_body;
+    lv_obj_t *page_10_icon_cone;
+    lv_obj_t *page_10_icon_wave_1;
+    lv_obj_t *page_10_icon_wave_2;
+    lv_obj_t *page_10_icon_wave_3;
+    lv_obj_t *page_10_icon_slash;
+    lv_obj_t *page_10_label_value;
+    lv_obj_t *page_10_slider_volume;
+    lv_obj_t *page_10_button_minus;
+    lv_obj_t *page_10_button_minus_label;
+    lv_obj_t *page_10_button_plus;
+    lv_obj_t *page_10_button_plus_label;
 } bk_lv_ui_t;
 
 void init_page_page_1(bk_lv_ui_t *bk_ui);
@@ -96,6 +127,12 @@ void init_page_page_6(bk_lv_ui_t *bk_ui);
 void destroy_page_page_6(bk_lv_ui_t *bk_ui);
 void init_page_page_7(bk_lv_ui_t *bk_ui);
 void destroy_page_page_7(bk_lv_ui_t *bk_ui);
+void init_page_page_8(bk_lv_ui_t *bk_ui);
+void destroy_page_page_8(bk_lv_ui_t *bk_ui);
+void init_page_page_9(bk_lv_ui_t *bk_ui);
+void destroy_page_page_9(bk_lv_ui_t *bk_ui);
+void init_page_page_10(bk_lv_ui_t *bk_ui);
+void destroy_page_page_10(bk_lv_ui_t *bk_ui);
 
 /* declare image */
 LV_IMAGE_DECLARE(beken_logo_blue_321x147_RGB565A8_NONE);
@@ -104,8 +141,15 @@ LV_IMAGE_DECLARE(wifi_1_23x24_RGB565A8_NONE);
 
 /* declare fonts */
 LV_FONT_DECLARE(lv_font_ali_25);
-LV_FONT_DECLARE(lv_font_ali_30);
 LV_FONT_DECLARE(lv_font_ali_16);
+LV_FONT_DECLARE(lv_font_ali_30);
+LV_FONT_DECLARE(lv_font_zh_demo_16);
+LV_FONT_DECLARE(lv_font_zh_demo_20);
+LV_FONT_DECLARE(lv_font_zh_demo_24);
+LV_FONT_DECLARE(lv_font_zh_demo_28);
+LV_FONT_DECLARE(lv_font_zh_demo_32);
+LV_FONT_DECLARE(lv_font_zh_demo_56);
+LV_FONT_DECLARE(lv_font_zh_demo_112);
 
 /**
  * @brief Initialize the Beken UI system

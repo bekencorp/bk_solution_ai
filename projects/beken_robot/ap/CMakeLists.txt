@@ -8,6 +8,7 @@ set(srcs
     src/page_5_eyes.c
     beken_generated/page_6_init.c
     beken_generated/page_7_init.c
+    beken_generated/page_10_init.c
 )
 
 include(${CMAKE_CURRENT_LIST_DIR}/beken_generated/beken_generated.cmake)
