@@ -797,6 +797,7 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
         voice_cfg->eq_en = true;
         eq_algorithm_cfg_t eq_cfg = DEFAULT_EQ_ALGORITHM_CONFIG();
         eq_cfg.eq_chl_num = cfg->eq_enable;
+        eq_cfg.eq_mode = EQ_MODE_HARDWARE;
         voice_cfg->eq_cfg.eq_alg_cfg = eq_cfg;
     } else {
         voice_cfg->eq_en = false;
@@ -1331,7 +1332,7 @@ int audio_engine_init(void)
         .mic_sample_rate = CONFIG_AE_AUDIO_ADC_SAMP_RATE,
         .spk_sample_rate = CONFIG_AE_AUDIO_DAC_SAMP_RATE,
         .aec_enable   = 3,
-        .eq_enable    = 0,
+        .eq_enable    = 1,
         .enc_type     = AUDIO_ENC_TYPE_INVALID,
         .dec_type     = AUDIO_DEC_TYPE_INVALID,
         .event_cb     = voice_event_callback,
