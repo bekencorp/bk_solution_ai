@@ -66,6 +66,7 @@ beken_semaphore_t sync_flash_sema = NULL;
 bool smart_config_running = false;
 static beken_thread_t config_ir_mode_switch_thread_handle = NULL;
 static beken_thread_t s_sconf_cli_mode_thread_handle = NULL;
+static beken_thread_t s_sconf_exit_thread_handle = NULL;
 static const char *s_sconf_start_model_type = "text";
 
 static volatile bool s_network_provisioned = false;
@@ -891,6 +892,62 @@ int bk_sconf_exit_ai_mode(int from_vision)
 #endif
 
     return ret;
+}
+
+/* ----------------------------------------------------------------------
+ * Asynchronous exit
+ *
+ * The synchronous bk_sconf_exit_ai_mode() runs Agora teardown, video engine
+ * deinit, MIPI camera close (which contains a fixed 80ms drain delay) and
+ * H.264 encoder shutdown. Measured cost is ~250ms-1s, dominated by the
+ * fixed delay and Agora destroy.
+ *
+ * When invoked from on_screen_prev (page nav callbacks), the LVGL display
+ * lock is held for that entire duration, freezing all UI animations. This
+ * worker decouples teardown from the caller so the LV tree can be swapped
+ * to page_3 immediately and the heavy stop happens in the background.
+ * -------------------------------------------------------------------- */
+
+static void bk_sconf_exit_ai_mode_handler(beken_thread_arg_t arg)
+{
+    int from_vision = (int)(intptr_t)arg;
+    LOGI("sconf exit worker start, from_vision=%d\r\n", from_vision);
+    (void)bk_sconf_exit_ai_mode(from_vision);
+    LOGI("sconf exit worker done\r\n");
+    s_sconf_exit_thread_handle = NULL;
+    rtos_delete_thread(NULL);
+}
+
+int bk_sconf_exit_ai_mode_async(int from_vision)
+{
+    int ret;
+
+    if (s_sconf_exit_thread_handle) {
+        LOGW("sconf exit already running, coalesce\r\n");
+        return BK_FAIL;
+    }
+#if CONFIG_PSRAM_AS_SYS_MEMORY
+    ret = rtos_create_psram_thread(&s_sconf_exit_thread_handle,
+                                   CONFIG_IR_MODE_SWITCH_TASK_PRIORITY,
+                                   "sconf_exit",
+                                   (beken_thread_function_t)bk_sconf_exit_ai_mode_handler,
+                                   4096,
+                                   from_vision ? (beken_thread_arg_t)(void *)1 : (beken_thread_arg_t)0);
+#else
+    ret = rtos_create_thread(&s_sconf_exit_thread_handle,
+                             CONFIG_IR_MODE_SWITCH_TASK_PRIORITY,
+                             "sconf_exit",
+                             (beken_thread_function_t)bk_sconf_exit_ai_mode_handler,
+                             4096,
+                             from_vision ? (beken_thread_arg_t)(void *)1 : (beken_thread_arg_t)0);
+#endif
+    if (ret != kNoErr) {
+        LOGE("sconf exit thread fail: %d\r\n", ret);
+        s_sconf_exit_thread_handle = NULL;
+        return BK_FAIL;
+    }
+
+    return BK_OK;
 }
 
 static void bk_sconf_cli_handler(char *pcWriteBuffer, int xWriteBufferLen, int argC, char **argV)

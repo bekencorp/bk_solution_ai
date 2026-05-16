@@ -60,6 +60,26 @@ int bk_sconf_stop_rtc(void);
 int bk_sconf_enter_text_mode(void);
 int bk_sconf_enter_vision_mode(void);
 int bk_sconf_exit_ai_mode(int from_vision);
+
+/**
+ * @brief Asynchronous variant of bk_sconf_exit_ai_mode.
+ *
+ * Spawns a worker thread that runs bk_sconf_exit_ai_mode(from_vision) in the
+ * background and returns immediately. Use from contexts that hold a lock the
+ * heavy teardown should not block — most importantly the LVGL display lock
+ * held by ui_nav_dispatch_event during page nav callbacks. The synchronous
+ * teardown chain (Agora RTC destroy + video_engine_deinit + camera close)
+ * can take 250 ms - 1 s depending on RTC activity, which would otherwise
+ * freeze the UI.
+ *
+ * Re-entry: if a previous async exit worker is still running, this call
+ * returns BK_FAIL without spawning a second one. The first invocation wins;
+ * subsequent presses while teardown is in flight are coalesced.
+ *
+ * @return BK_OK if the worker was successfully scheduled; BK_FAIL if a prior
+ *         worker is still running or the OS could not create the thread.
+ */
+int bk_sconf_exit_ai_mode_async(int from_vision);
 const char *bk_sconf_get_start_model_type(void);
 int bk_sconf_sync_flash_request(void);
 void bk_sconf_sync_flash_handler(void);
