@@ -26,6 +26,9 @@
 
 #include "audio_engine.h"
 
+#include "ui_nav_router.h"
+#include "ui_nav_events.h"
+
 #if CONFIG_APP_EVT
 #include "app_event.h"
 #endif
@@ -90,14 +93,13 @@ static void cmd_back(void)
     lv_vendor_disp_lock();
     lv_obj_t *active = lv_screen_active();
 #if CONFIG_BK_SMART_CONFIG
-    /* Only exit the mode whose page is currently shown; the other mode
-     * was never entered from this CLI session, so calling exit on it
-     * would return an error. */
     if (active == bk_lv_tool_ui.page_6) {
-        (void)bk_sconf_exit_ai_mode(0);
+        (void)bk_sconf_exit_ai_mode_async(0);
     } else if (active == bk_lv_tool_ui.page_7) {
-        (void)bk_sconf_exit_ai_mode(1);
+        (void)bk_sconf_exit_ai_mode_async(1);
     }
+#else
+    (void)active;
 #endif
     navigate_to_screen((lv_obj_t **)&bk_lv_tool_ui.page_3,
                        LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
@@ -120,6 +122,12 @@ static void cmd_state(void)
             (unsigned)spk_active, (unsigned)spk_level,
             (unsigned)pending,
             last_evt, ai_evt_name(last_evt));
+}
+
+static void cmd_prev(void)
+{
+    BK_LOGI(TAG, "aiui prev -> simulate ADC_KEY_S4_DOUBLE / SCREEN_PREV\n");
+    ui_nav_dispatch_event(UI_NAV_EVENT_SCREEN_PREV);
 }
 
 static int cmd_evt(const char *which)
@@ -151,7 +159,7 @@ static void cli_aiui_fn(char *pcWriteBuffer, int xWriteBufferLen, int argc, char
     (void)pcWriteBuffer;
     (void)xWriteBufferLen;
     if (argc < 2) {
-        BK_LOGI(TAG, "usage: aiui chat | vision | back | state | evt <listen|think|speak|idle>\n");
+        BK_LOGI(TAG, "usage: aiui chat | vision | back | prev | state | evt <listen|think|speak|idle>\n");
         return;
     }
 
@@ -159,6 +167,7 @@ static void cli_aiui_fn(char *pcWriteBuffer, int xWriteBufferLen, int argc, char
     if      (!strcmp(sub, "chat"))   cmd_chat();
     else if (!strcmp(sub, "vision")) cmd_vision();
     else if (!strcmp(sub, "back"))   cmd_back();
+    else if (!strcmp(sub, "prev"))   cmd_prev();
     else if (!strcmp(sub, "state"))  cmd_state();
     else if (!strcmp(sub, "evt")) {
         if (argc < 3 || cmd_evt(argv[2]) != 0) {
@@ -166,13 +175,13 @@ static void cli_aiui_fn(char *pcWriteBuffer, int xWriteBufferLen, int argc, char
         }
     } else {
         BK_LOGI(TAG, "unknown subcommand '%s'\n", sub);
-        BK_LOGI(TAG, "usage: aiui chat | vision | back | state | evt <listen|think|speak|idle>\n");
+        BK_LOGI(TAG, "usage: aiui chat | vision | back | prev | state | evt <listen|think|speak|idle>\n");
     }
 }
 
 static const struct cli_command s_aiui_cmds[] = {
     {"aiui",
-     "aiui chat|vision|back|state|evt <listen|think|speak|idle>",
+     "aiui chat|vision|back|prev|state|evt <listen|think|speak|idle>",
      cli_aiui_fn},
 };
 

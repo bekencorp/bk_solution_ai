@@ -37,8 +37,9 @@ static void on_screen_prev(bk_lv_ui_t *ui)
     }
 
     LOGI("AI chat back -> page_3\r\n");
-    if (bk_sconf_exit_ai_mode(0) != BK_OK) {
-        LOGW("AI chat exit returned non-OK\r\n");
+    /* Async teardown — see vision page_7_init.c for rationale. */
+    if (bk_sconf_exit_ai_mode_async(0) != BK_OK) {
+        LOGW("AI chat exit dispatch failed (worker busy?)\r\n");
     }
 
     navigate_to_screen((lv_obj_t **)&ui->page_3,

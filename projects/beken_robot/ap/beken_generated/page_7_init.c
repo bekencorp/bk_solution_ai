@@ -37,8 +37,12 @@ static void on_screen_prev(bk_lv_ui_t *ui)
     }
 
     LOGI("Vision recognition back -> page_3\r\n");
-    if (bk_sconf_exit_ai_mode(1) != BK_OK) {
-        LOGW("Vision recognition exit returned non-OK\r\n");
+    /* Run the heavy teardown (Agora destroy + video_engine_deinit +
+     * MIPI camera close) on a worker thread so the LVGL display lock
+     * held by ui_nav_dispatch_event is released within ~50ms instead
+     * of the ~250ms-1s the synchronous chain would take. */
+    if (bk_sconf_exit_ai_mode_async(1) != BK_OK) {
+        LOGW("Vision recognition exit dispatch failed (worker busy?)\r\n");
     }
 
     navigate_to_screen((lv_obj_t **)&ui->page_3,
