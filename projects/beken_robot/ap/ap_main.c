@@ -58,6 +58,7 @@
 
 #if CONFIG_LVGL
 #include "wifi_status_ui.h"
+#include "ai_debug_cli.h"
 #endif
 
 #if CONFIG_LED_BLINK
@@ -298,6 +299,7 @@ int main(void)
 
     #if CONFIG_LVGL
         wifi_status_ui_init();
+        ai_debug_cli_init();
     #endif
     #if CONFIG_BK_NETWORK_TRANSFER
         ntwk_trans_init();

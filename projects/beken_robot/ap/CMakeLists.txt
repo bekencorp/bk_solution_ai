@@ -6,6 +6,8 @@ set(srcs
     src/ui_key_bridge.c
     src/wifi_status_ui.c
     src/page_5_eyes.c
+    src/page_chat_anim.c
+    src/ai_debug_cli.c
     beken_generated/page_6_init.c
     beken_generated/page_7_init.c
     beken_generated/page_10_init.c

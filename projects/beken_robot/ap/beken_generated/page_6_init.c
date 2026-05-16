@@ -16,6 +16,7 @@
 #include "beken_ui.h"
 #include "custom_func.h"
 #include "event_runtime.h"
+#include "page_chat_anim.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -74,15 +75,11 @@ void init_page_page_6(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_bg_opa(bk_ui->page_6, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_grad_dir(bk_ui->page_6, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    bk_ui->page_6_label_1 = lv_label_create(bk_ui->page_6);
-    lv_label_set_text(bk_ui->page_6_label_1, "AI对话...");
-    lv_label_set_long_mode(bk_ui->page_6_label_1, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_width(bk_ui->page_6_label_1, 320);
-    lv_obj_align(bk_ui->page_6_label_1, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_text_color(bk_ui->page_6_label_1, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(bk_ui->page_6_label_1, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(bk_ui->page_6_label_1, &lv_font_ali_25, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(bk_ui->page_6_label_1, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* Tech-abstract animation (core + ripples + EQ + status).
+     * Initial state is CONNECTING; subsequent transitions are driven by
+     * app_event AGENT_* / RTC_* / AI_* messages. */
+    bk_ui->page_6_label_1 = NULL;
+    page_chat_anim_attach(bk_ui->page_6, PAGE_CHAT_ANIM_MODE_VOICE);
 
 #ifdef ROBOT_TEST
     (void)ui_nav_register_screen(bk_ui->page_6, &page_6_nav_ops);
@@ -106,6 +103,7 @@ void destroy_page_page_6(bk_lv_ui_t *bk_ui)
 #ifdef ROBOT_TEST
         ui_nav_unregister_screen(bk_ui->page_6);
 #endif
+        page_chat_anim_detach();
         lv_obj_del(bk_ui->page_6);
         bk_ui->page_6 = NULL;
         bk_ui->page_6_label_1 = NULL;
