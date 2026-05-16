@@ -8,6 +8,11 @@ menu "Audio Engine"
 		range 20 60
 		default 20
 
+	config AE_SEND_AUDIO_WITHOUT_ASR_RESULT
+		bool "Send audio without checking ASR result"
+		depends on BK_NETWORK_TRANSFER
+		default n
+
 	config AE_AUDIO_ADC_SAMP_RATE
 		int "ADC sample rate"
 		default 16000

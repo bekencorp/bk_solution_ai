@@ -1179,7 +1179,7 @@ static int voice_read_callback(unsigned char *data, unsigned int len, void *args
     int ret = 0;
 
     #if CONFIG_BK_NETWORK_TRANSFER
-    #if (CONFIG_ASR_SERVICE)
+    #if (CONFIG_ASR_SERVICE) && (!CONFIG_AE_SEND_AUDIO_WITHOUT_ASR_RESULT)
     #if CONFIG_BEKEN_KWS
         if (g_audio_engine.asr_result == BK_KWS_ARMINO)
     #else
