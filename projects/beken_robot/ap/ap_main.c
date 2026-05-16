@@ -23,6 +23,7 @@
 #include <common/avdk_pixel_types.h>
 #include <components/bk_display.h>
 #endif
+#include "driver/drv_tp.h"
 
 #if CONFIG_BK_NETWORK_TRANSFER
 #include "network_transfer.h"
@@ -113,11 +114,13 @@ static bk_err_t bk_robot_lvgl_init(bk_display_ctlr_handle_t dpu_handle)
 
     lv_vendor_init(&cfg);
 
-    lv_vendor_disp_lock();
+#if (CONFIG_TP)
+    drv_tp_open(LVGL_DISP_WIDTH, LVGL_DISP_HEIGHT, TP_MIRROR_NONE);
+#endif
 
+    lv_vendor_disp_lock();
     ui_nav_router_init();
     beken_ui_init();
-
     lv_vendor_disp_unlock();
 
     lv_vendor_start();
