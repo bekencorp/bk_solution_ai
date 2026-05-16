@@ -34,11 +34,6 @@ extern "C" {
 #include "event_runtime.h"
 
 // add custom functions here
-void ui_music_play(void);
-void ui_music_stop(void);
-void ui_music_next(void);
-const char *ui_music_state_text(void);
-const char *ui_music_track_text(void);
 
 #ifdef __cplusplus
 } /*extern "C"*/

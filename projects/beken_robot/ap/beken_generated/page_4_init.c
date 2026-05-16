@@ -102,13 +102,16 @@ static void on_screen_next(bk_lv_ui_t *ui)
     LOGI("page4 short press idx=%d\r\n", s_page4_menu_idx);
     switch (s_page4_menu_idx) {
     case 0:
-        LOGI("开始（短按，请长按S4触发配网）\r\n");
+        LOGI("Start provisioning (short press S4 to trigger)\r\n");
+#if CONFIG_BK_SMART_CONFIG
+        bk_sconf_prepare_for_smart_config();
+#endif
         break;
     case 1:
-        LOGI("删除\r\n");
+        LOGI("Delete\r\n");
         break;
     case 2:
-        LOGI("恢复出厂设置\r\n");
+        LOGI("Factory reset\r\n");
         break;
     default:
         break;
@@ -122,10 +125,7 @@ static void on_confirm_long(bk_lv_ui_t *ui)
     }
     LOGI("page4 long press idx=%d\r\n", s_page4_menu_idx);
     if (s_page4_menu_idx == 0) {
-        LOGI("开始配网（长按S4触发）\r\n");
-#if CONFIG_BK_SMART_CONFIG
-        bk_sconf_prepare_for_smart_config();
-#endif
+        LOGI("Provisioning is triggered by short press S4\r\n");
     }
 }
 

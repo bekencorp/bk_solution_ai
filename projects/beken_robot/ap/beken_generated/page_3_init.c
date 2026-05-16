@@ -27,7 +27,7 @@
 #define TAG "page3"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 
-#define PAGE3_MENU_COUNT 7
+#define PAGE3_MENU_COUNT 6
 
 static int s_page3_menu_idx;
 
@@ -43,7 +43,6 @@ static lv_obj_t *page_3_menu_btn(bk_lv_ui_t *ui, int idx)
     case 3: return ui->page_3_button_4;
     case 4: return ui->page_3_button_5;
     case 5: return ui->page_3_button_6;
-    case 6: return ui->page_3_button_7;
     default: return NULL;
     }
 }
@@ -102,36 +101,31 @@ static void on_screen_next(bk_lv_ui_t *ui)
     LOGI("page3 enter idx=%d\r\n", s_page3_menu_idx);
     switch (s_page3_menu_idx) {
     case 0:
-        /*
-         * 设计器把 button_1 文字从 "BLE配网" 改成 "图像识别"。
-         * BLE 配网入口已经迁到 page_2 的"配网"按钮，本处不再跳
-         * page_4。具体图像识别业务待接入，先打日志。
-         */
-        LOGI("图像识别\r\n");
-        break;
-    case 1:
-        LOGI("视觉\r\n");
-        break;
-    case 2:
-        LOGI("语音识别\r\n");
-        break;
-    case 3:
-        LOGI("人脸跟踪\r\n");
-        break;
-    case 4:
-        LOGI("音量设置\r\n");
-        break;
-    case 5:
-        LOGI("声源定位 -> page_5\r\n");
-        navigate_to_screen((lv_obj_t **)&ui->page_5,
-                           LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
-                           init_page_page_5);
-        break;
-    case 6:
-        LOGI("Music -> page_6\r\n");
+        LOGI("AI chat -> page_6\r\n");
         navigate_to_screen((lv_obj_t **)&ui->page_6,
                            LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                            init_page_page_6);
+        break;
+    case 1:
+        LOGI("Vision recognition -> page_7\r\n");
+        navigate_to_screen((lv_obj_t **)&ui->page_7,
+                           LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
+                           init_page_page_7);
+        break;
+    case 2:
+        LOGI("Speech recognition\r\n");
+        break;
+    case 3:
+        LOGI("Face tracking\r\n");
+        break;
+    case 4:
+        LOGI("Volume settings\r\n");
+        break;
+    case 5:
+        LOGI("Sound source localization -> page_5\r\n");
+        navigate_to_screen((lv_obj_t **)&ui->page_5,
+                           LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
+                           init_page_page_5);
         break;
     default:
         break;
@@ -166,7 +160,7 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
 
     bk_ui->page_3_button_1 = lv_btn_create(bk_ui->page_3);
     bk_ui->page_3_button_1_label = lv_label_create(bk_ui->page_3_button_1);
-    lv_label_set_text(bk_ui->page_3_button_1_label, "图像识别");
+    lv_label_set_text(bk_ui->page_3_button_1_label, "AI对话");
     lv_label_set_long_mode(bk_ui->page_3_button_1_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_1_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_x(bk_ui->page_3_button_1, 14);
@@ -196,7 +190,7 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
 
     bk_ui->page_3_button_2 = lv_btn_create(bk_ui->page_3);
     bk_ui->page_3_button_2_label = lv_label_create(bk_ui->page_3_button_2);
-    lv_label_set_text(bk_ui->page_3_button_2_label, "视觉");
+    lv_label_set_text(bk_ui->page_3_button_2_label, "视觉识别");
     lv_label_set_long_mode(bk_ui->page_3_button_2_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_2_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_x(bk_ui->page_3_button_2, 131);
@@ -226,7 +220,7 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
 
     bk_ui->page_3_button_3 = lv_btn_create(bk_ui->page_3);
     bk_ui->page_3_button_3_label = lv_label_create(bk_ui->page_3_button_3);
-    lv_label_set_text(bk_ui->page_3_button_3_label, "语音识别");
+    lv_label_set_text(bk_ui->page_3_button_3_label, "命令词识别");
     lv_label_set_long_mode(bk_ui->page_3_button_3_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_3_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_x(bk_ui->page_3_button_3, 244);
@@ -343,36 +337,6 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_shadow_offset_x(bk_ui->page_3_button_6, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_offset_y(bk_ui->page_3_button_6, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_spread(bk_ui->page_3_button_6, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    bk_ui->page_3_button_7 = lv_btn_create(bk_ui->page_3);
-    bk_ui->page_3_button_7_label = lv_label_create(bk_ui->page_3_button_7);
-    lv_label_set_text(bk_ui->page_3_button_7_label, "音乐播放");
-    lv_label_set_long_mode(bk_ui->page_3_button_7_label, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_align(bk_ui->page_3_button_7_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_3_button_7, 131);
-    lv_obj_set_y(bk_ui->page_3_button_7, 212);
-    lv_obj_set_width(bk_ui->page_3_button_7, 100);
-    lv_obj_set_height(bk_ui->page_3_button_7, 40);
-    lv_obj_set_style_bg_color(bk_ui->page_3_button_7, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(bk_ui->page_3_button_7, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_grad_dir(bk_ui->page_3_button_7, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_color(bk_ui->page_3_button_7, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_opa(bk_ui->page_3_button_7, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_side(bk_ui->page_3_button_7, LV_BORDER_SIDE_FULL, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_radius(bk_ui->page_3_button_7, 5, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_clip_corner(bk_ui->page_3_button_7, false, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_color(bk_ui->page_3_button_7, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(bk_ui->page_3_button_7, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(bk_ui->page_3_button_7, &lv_font_ali_16, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(bk_ui->page_3_button_7, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_letter_space(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_color(bk_ui->page_3_button_7, lv_color_hex(0x1e7fcf), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_width(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_opa(bk_ui->page_3_button_7, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_offset_x(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_offset_y(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_spread(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
 
     // custom code implementation
