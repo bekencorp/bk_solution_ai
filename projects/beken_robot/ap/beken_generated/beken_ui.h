@@ -63,6 +63,8 @@ typedef struct
     lv_obj_t *page_3_button_5_label;
     lv_obj_t *page_3_button_6;
     lv_obj_t *page_3_button_6_label;
+    lv_obj_t *page_3_button_7;
+    lv_obj_t *page_3_button_7_label;
     /* Page: 3 objects */
     lv_obj_t *page_4;
     lv_obj_t *page_4_button_1;
@@ -76,10 +78,15 @@ typedef struct
     lv_obj_t *page_5_arc_1;
     /* Page: 5 objects */
     lv_obj_t *page_6;
-    lv_obj_t *page_6_label_1;
-    /* Page: 6 objects */
-    lv_obj_t *page_7;
-    lv_obj_t *page_7_label_1;
+    lv_obj_t *page_6_label_title;
+    lv_obj_t *page_6_label_state;
+    lv_obj_t *page_6_label_track;
+    lv_obj_t *page_6_button_play;
+    lv_obj_t *page_6_button_play_label;
+    lv_obj_t *page_6_button_stop;
+    lv_obj_t *page_6_button_stop_label;
+    lv_obj_t *page_6_button_next;
+    lv_obj_t *page_6_button_next_label;
 } bk_lv_ui_t;
 
 void init_page_page_1(bk_lv_ui_t *bk_ui);
@@ -94,8 +101,6 @@ void init_page_page_5(bk_lv_ui_t *bk_ui);
 void destroy_page_page_5(bk_lv_ui_t *bk_ui);
 void init_page_page_6(bk_lv_ui_t *bk_ui);
 void destroy_page_page_6(bk_lv_ui_t *bk_ui);
-void init_page_page_7(bk_lv_ui_t *bk_ui);
-void destroy_page_page_7(bk_lv_ui_t *bk_ui);
 
 /* declare image */
 LV_IMAGE_DECLARE(beken_logo_blue_321x147_RGB565A8_NONE);

@@ -105,13 +105,13 @@ static void on_screen_next(bk_lv_ui_t *ui)
     LOGI("page2 enter idx=%d\r\n", s_page2_menu_idx);
     switch (s_page2_menu_idx) {
     case 0:  /* 配网 -> page_4 (BLE 配网界面) */
-        LOGI("Provisioning -> page_4\r\n");
+        LOGI("配网 -> page_4\r\n");
         navigate_to_screen((lv_obj_t **)&ui->page_4,
                            LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                            init_page_page_4);
         break;
     case 1:  /* 示例模式 -> page_3 */
-        LOGI("Demo mode -> page_3\r\n");
+        LOGI("示例模式 -> page_3\r\n");
         navigate_to_screen((lv_obj_t **)&ui->page_3,
                            LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                            init_page_page_3);

@@ -5,8 +5,6 @@ set(srcs
     src/ui_nav_router.c
     src/ui_key_bridge.c
     src/page_5_eyes.c
-    beken_generated/page_6_init.c
-    beken_generated/page_7_init.c
 )
 
 include(${CMAKE_CURRENT_LIST_DIR}/beken_generated/beken_generated.cmake)
