@@ -142,7 +142,7 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
 
     bk_ui->page_2 = lv_obj_create(NULL);
     lv_obj_set_scrollbar_mode(bk_ui->page_2, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_size(bk_ui->page_2, 360, 390);
+    lv_obj_set_size(bk_ui->page_2, 390, 360);
     lv_obj_set_style_bg_color(bk_ui->page_2, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_2, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_grad_dir(bk_ui->page_2, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -215,13 +215,13 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_bg_grad_dir(bk_ui->page_2_button_3, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DISABLED);
 
     bk_ui->page_2_image_1 = lv_image_create(bk_ui->page_2);
-    lv_image_set_src(bk_ui->page_2_image_1, &beken_logo_blue_336x149_RGB565A8_NONE);
+    lv_image_set_src(bk_ui->page_2_image_1, &beken_logo_blue_321x147_RGB565A8_NONE);
     lv_image_set_pivot(bk_ui->page_2_image_1, 50, 50);
     lv_image_set_rotation(bk_ui->page_2_image_1, 0);
-    lv_obj_set_x(bk_ui->page_2_image_1, 12);
-    lv_obj_set_y(bk_ui->page_2_image_1, 64);
-    lv_obj_set_width(bk_ui->page_2_image_1, 336);
-    lv_obj_set_height(bk_ui->page_2_image_1, 149);
+    lv_obj_set_x(bk_ui->page_2_image_1, 35);
+    lv_obj_set_y(bk_ui->page_2_image_1, 88);
+    lv_obj_set_width(bk_ui->page_2_image_1, 321);
+    lv_obj_set_height(bk_ui->page_2_image_1, 147);
     lv_obj_set_style_bg_color(bk_ui->page_2_image_1, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_2_image_1, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_grad_dir(bk_ui->page_2_image_1, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
