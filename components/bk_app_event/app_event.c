@@ -39,7 +39,6 @@ typedef enum {
 #include "prompt_tone_pcm_array.h"
 #else
 #include "prompt_tone_mp3_array.h"
-#include "test1_mp3_array.h"
 #endif
 #endif
 #if CONFIG_BK_SMART_CONFIG

@@ -25,6 +25,8 @@ typedef enum
     APP_EVT_OTA_SUCCESS,
     APP_EVT_OTA_FAIL,
     APP_EVT_SYNC_FLASH,
+    APP_EVT_ASR_NIHAOBOTONG,
+    APP_EVT_ASR_ZAIJIANBOTONG,
 
     APP_EVT_POWER_ON,
 } app_evt_type_t;

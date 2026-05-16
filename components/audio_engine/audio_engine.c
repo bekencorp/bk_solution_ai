@@ -279,6 +279,20 @@ void audio_engine_volume_decrease(void)
     }
 }
 
+uint8_t audio_engine_volume_get_level(void)
+{
+    if (g_volume_level >= SPK_VOLUME_LEVEL) {
+        return SPK_VOLUME_LEVEL - 1;
+    }
+
+    return g_volume_level;
+}
+
+uint8_t audio_engine_volume_get_max_level(void)
+{
+    return SPK_VOLUME_LEVEL - 1;
+}
+
 #if (CONFIG_ASR_SERVICE)
 #if CONFIG_WANSON_ARMINO_ASR
 #include "bk_wanson_asr_intf.h"
@@ -430,6 +444,12 @@ void bk_audio_engine_asr_result_handle(void *p1, void *p2)
         } else {
             LOGD("APP_EVT_ASR_WAKEUP event sent successfully\n");
         }
+        ret = app_event_send_msg(APP_EVT_ASR_NIHAOBOTONG, 0);
+        if (BK_OK != ret) {
+            LOGE("Failed to send APP_EVT_ASR_NIHAOBOTONG event, ret: %d\n", ret);
+        } else {
+            LOGD("APP_EVT_ASR_NIHAOBOTONG event sent successfully\n");
+        }
     }
     else if (g_audio_engine.asr_result == BK_KWS_BYEBYE) {
         ret = app_event_send_msg(APP_EVT_ASR_STANDBY, 0);
@@ -437,6 +457,12 @@ void bk_audio_engine_asr_result_handle(void *p1, void *p2)
             LOGE("Failed to send APP_EVT_ASR_STANDBY event, ret: %d\n", ret);
         } else {
             LOGD("APP_EVT_ASR_STANDBY event sent successfully\n");
+        }
+        ret = app_event_send_msg(APP_EVT_ASR_ZAIJIANBOTONG, 0);
+        if (BK_OK != ret) {
+            LOGE("Failed to send APP_EVT_ASR_ZAIJIANBOTONG event, ret: %d\n", ret);
+        } else {
+            LOGD("APP_EVT_ASR_ZAIJIANBOTONG event sent successfully\n");
         }
     }
     else if (g_audio_engine.asr_result == BK_KWS_VOLUME_UP) {

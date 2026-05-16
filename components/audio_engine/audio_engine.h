@@ -178,6 +178,8 @@ audio_enc_type_t audio_engine_str_to_enc_type(const char *enc_str);
 audio_dec_type_t audio_engine_str_to_dec_type(const char *dec_str);
 void audio_engine_volume_increase(void);
 void audio_engine_volume_decrease(void);
+uint8_t audio_engine_volume_get_level(void);
+uint8_t audio_engine_volume_get_max_level(void);
 int audio_engine_init(void);
 int audio_engine_deinit(void);
 
