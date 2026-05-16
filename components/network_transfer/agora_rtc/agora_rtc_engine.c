@@ -13,9 +13,16 @@
 #include <os/os.h>
 #include <os/mem.h>
 #include <os/str.h>
+#include "bk_rtos_debug.h"
 #include "agora_rtc_engine.h"
 #include "agora_config.h"
 #include <components/log.h>
+#include "cJSON.h"
+#include "base_64.h"
+#if CONFIG_APP_EVT
+#include "app_event.h"
+#include "audio_engine.h"
+#endif
 #if CONFIG_BK_SMART_CONFIG
 #include "bk_smart_config.h"
 #endif
@@ -29,6 +36,459 @@
 #define LOGV(...) BK_LOGV(TAG, ##__VA_ARGS__)
 
 static agora_rtc_t agora_rtc = {0};
+
+/* ============================= Agent Data-Stream Parser =============================
+ *
+ * The Agora ConvoAI agent publishes runtime status frames over the channel
+ * data-stream (see on_stream_message). Each logical JSON message is base64
+ * encoded and may be split across up to RTC_DATASTREAM_MAX_SPLIT physical
+ * packets that share the same msg_id but increment cur_index. Format:
+ *
+ *     <msg_id>|<cur_index>|<total_num>|<base64_payload>
+ *
+ * We re-assemble the fragments off the RTC SDK callback (which must stay
+ * non-blocking), base64-decode the payload, parse the JSON and translate
+ * "message.state" frames into agora_rtc_agent_state_e. The latest state is
+ * cached on agora_rtc_t so callers (UI / app event bus) can poll it via
+ * __agora_rtc_get_agent_state().
+ *
+ * The agora_rtc_msg_process.* demo files in this directory remain as the
+ * original reference.
+ * ===================================================================== */
+
+#define RTC_DATASTREAM_MAX_SPLIT      4
+#define RTC_DATASTREAM_MAX_LEN        (1024 * 8)
+#define RTC_DATASTREAM_QUEUE_DEPTH    4
+#define RTC_DATASTREAM_TASK_PRIO      4
+#define RTC_DATASTREAM_TASK_STACK     (4 * 1024)
+#define RTC_DATASTREAM_TASK_NAME      "agora_ds_parse"
+
+typedef struct
+{
+    char *payload;     /* psram-allocated, NUL-terminated, owned by parser */
+} agora_ds_msg_t;
+
+static beken_queue_t       s_ds_queue       = NULL;
+static beken_thread_t      s_ds_thread      = NULL;
+static volatile bool       s_ds_thread_quit = false;
+
+static agora_rtc_agent_state_e __agora_rtc_state_from_str(const char *s)
+{
+    if (!s)
+    {
+        return AGORA_RTC_AGENT_STATE_UNKNOWN;
+    }
+    if (os_strcmp(s, "listening") == 0)
+    {
+        return AGORA_RTC_AGENT_STATE_LISTENING;
+    }
+    if (os_strcmp(s, "thinking") == 0)
+    {
+        return AGORA_RTC_AGENT_STATE_THINKING;
+    }
+    if (os_strcmp(s, "speaking") == 0)
+    {
+        return AGORA_RTC_AGENT_STATE_SPEAKING;
+    }
+    if (os_strcmp(s, "silent") == 0)
+    {
+        return AGORA_RTC_AGENT_STATE_SILENT;
+    }
+    return AGORA_RTC_AGENT_STATE_UNKNOWN;
+}
+
+const char *__agora_rtc_agent_state_to_str(agora_rtc_agent_state_e state)
+{
+    switch (state)
+    {
+        case AGORA_RTC_AGENT_STATE_LISTENING: return "listening";
+        case AGORA_RTC_AGENT_STATE_THINKING:  return "thinking";
+        case AGORA_RTC_AGENT_STATE_SPEAKING:  return "speaking";
+        case AGORA_RTC_AGENT_STATE_SILENT:    return "silent";
+        case AGORA_RTC_AGENT_STATE_UNKNOWN:
+        default:                              return "unknown";
+    }
+}
+
+agora_rtc_agent_state_e __agora_rtc_get_agent_state(void)
+{
+    return agora_rtc.agent_state;
+}
+
+#if CONFIG_APP_EVT
+/* Hybrid policy: route only the two server states where the RTC channel
+ * is more authoritative than the local audio_engine inference:
+ *
+ *   - "thinking" : only the server knows the LLM is busy; local can at
+ *                  best guess it from "VAD STOP & spk idle >= 1s".
+ *   - "speaking" : arrives ~500ms before the first downlink PCM frame
+ *                  reaches the local DAC, so it lights up SPEAKING and
+ *                  the orange EQ early.
+ *
+ * "listening" and "silent" from the server lag the local VAD / spk-linger
+ * by 0.9-1.9s and would otherwise overwrite the live UI state with a
+ * stale value. We drop them on purpose and let the local sources own
+ * those transitions.
+ */
+static void __agora_rtc_emit_app_event_for_state(agora_rtc_agent_state_e state)
+{
+    switch (state)
+    {
+        case AGORA_RTC_AGENT_STATE_THINKING:
+            audio_engine_hint_thinking();
+            break;
+        case AGORA_RTC_AGENT_STATE_SPEAKING:
+            audio_engine_hint_speaking_start();
+            break;
+        case AGORA_RTC_AGENT_STATE_LISTENING:
+        case AGORA_RTC_AGENT_STATE_SILENT:
+            /* Intentionally dropped -- local state machine wins. */
+            break;
+        default:
+            break;
+    }
+}
+#endif
+
+static void __agora_rtc_notify_agent_state(agora_rtc_t *rtc, agora_rtc_agent_state_e state)
+{
+    if (state == AGORA_RTC_AGENT_STATE_UNKNOWN)
+    {
+        return;
+    }
+    if (rtc->agent_state == state)
+    {
+        return; /* idempotent: skip duplicate state updates */
+    }
+
+    rtc->agent_state = state;
+    LOGI("agent state -> %s\n", __agora_rtc_agent_state_to_str(state));
+
+#if CONFIG_APP_EVT
+    __agora_rtc_emit_app_event_for_state(state);
+#endif
+
+    if (rtc->user_message_callback)
+    {
+        agora_rtc_msg_t msg = {
+            .code = AGORA_RTC_MSG_AGENT_STATE_CHANGED,
+        };
+        msg.data.agent_state = state;
+        rtc->user_message_callback(&msg);
+    }
+}
+
+static void __agora_rtc_dispatch_decoded_msg(agora_rtc_t *rtc, const char *json_str)
+{
+    cJSON *root = NULL;
+    cJSON *object = NULL;
+
+    if (!json_str)
+    {
+        return;
+    }
+
+    root = cJSON_Parse(json_str);
+    if (!root)
+    {
+        LOGW("agent msg: not JSON: %s\n", json_str);
+        return;
+    }
+
+    object = cJSON_GetObjectItem(root, "object");
+    if (!object || !cJSON_IsString(object))
+    {
+        LOGW("agent msg: missing 'object' field\n");
+        goto cleanup;
+    }
+
+    if (os_strcmp(object->valuestring, "message.state") == 0)
+    {
+        cJSON *state = cJSON_GetObjectItem(root, "state");
+        if (!state || !cJSON_IsString(state))
+        {
+            LOGW("agent msg: 'message.state' missing 'state' string\n");
+            goto cleanup;
+        }
+        __agora_rtc_notify_agent_state(rtc, __agora_rtc_state_from_str(state->valuestring));
+    }
+    else if (os_strcmp(object->valuestring, "message.user") == 0)
+    {
+        /* Reserved for future user-message routing (subtitles, etc.). */
+        LOGD("agent msg: message.user (ignored)\n");
+    }
+    else
+    {
+        LOGD("agent msg: unhandled object='%s'\n", object->valuestring);
+    }
+
+cleanup:
+    cJSON_Delete(root);
+}
+
+static void __agora_rtc_datastream_parse_task(beken_thread_arg_t arg)
+{
+    agora_rtc_t *rtc          = __get_rtc_instance();
+    char        *save_ptr     = NULL;
+    char        *store_str    = NULL;
+    char        *decode_str   = NULL;
+    char        *last_msg_id  = NULL;
+    int          remaining_len;
+    int          decode_len   = 0;
+    bk_err_t     ret;
+    agora_ds_msg_t msg = {0};
+
+    (void)arg;
+
+    while (!s_ds_thread_quit)
+    {
+        ret = rtos_pop_from_queue(&s_ds_queue, &msg, BEKEN_WAIT_FOREVER);
+        if (ret != BK_OK || s_ds_thread_quit)
+        {
+            break;
+        }
+        /* Sentinel pushed by deinit to wake us up so we can exit. */
+        if (!msg.payload)
+        {
+            continue;
+        }
+
+        const char *delim         = "|";
+        char       *msg_id        = strtok_r(msg.payload, delim, &save_ptr);
+        char       *cur_index_str = strtok_r(NULL, delim, &save_ptr);
+        char       *total_num_str = strtok_r(NULL, delim, &save_ptr);
+        char       *msg_payload   = strtok_r(NULL, delim, &save_ptr);
+
+        if (!msg_id || !cur_index_str || !total_num_str || !msg_payload)
+        {
+            LOGW("agent ds: malformed packet, skip\n");
+            goto frag_reset;
+        }
+
+        uint8_t cur_index = (uint8_t)os_strtoul(cur_index_str, NULL, 10);
+        uint8_t total_num = (uint8_t)os_strtoul(total_num_str, NULL, 10);
+
+        if (total_num == 0 || total_num > RTC_DATASTREAM_MAX_SPLIT ||
+            cur_index < 1 || cur_index > total_num)
+        {
+            LOGW("agent ds: invalid index/total %u/%u\n", cur_index, total_num);
+            goto frag_reset;
+        }
+
+        /* New message id -> drop any in-progress reassembly. */
+        if (last_msg_id && os_strcmp(msg_id, last_msg_id) != 0)
+        {
+            os_free(last_msg_id);
+            last_msg_id = NULL;
+            if (store_str)
+            {
+                psram_free(store_str);
+                store_str = NULL;
+            }
+            if (decode_str)
+            {
+                psram_free(decode_str);
+                decode_str = NULL;
+            }
+        }
+        if (!last_msg_id)
+        {
+            last_msg_id = os_strdup(msg_id);
+            if (!last_msg_id)
+            {
+                LOGE("agent ds: OOM (msg_id)\n");
+                goto frag_reset;
+            }
+        }
+
+        if (!store_str)
+        {
+            store_str = psram_zalloc(RTC_DATASTREAM_MAX_LEN + 1);
+            if (!store_str)
+            {
+                LOGE("agent ds: OOM (store)\n");
+                goto frag_reset;
+            }
+        }
+
+        remaining_len = RTC_DATASTREAM_MAX_LEN - (int)os_strlen(store_str);
+        if (remaining_len <= 0)
+        {
+            LOGW("agent ds: store buffer full\n");
+            goto frag_reset;
+        }
+        os_snprintf(store_str + os_strlen(store_str), remaining_len, "%s", msg_payload);
+
+        if (cur_index == total_num)
+        {
+            int store_len = (int)os_strlen(store_str);
+            int est_decode_len = (store_len * 3) / 4 + 4;
+            decode_str = psram_zalloc(est_decode_len + 1);
+            if (!decode_str)
+            {
+                LOGE("agent ds: OOM (decode)\n");
+                goto frag_reset;
+            }
+            base64_decode((unsigned char *)store_str, store_len,
+                          &decode_len, (unsigned char *)decode_str);
+            decode_str[decode_len] = '\0';
+            LOGD("agent ds: decoded %d bytes\n", decode_len);
+            __agora_rtc_dispatch_decoded_msg(rtc, decode_str);
+            goto frag_reset;
+        }
+
+        psram_free(msg.payload);
+        msg.payload = NULL;
+        continue;
+
+frag_reset:
+        if (msg.payload)
+        {
+            psram_free(msg.payload);
+            msg.payload = NULL;
+        }
+        if (last_msg_id)
+        {
+            os_free(last_msg_id);
+            last_msg_id = NULL;
+        }
+        if (store_str)
+        {
+            psram_free(store_str);
+            store_str = NULL;
+        }
+        if (decode_str)
+        {
+            psram_free(decode_str);
+            decode_str = NULL;
+        }
+    }
+
+    /* Drain remaining items so we don't leak on shutdown. */
+    while (rtos_pop_from_queue(&s_ds_queue, &msg, BEKEN_NO_WAIT) == BK_OK)
+    {
+        if (msg.payload)
+        {
+            psram_free(msg.payload);
+        }
+    }
+    if (last_msg_id) os_free(last_msg_id);
+    if (store_str)   psram_free(store_str);
+    if (decode_str)  psram_free(decode_str);
+
+    s_ds_thread = NULL;
+    rtos_delete_thread(NULL);
+}
+
+static int __agora_rtc_msg_process_init(void)
+{
+    bk_err_t ret;
+
+    if (s_ds_thread)
+    {
+        return BK_OK; /* idempotent */
+    }
+
+    s_ds_thread_quit = false;
+
+    ret = rtos_init_queue(&s_ds_queue, "agora_ds_q",
+                          sizeof(agora_ds_msg_t), RTC_DATASTREAM_QUEUE_DEPTH);
+    if (ret != BK_OK)
+    {
+        LOGE("agent ds: queue init fail: %d\n", ret);
+        s_ds_queue = NULL;
+        return ret;
+    }
+
+#if CONFIG_PSRAM_AS_SYS_MEMORY
+    ret = rtos_create_psram_thread(&s_ds_thread,
+                                   RTC_DATASTREAM_TASK_PRIO,
+                                   RTC_DATASTREAM_TASK_NAME,
+                                   (beken_thread_function_t)__agora_rtc_datastream_parse_task,
+                                   RTC_DATASTREAM_TASK_STACK,
+                                   (beken_thread_arg_t)0);
+#else
+    ret = rtos_create_thread(&s_ds_thread,
+                             RTC_DATASTREAM_TASK_PRIO,
+                             RTC_DATASTREAM_TASK_NAME,
+                             (beken_thread_function_t)__agora_rtc_datastream_parse_task,
+                             RTC_DATASTREAM_TASK_STACK,
+                             (beken_thread_arg_t)0);
+#endif
+    if (ret != BK_OK)
+    {
+        LOGE("agent ds: thread create fail: %d\n", ret);
+        rtos_deinit_queue(&s_ds_queue);
+        s_ds_queue = NULL;
+        s_ds_thread = NULL;
+        return ret;
+    }
+
+    LOGI("agent ds parser started\n");
+    return BK_OK;
+}
+
+static void __agora_rtc_msg_process_deinit(void)
+{
+    if (!s_ds_queue && !s_ds_thread)
+    {
+        return;
+    }
+
+    s_ds_thread_quit = true;
+
+    /* Push a sentinel so the worker wakes from BEKEN_WAIT_FOREVER and
+     * notices the quit flag. */
+    if (s_ds_queue)
+    {
+        agora_ds_msg_t sentinel = { .payload = NULL };
+        rtos_push_to_queue(&s_ds_queue, &sentinel, BEKEN_NO_WAIT);
+    }
+
+    /* Best-effort wait for the worker to exit (it self-deletes). */
+    for (int i = 0; i < 50 && s_ds_thread; i++)
+    {
+        rtos_delay_milliseconds(10);
+    }
+
+    if (s_ds_queue)
+    {
+        rtos_deinit_queue(&s_ds_queue);
+        s_ds_queue = NULL;
+    }
+
+    LOGI("agent ds parser stopped\n");
+}
+
+static void __agora_rtc_msg_process_submit(const char *data, size_t length)
+{
+    if (!s_ds_queue || !data || length == 0)
+    {
+        return;
+    }
+    /* Cap at the max single-fragment payload to keep memory bounded. */
+    if (length > RTC_DATASTREAM_MAX_LEN)
+    {
+        LOGW("agent ds: oversize fragment %u, drop\n", (unsigned)length);
+        return;
+    }
+
+    agora_ds_msg_t msg = {0};
+    msg.payload = (char *)psram_malloc(length + 1);
+    if (!msg.payload)
+    {
+        LOGE("agent ds: OOM submit (%u bytes)\n", (unsigned)length);
+        return;
+    }
+    os_memcpy(msg.payload, data, length);
+    msg.payload[length] = '\0';
+
+    if (rtos_push_to_queue(&s_ds_queue, &msg, BEKEN_NO_WAIT) != BK_OK)
+    {
+        LOGW("agent ds: queue full, drop\n");
+        psram_free(msg.payload);
+    }
+}
 
 /* ============================= Private Functions ============================= */
 
@@ -185,7 +645,7 @@ static void __on_audio_data(connection_id_t conn_id, uint32_t uid, uint16_t sent
     {
         return;
     }
-    
+
     if (rtc->audio_rx_data_handle)
     {
         rtc->audio_rx_data_handle((unsigned char *)data_ptr, data_len, info_ptr);
@@ -266,6 +726,35 @@ static void __on_rejoin_channel_success(connection_id_t conn_id, uint32_t uid, i
     __send_message_2_user(rtc, &msg);
 }
 
+/* Stream-message hook: payloads from the ConvoAI agent arrive here as
+ * "<msg_id>|<idx>|<total>|<base64>" fragments. We hand the raw bytes off
+ * to the data-stream parser thread so the SDK callback stays non-blocking;
+ * the parser then reassembles, base64-decodes, JSON-parses and updates
+ * the cached agent state plus broadcasts APP_EVT_AI_*. */
+static void __on_stream_message(connection_id_t conn_id, uint32_t uid, int stream_id,
+                                const char *data, size_t length, uint64_t sent_ts)
+{
+    int n = (length < 128u) ? (int)length : 128;
+    LOGD("on_stream_message conn=%u uid=%u sid=%d ts=%llu len=%u text='%.*s'\n",
+         (unsigned)conn_id, (unsigned)uid, stream_id, (unsigned long long)sent_ts,
+         (unsigned)length, n, data ? data : "");
+
+    __agora_rtc_msg_process_submit(data, length);
+}
+
+static void __on_rdt_msg(connection_id_t conn_id, uint32_t uid,
+                         rdt_stream_type_e type, const void *msg, size_t len)
+{
+    /* RDT frames carry the per-turn agent state stream and arrive multiple
+     * times per second during a long reply. Keep the dump at DEBUG level so
+     * release logs are not flooded; the actual state transitions are still
+     * logged once each by __agora_rtc_notify_agent_state. */
+    int n = (len < 256u) ? (int)len : 256;
+    LOGD("on_rdt_msg conn=%u uid=%u type=%d len=%u text='%.*s'\n",
+         (unsigned)conn_id, (unsigned)uid, (int)type, (unsigned)len,
+         n, msg ? (const char *)msg : "");
+}
+
 static void __register_agora_rtc_event_handler(agora_rtc_t *rtc)
 {
     rtc->agora_rtc_event_handler.on_join_channel_success = __on_join_channel_success;
@@ -280,6 +769,9 @@ static void __register_agora_rtc_event_handler(agora_rtc_t *rtc)
     rtc->agora_rtc_event_handler.on_rejoin_channel_success = __on_rejoin_channel_success;
     rtc->agora_rtc_event_handler.on_user_mute_audio = __on_user_mute_audio;
     rtc->agora_rtc_event_handler.on_user_mute_video = __on_user_mute_video;
+    /* Phase C: hook agent signaling. */
+    rtc->agora_rtc_event_handler.on_stream_message = __on_stream_message;
+    rtc->agora_rtc_event_handler.on_rdt_msg = __on_rdt_msg;
 }
 
 static void __deep_copy_items_destroy(agora_rtc_t *rtc)
@@ -335,6 +827,7 @@ static int32_t __agora_init(agora_rtc_config_t *p_config)
     rtc->target_bitrate = 0;
     rtc->audio_rx_data_handle = NULL;
     rtc->video_rx_data_handle = NULL;
+    rtc->agent_state = AGORA_RTC_AGENT_STATE_UNKNOWN;
 
     rtc->agora_rtc_config.license[0] = '\0';
     rtc->agora_rtc_config.enable_bwe_param = true;
@@ -460,12 +953,25 @@ bk_err_t __agora_rtc_create(agora_rtc_config_t *p_config, agora_rtc_msg_notify_c
     {
         return BK_FAIL;
     }
+
+    /* Spin up the data-stream parser so we can surface AI agent state.
+     * Failure here is non-fatal: media still works, only state polling is
+     * disabled. */
+    if (__agora_rtc_msg_process_init() != BK_OK)
+    {
+        LOGW("agent ds parser init failed (state polling disabled)\n");
+    }
+
     LOGI("rtc create successfully.\n");
     return BK_OK;
 }
 
 bk_err_t __agora_rtc_destroy(void)
 {
+    /* Stop the parser first so no further callbacks land on a half-torn-down
+     * instance. */
+    __agora_rtc_msg_process_deinit();
+
     int rval = agora_rtc_fini();
     if (rval != 0)
     {
@@ -481,6 +987,7 @@ bk_err_t __agora_rtc_destroy(void)
     }
     
     rtc->state = AGORA_RTC_STATE_NULL;
+    rtc->agent_state = AGORA_RTC_AGENT_STATE_UNKNOWN;
     
     LOGI("Agora RTC destroyed successfully\n");
     return BK_OK;

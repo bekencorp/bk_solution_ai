@@ -159,6 +159,18 @@ audio_enc_type_t ntwk_trans_get_audio_encoder_type(void);
  */
 int ntwk_trans_recv_audio(const uint8_t *data, size_t size);
 
+/**
+ * @brief Whether the underlying RTC engine is currently joined to the agent.
+ *
+ * UI components that show per-agent state (e.g. page_chat_anim) can call this
+ * on attach to pick a sensible initial state when the AGENT_JOINED app_event
+ * was already broadcast before the page existed.
+ *
+ * @return true  if both volc/agora g_connected_flag is set,
+ *         false otherwise (not initialized, or not yet joined).
+ */
+bool ntwk_trans_is_agent_connected(void);
+
 #ifdef __cplusplus
 }
 #endif

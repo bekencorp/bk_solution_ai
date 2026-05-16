@@ -140,6 +140,64 @@ bool audio_engine_is_running(void);
 int audio_engine_write_data(const uint8_t *data, uint32_t size, uint32_t timeout_ms);
 
 /**
+ * @brief Latest microphone PCM level after AEC, normalized to 0..100.
+ *
+ * Driven directly by the AEC V3 `aec_level_cb` hook (one event per AEC
+ * frame, ~10ms at 16kHz). The SDK already forces the level to 0 when VAD
+ * is not in SPEECH_START, so the value can be used as-is for the EQ meter
+ * without extra gating.
+ *
+ * @return uint8_t 0..100, post-AEC mic envelope.
+ */
+uint8_t audio_engine_get_mic_level(void);
+
+/**
+ * @brief Latest speaker PCM level on the DAC side, 0..100.
+ *
+ * Driven by the onboard_speaker_stream `status_cb` (`energy_level` field).
+ * Returns 0 while the SDK reports `is_playing == false` so the UI sees a
+ * clean "agent silent" reading instead of meter residue.
+ *
+ * @return uint8_t 0..100, DAC envelope of agent / remote audio.
+ */
+uint8_t audio_engine_get_spk_level(void);
+
+/**
+ * @brief Debug accessors used by the `aiui state` CLI command.
+ *
+ * - get_mic_active: latest VAD edge (1 = user is speaking, 0 = silent)
+ * - get_spk_active: post-linger DAC playback flag (1 = agent is speaking)
+ * - get_spk_off_pending_ms: remaining linger window in ms, 0 = not pending
+ * - get_last_ai_evt: last emitted APP_EVT_AI_* enum value, -1 if APP_EVT off
+ */
+uint8_t  audio_engine_get_mic_active(void);
+uint8_t  audio_engine_get_spk_active(void);
+uint32_t audio_engine_get_spk_off_pending_ms(void);
+int      audio_engine_get_last_ai_evt(void);
+
+/**
+ * @brief External hints from the RTC engine.
+ *
+ * The Agora ConvoAI server publishes its agent state ("listening" /
+ * "thinking" / "speaking" / "silent") over the data-stream. Field
+ * measurement shows:
+ *   - server "thinking"  is *the* authoritative thinking signal (only the
+ *                        server knows when the LLM is busy);
+ *   - server "speaking"  arrives ~500ms *before* the first downlink PCM
+ *                        frame reaches the local speaker;
+ *   - server "listening" lags local VAD by 0.9-1.9s and is unreliable;
+ *   - server "silent"    is redundant with our local spk-linger.
+ *
+ * We therefore only route THINKING and SPEAKING hints into audio_engine
+ * (these two helpers below); LISTENING / SILENT are dropped at the RTC
+ * side. The hints update the local volatile state so subsequent
+ * ai_state_evaluate() calls agree with the RTC, then synchronously
+ * dispatch the matching APP_EVT_AI_* once.
+ */
+void audio_engine_hint_thinking(void);
+void audio_engine_hint_speaking_start(void);
+
+/**
  * @brief Get audio engine error string
  * 
  * @param err Error code

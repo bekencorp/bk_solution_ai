@@ -159,7 +159,12 @@ static void bk_agora_user_notify_msg_handle(agora_rtc_msg_t *p_msg)
         case AGORA_RTC_MSG_KEY_FRAME_REQUEST:
             // Handle key frame request if needed
             break;
-            
+
+        case AGORA_RTC_MSG_AGENT_STATE_CHANGED:
+            LOGI("AI agent state changed -> %s\n",
+                 __agora_rtc_agent_state_to_str(p_msg->data.agent_state));
+            break;
+
         default:
             break;
     }
@@ -558,6 +563,26 @@ int bk_agora_stop(void *device_id)
     return ret;
 }
 
+/* ============================= Agent State Query ============================= */
+
+agora_rtc_agent_state_e bk_agora_get_agent_state(void)
+{
+    return __agora_rtc_get_agent_state();
+}
+
+const char *bk_agora_get_agent_state_str(void)
+{
+    return __agora_rtc_agent_state_to_str(__agora_rtc_get_agent_state());
+}
+
+bool bk_agora_is_agent_active(void)
+{
+    agora_rtc_agent_state_e s = __agora_rtc_get_agent_state();
+    return (s == AGORA_RTC_AGENT_STATE_LISTENING ||
+            s == AGORA_RTC_AGENT_STATE_THINKING  ||
+            s == AGORA_RTC_AGENT_STATE_SPEAKING);
+}
+
 int bk_agora_update_agent(void *device_id, void *update_info)
 {
     int ret = 0;
@@ -589,7 +614,7 @@ int bk_agora_update_agent(void *device_id, void *update_info)
 #define AGORA_RTC_CMD_CNT   (sizeof(s_agora_rtc_commands) / sizeof(struct cli_command))
 static void bk_agora_rtc_cli_help(void)
 {
-    LOGI("agora_test {start|stop}\n");
+    LOGI("agora_rtc {start|stop|start_agora|stop_agora|start_agent|stop_agent|agent_state}\n");
 }
 
 static void bk_agora_rtc_test_cmd(char *pcWriteBuffer, int xWriteBufferLen, int argc, char **argv)
@@ -640,6 +665,10 @@ static void bk_agora_rtc_test_cmd(char *pcWriteBuffer, int xWriteBufferLen, int 
     {
         LOGI("stop rtc and agent\r\n");
         bk_agora_stop(uid_str);
+    }
+    else if (os_strcmp(argv[1], "agent_state") == 0)
+    {
+        LOGI("AI agent state: %s\r\n", bk_agora_get_agent_state_str());
     }
     else
     {

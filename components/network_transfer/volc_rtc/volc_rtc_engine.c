@@ -249,7 +249,13 @@ static void __on_target_bitrate_changed(byte_rtc_engine_t engine,const char *roo
 
 static void __on_message_received(byte_rtc_engine_t engine,const char * room, const char * src, const uint8_t * message,int size,bool binary)
 {
-    LOGD("__on_message_received \n");
+    /* Per-frame agent signaling dump kept at DEBUG to avoid flooding the
+     * release console; raise to LOGI only when investigating new VolcRTC
+     * agent payload formats. */
+    int n = (size < 256) ? size : 256;
+    LOGD("on_message_received room=%s src=%s len=%d %s='%.*s'\n",
+         room ? room : "?", src ? src : "?", size,
+         binary ? "binary" : "text", n, (const char *)message);
 }
 static void __on_message_send_result(byte_rtc_engine_t engine,const char * room,int64_t msgid, int error,const char * extencontent)
 {

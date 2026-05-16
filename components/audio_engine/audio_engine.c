@@ -612,11 +612,345 @@ void bk_audio_set_voc_cust_params(voice_cfg_t * voice_cfg, app_aud_service_type_
 static int bk_aec_phase_callback(int32_t phs_sm2, int vad_state)
 {
     (void)vad_state;
-    /* Cache latest estimate so the wake-word handler can steer the arrow. */
+    /* Cache latest estimate so the wake-word handler can steer the arrow.
+     * The mic activity / level signals for the UI come from the dedicated
+     * vad_state_cb and aec_level_cb hooks below, which are stable and
+     * already hysteresis-filtered by the SDK. */
     s_wakeup_phsm2 = phs_sm2;
     return 1;
 }
+#endif /* CONFIG_ADK_AEC_V3_ALGORITHM_COMPONENT_V2 */
+
+/* ============================================================================
+ * Mic / spk PCM envelope and AI dialogue state machine.
+ *
+ * Three real SDK signal sources drive the UI's LISTENING/SPEAKING/IDLE state:
+ *
+ *   1) AEC V3 `vad_state_cb`       -> mic_active edge (user speaking, post-AEC)
+ *   2) AEC V3 `aec_level_cb`       -> mic_level 0..100 (post-AEC envelope)
+ *   3) onboard_speaker `status_cb` -> spk_active + spk_level (DAC output side,
+ *                                     SDK already applies threshold+hysteresis)
+ *
+ * State priority (per product spec):
+ *   - mic_active                                 -> LISTENING (user wins)
+ *   - !mic_active && spk_active                  -> SPEAKING  (agent talking)
+ *   - !mic_active && !spk_active                 -> IDLE
+ *
+ * Both callbacks may run on different SDK tasks (AEC vs speaker stream); we
+ * use volatile single-byte storage plus a same-state short-circuit on the
+ * emitted event to keep the implementation lock-free.
+ * ==========================================================================*/
+
+static volatile uint8_t s_mic_level;     /* 0..100, post-AEC, latest frame */
+static volatile uint8_t s_spk_level;     /* 0..100, onboard speaker raw    */
+static volatile uint8_t s_spk_level_smooth; /* EWMA of s_spk_level         */
+static volatile uint8_t s_mic_active;    /* 1 = VAD_SPEECH_START else 0    */
+static volatile uint8_t s_spk_active;    /* 1 = onboard spk is_playing     */
+
+/* Minimum LISTENING dwell time before we treat the utterance as a real
+ * query to the model. Anything shorter (door slam, throat-clearing, brief
+ * environmental noise) is considered a false trigger and skips the
+ * subsequent THINKING window. */
+#define MIN_LISTENING_MS    1000u
+static volatile uint32_t s_mic_start_at_ms; /* 0 = not currently listening */
+
+/* SPEAKING linger: the SDK already applies threshold + hysteresis on
+ * is_playing, but agent speech still has natural inter-phrase pauses of
+ * 200-500ms which momentarily flip is_playing to false and cause the UI
+ * to bounce between SPEAKING and IDLE. We add a configurable post-stop
+ * linger window: when is_playing falls, we *do not* clear s_spk_active
+ * immediately; instead we start a timestamp and only confirm the drop
+ * once SPK_LINGER_MS has elapsed without is_playing coming back. */
+#define SPK_LINGER_MS    700u
+static volatile uint32_t s_spk_off_at_ms; /* 0 = not in linger window */
+
+/* THINKING window: the gap between "user finished speaking" (VAD STOP) and
+ * "agent starts speaking" (onboard speaker PLAYING) is the model's think /
+ * RTT time. We surface this as APP_EVT_AI_THINKING so the UI can show the
+ * orbit + status text. Capped at THINKING_TIMEOUT_MS to avoid getting
+ * stuck if the agent never replies (network loss, etc.). */
+#define THINKING_TIMEOUT_MS  8000u
+static volatile uint32_t s_thinking_at_ms; /* 0 = not thinking */
+
+uint8_t audio_engine_get_mic_level(void)
+{
+    /* While VAD reports silence, the SDK forces aec_level to 0; we keep
+     * that semantics so the UI does not show fake mic activity. */
+    return s_mic_level;
+}
+
+uint8_t audio_engine_get_spk_level(void)
+{
+    /* Return the EWMA-smoothed level so the EQ amplitude does not jitter
+     * frame-by-frame; the SDK reports a fresh sample every speaker frame
+     * (~10-20ms) and the raw value bounces wildly within an utterance. */
+    return s_spk_active ? s_spk_level_smooth : 0u;
+}
+
+/* Debug accessors. Cheap, lock-free, intended for the `aiui state` CLI. */
+uint8_t  audio_engine_get_mic_active(void)         { return s_mic_active; }
+uint8_t  audio_engine_get_spk_active(void)         { return s_spk_active; }
+uint32_t audio_engine_get_spk_off_pending_ms(void)
+{
+    uint32_t at = s_spk_off_at_ms;
+    if (at == 0u) {
+        return 0u;
+    }
+    uint32_t elapsed = rtos_get_time() - at;
+    return (elapsed >= SPK_LINGER_MS) ? 0u : (SPK_LINGER_MS - elapsed);
+}
+/* audio_engine_get_last_ai_evt() is defined below, after s_last_ai_evt
+ * (the static variable lives inside the CONFIG_APP_EVT block). */
+
+#if CONFIG_APP_EVT
+/* Last emitted AI_* event; protected only by the fact that updates are
+ * idempotent (we just skip same-state emits, multi-task races at worst
+ * cause a single duplicate which the UI already short-circuits). */
+static volatile app_evt_type_t s_last_ai_evt = APP_EVT_AI_IDLE;
+
+static void ai_state_evaluate(void)
+{
+    app_evt_type_t next;
+    /* Priority: LISTENING wins over SPEAKING ("user barge-in" semantics).
+     * As soon as the user starts talking we flip to LISTENING even if
+     * the agent is still playing -- this gives immediate visual
+     * acknowledgement that the device heard the user, and it matches
+     * the typical voice-assistant idiom where speaking up interrupts
+     * the agent. The 1s LISTENING dwell gate below still guards the
+     * THINKING window so brief false VADs don't get rewarded. */
+    if (s_mic_active) {
+        /* User is talking -- cancel any pending think window. */
+        s_thinking_at_ms = 0u;
+        next = APP_EVT_AI_LISTENING;
+    } else if (s_spk_active) {
+        /* Mic silent, agent playing. */
+        s_thinking_at_ms = 0u;
+        next = APP_EVT_AI_SPEAKING;
+    } else if (s_thinking_at_ms != 0u) {
+        /* User has stopped, agent has not yet started: thinking. Expire
+         * after THINKING_TIMEOUT_MS to avoid getting stuck. */
+        uint32_t elapsed = rtos_get_time() - s_thinking_at_ms;
+        if (elapsed >= THINKING_TIMEOUT_MS) {
+            s_thinking_at_ms = 0u;
+            LOGI("THINKING timeout (%ums) -> IDLE\n", (unsigned)elapsed);
+            next = APP_EVT_AI_IDLE;
+        } else {
+            next = APP_EVT_AI_THINKING;
+        }
+    } else {
+        next = APP_EVT_AI_IDLE;
+    }
+    if (next != s_last_ai_evt) {
+        s_last_ai_evt = next;
+        (void)app_event_send_msg(next, 0);
+    }
+}
+
+int audio_engine_get_last_ai_evt(void)
+{
+    return (int)s_last_ai_evt;
+}
+
+/* ---- RTC hint surface (server-side authoritative signals) ----
+ *
+ * These are called from agora_rtc_engine when the Agora ConvoAI agent
+ * publishes "state" frames on the data-stream. We use them to fix two
+ * blind spots of the purely-local state machine:
+ *
+ *   audio_engine_hint_thinking()
+ *     The local machine can only *guess* THINKING from "VAD STOP & spk
+ *     idle"; the server knows for certain when the LLM is busy. Stamping
+ *     s_thinking_at_ms here keeps the local 8s timeout + IDLE fallback,
+ *     while letting evaluate() emit THINKING immediately.
+ *
+ *   audio_engine_hint_speaking_start()
+ *     RTC reports "speaking" ~500ms before the first audio frame arrives
+ *     at the local DAC. Promote s_spk_active so SPEAKING + EQ orange show
+ *     up early; the eventual onboard_speaker_stream PLAYING is then
+ *     short-circuited by the same-state check.
+ *
+ * LISTENING and SILENT hints from the server are intentionally NOT routed
+ * here -- VAD is faster, and spk-linger is more accurate, respectively.
+ */
+void audio_engine_hint_thinking(void)
+{
+    uint32_t t = rtos_get_time();
+    s_thinking_at_ms = (t == 0u) ? 1u : t;
+    LOGI("THINKING hinted by RTC\n");
+    ai_state_evaluate();
+}
+
+void audio_engine_hint_speaking_start(void)
+{
+    s_spk_off_at_ms = 0u;
+    if (!s_spk_active) {
+        s_spk_active = 1u;
+        /* No PCM yet, so seed smooth at 0; EQ will rise once real frames
+         * land in bk_onboard_spk_status_cb a few hundred ms later. */
+        s_spk_level_smooth = 0u;
+        LOGI("SPK PLAYING (hinted by RTC, pre-PCM)\n");
+        ai_state_evaluate();
+    }
+}
+#else  /* !CONFIG_APP_EVT */
+int audio_engine_get_last_ai_evt(void)
+{
+    return -1;
+}
+void audio_engine_hint_thinking(void)        { /* no-op */ }
+void audio_engine_hint_speaking_start(void)  { /* no-op */ }
+#endif /* CONFIG_APP_EVT */
+
+/* SPEAKING linger expiry check + THINKING expiry check. Cheap; called from
+ * the 10ms AEC level callback (it runs even when the mic is silent, so the
+ * timers reliably tick regardless of mic activity). */
+static void spk_linger_tick(void)
+{
+    uint32_t now = rtos_get_time();
+
+    uint32_t at = s_spk_off_at_ms;
+    if (at != 0u && (now - at) >= SPK_LINGER_MS) {
+        s_spk_off_at_ms = 0u;
+        if (s_spk_active) {
+            s_spk_active = 0u;
+            LOGI("SPK STOP confirmed (linger %ums elapsed)\n",
+                 (unsigned)SPK_LINGER_MS);
+#if CONFIG_APP_EVT
+            ai_state_evaluate();
 #endif
+        }
+    }
+
+#if CONFIG_APP_EVT
+    /* Drive the THINKING -> IDLE timeout from the same 10ms tick. We only
+     * call evaluate() at the boundary instant to avoid spamming. */
+    uint32_t tat = s_thinking_at_ms;
+    if (tat != 0u && !s_mic_active && !s_spk_active &&
+        (now - tat) >= THINKING_TIMEOUT_MS) {
+        ai_state_evaluate();
+    }
+#endif
+}
+
+#if CONFIG_ADK_AEC_V3_ALGORITHM_COMPONENT_V2
+static int bk_aec_vad_state_cb(int32_t state)
+{
+    /* state == VAD_SPEECH_START / VAD_SPEECH_END / VAD_SILENCE / VAD_NONE.
+     * Only SPEECH_START counts as "user is talking". */
+    uint8_t active = (state == VAD_SPEECH_START) ? 1u : 0u;
+    uint8_t was_active = s_mic_active;
+    if (active != was_active) {
+        s_mic_active = active;
+        uint32_t now = rtos_get_time();
+
+        if (active) {
+            /* Mark the listening start so we can later judge whether the
+             * utterance was long enough to be a real query. */
+            s_mic_start_at_ms = (now == 0u) ? 1u : now;
+            LOGI("VAD SPEECH_START\n");
+        } else {
+            uint32_t dur = (s_mic_start_at_ms != 0u)
+                           ? (now - s_mic_start_at_ms) : 0u;
+            s_mic_start_at_ms = 0u;
+            /* Decide what comes after LISTENING:
+             *   - Spk is playing  -> back to SPEAKING (LISTENING was a
+             *                        barge-in interruption; agent kept
+             *                        going underneath us).
+             *   - Spk idle & dur >= 1s -> real query, start THINKING.
+             *   - Spk idle & dur <  1s -> false VAD trigger, go IDLE
+             *                             (don't reward it with THINKING).
+             */
+            if (s_spk_active) {
+                LOGI("VAD STOP (listened %ums, spk active) "
+                     "-> back to SPEAKING\n", (unsigned)dur);
+            } else if (dur >= MIN_LISTENING_MS) {
+                s_thinking_at_ms = (now == 0u) ? 1u : now;
+                LOGI("VAD STOP (listened %ums) -> THINKING\n",
+                     (unsigned)dur);
+            } else {
+                LOGI("VAD STOP (listened %ums, too short for a real "
+                     "query) -> IDLE\n", (unsigned)dur);
+            }
+        }
+#if CONFIG_APP_EVT
+        ai_state_evaluate();
+#endif
+    }
+    return 0;
+}
+
+static int bk_aec_level_cb(int32_t level)
+{
+    /* Piggyback the SPEAKING linger expiry check on this 10ms tick. */
+    spk_linger_tick();
+
+    /* aec_level_cb fires every AEC frame with the post-AEC envelope mapped
+     * to 0..100 by the SDK; the SDK already forces level=0 when VAD is not
+     * in SPEECH_START, so we can store it straight away. */
+    uint32_t v = (level < 0) ? 0u : (uint32_t)level;
+    if (v > 100u) {
+        v = 100u;
+    }
+    s_mic_level = (uint8_t)v;
+    return 0;
+}
+#endif /* CONFIG_ADK_AEC_V3_ALGORITHM_COMPONENT_V2 */
+
+#if CONFIG_ADK_ONBOARD_SPEAKER_STREAM_V2
+static void bk_onboard_spk_status_cb(audio_element_handle_t el,
+                                     const onboard_speaker_stream_status_t *status,
+                                     void *user_data)
+{
+    (void)el;
+    (void)user_data;
+    if (status == NULL) {
+        return;
+    }
+
+    s_spk_level = status->energy_level;
+    /* EWMA smoothing on the speaker meter (alpha = 1/4 = 0.25). This is
+     * what feeds the EQ amplitude. Raw energy_level swings 2..30 within
+     * a single phrase; smoothed value tracks the envelope with ~80ms TC
+     * (4 frames @ 20ms), eliminating frame-to-frame jitter without
+     * dragging on real loudness changes. */
+    {
+        uint32_t raw_v = status->energy_level;
+        uint32_t sm   = s_spk_level_smooth;
+        sm = (raw_v + sm * 3u) / 4u;
+        s_spk_level_smooth = (uint8_t)sm;
+    }
+    uint8_t raw_playing = status->is_playing ? 1u : 0u;
+
+    if (raw_playing) {
+        /* Cancel any pending linger; we are clearly still in agent speech. */
+        s_spk_off_at_ms = 0u;
+        if (!s_spk_active) {
+            s_spk_active = 1u;
+            /* Prime the EWMA so the first frame of agent audio lifts the
+             * EQ immediately instead of crawling up from 0 over 4 frames. */
+            s_spk_level_smooth = status->energy_level;
+            LOGI("SPK PLAYING (level=%u)\n", (unsigned)status->energy_level);
+#if CONFIG_APP_EVT
+            ai_state_evaluate();
+#endif
+        }
+    } else {
+        /* Start (or keep running) the linger window; do NOT clear s_spk_active
+         * yet so brief inter-phrase pauses do not bounce the UI to IDLE. The
+         * spk_linger_tick() running on the AEC 10ms tick will confirm the drop
+         * once SPK_LINGER_MS has elapsed without a new is_playing=true. */
+        if (s_spk_active && s_spk_off_at_ms == 0u) {
+            s_spk_off_at_ms = rtos_get_time();
+            /* DEBUG only: the SDK re-calls status_cb each time raw is_playing
+             * flips during agent inter-frame jitter, which would spam this
+             * line at ~5Hz inside a single utterance. Only PLAYING and
+             * "STOP confirmed" edges stay at INFO. */
+            LOGD("SPK STOP pending (level=%u, linger %ums)\n",
+                 (unsigned)status->energy_level, (unsigned)SPK_LINGER_MS);
+        }
+    }
+}
+#endif /* CONFIG_ADK_ONBOARD_SPEAKER_STREAM_V2 */
 
 int audio_engine_start(audio_engine_cfg_t *cfg)
 {
@@ -696,6 +1030,13 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
         #if CONFIG_ADK_AEC_V3_ALGORITHM_COMPONENT_V2
             aec_cfg.aec_cfg.ns_type        = NS_TRADITION;
             aec_cfg.aec_phase_cb           = bk_aec_phase_callback;
+            /* SDK already produces a hysteresis-filtered VAD edge and a
+             * post-AEC mic envelope (0..100). Hook both for the UI:
+             *   vad_state_cb -> mic_active edge -> AI_LISTENING
+             *   aec_level_cb -> mic_level meter -> EQ amplitude
+             * No DIY ec_out_cb integration is needed. */
+            aec_cfg.vad_state_cb           = bk_aec_vad_state_cb;
+            aec_cfg.aec_level_cb           = bk_aec_level_cb;
             aec_cfg.aec_cfg.ec_only_output = 1;
             aec_cfg.aec_cfg.multi_output_use_ec_out = 1;
             aec_cfg.dual_ch            = 1;
@@ -813,6 +1154,17 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     // onboard_spk_cfg.ana_gain = cfg->ana_gain;
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
     onboard_spk_cfg.multi_in_port_num++;
+#endif
+
+#if CONFIG_ADK_ONBOARD_SPEAKER_STREAM_V2
+    /* DAC-side voice-activity meter. The SDK applies its own threshold +
+     * hysteresis (configured below) before flipping is_playing, so the UI
+     * never sees a flapping SPEAKING state caused by occasional silence
+     * frames inside agent speech. */
+    onboard_spk_cfg.play_energy_threshold  = 8;
+    onboard_spk_cfg.play_energy_hysteresis = 4;
+    onboard_spk_cfg.status_cb              = bk_onboard_spk_status_cb;
+    onboard_spk_cfg.status_cb_user_data    = NULL;
 #endif
 
     voice_cfg->spk_cfg.onboard_spk_cfg = onboard_spk_cfg;

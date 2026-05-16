@@ -287,6 +287,17 @@ network_type_t ntwk_trans_get_network_type(void)
     return g_ntwk_trans_ctx.network_type;
 }
 
+/* g_connected_flag is the public "agent joined" indicator exported by both
+ * volc and agora bk_*_api modules (see agora_rtc/README.md). We forward it
+ * here behind a stable name so UI code does not need to know which RTC
+ * backend is active. */
+extern bool g_connected_flag;
+
+bool ntwk_trans_is_agent_connected(void)
+{
+    return g_ntwk_trans_ctx.initialized && g_connected_flag;
+}
+
 /**
  * @brief 接收音频数据并写入音频引擎
  * @param data 音频数据指针
@@ -305,6 +316,11 @@ int ntwk_trans_recv_audio(const uint8_t *data, size_t size)
         LOGE("Invalid audio data parameters\n");
         return -2;
     }
+
+    /* No SPEAKING heartbeat or spk-level estimator is needed here anymore:
+     * the audio_engine now hooks onboard_speaker_stream::status_cb, which
+     * fires on real DAC-side activity and drives both the AI_SPEAKING/IDLE
+     * state edge and the spk_level meter used by the EQ bars. */
 
     // 如果音频引擎已启用，则将数据写入音频引擎
     #if CONFIG_BK_AUDIO_ENGINE

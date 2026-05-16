@@ -31,6 +31,19 @@ typedef enum
     AGORA_RTC_STATE_WORKING,
 } agora_rtc_state_t;
 
+/* Agent runtime state, parsed from the Agora "message.state" data-stream.
+ * Mirrors the four states defined by the convoai protocol so the upper
+ * layer (UI / app event bus) can show listening / thinking / speaking
+ * indicators without having to parse JSON itself. */
+typedef enum
+{
+    AGORA_RTC_AGENT_STATE_UNKNOWN = 0,
+    AGORA_RTC_AGENT_STATE_LISTENING,    /* AI is listening to user */
+    AGORA_RTC_AGENT_STATE_THINKING,     /* AI is processing / thinking */
+    AGORA_RTC_AGENT_STATE_SPEAKING,     /* AI is responding (speaking) */
+    AGORA_RTC_AGENT_STATE_SILENT,       /* AI is idle / waiting for input */
+} agora_rtc_agent_state_e;
+
 typedef enum
 {
     AGORA_RTC_MSG_JOIN_CHANNEL_SUCCESS = 0,
@@ -44,6 +57,7 @@ typedef enum
     AGORA_RTC_MSG_TOKEN_EXPIRED,
     AGORA_RTC_MSG_KEY_FRAME_REQUEST,
     AGORA_RTC_MSG_BWE_TARGET_BITRATE_UPDATE,
+    AGORA_RTC_MSG_AGENT_STATE_CHANGED,  /* data.agent_state holds new state */
 } agora_rtc_msg_e;
 
 typedef struct
@@ -59,6 +73,7 @@ typedef struct
     {
         agora_rtc_bwe_t bwe;
         uint32_t uid;
+        agora_rtc_agent_state_e agent_state;
     } data;
 } agora_rtc_msg_t;
 
@@ -137,6 +152,11 @@ typedef struct
     agora_rtc_config_t agora_rtc_config;
     agora_rtc_option_t agora_rtc_option;
     bool fini_notifyed;
+
+    /* Latest AI agent state, updated by the data-stream parser when the
+     * remote agent publishes a "message.state" frame. Defaults to
+     * AGORA_RTC_AGENT_STATE_UNKNOWN before the first frame arrives. */
+    agora_rtc_agent_state_e agent_state;
 } agora_rtc_t;
 
 /* Internal API */
@@ -148,6 +168,15 @@ bk_err_t __agora_rtc_register_audio_rx_handle(agora_rtc_audio_rx_data_handle aud
 bk_err_t __agora_rtc_register_video_rx_handle(agora_rtc_video_rx_data_handle video_rx_handle);
 
 agora_rtc_t *__get_rtc_instance(void);
+
+/* Return the most recently observed AI agent runtime state. Returns
+ * AGORA_RTC_AGENT_STATE_UNKNOWN if no state frame has been parsed yet
+ * (or if the RTC instance is not initialized). */
+agora_rtc_agent_state_e __agora_rtc_get_agent_state(void);
+
+/* Convert an agent state to a short human-readable string, intended for
+ * logs / CLI output. Never returns NULL. */
+const char *__agora_rtc_agent_state_to_str(agora_rtc_agent_state_e state);
 
 #ifdef __cplusplus
 }

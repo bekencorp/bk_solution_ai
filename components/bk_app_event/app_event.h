@@ -29,6 +29,12 @@ typedef enum
     APP_EVT_ASR_ZAIJIANBOTONG,
 
     APP_EVT_POWER_ON,
+
+    /* AI dialogue runtime states (sent from audio/RTC engine, consumed by UI). */
+    APP_EVT_AI_LISTENING,
+    APP_EVT_AI_THINKING,
+    APP_EVT_AI_SPEAKING,
+    APP_EVT_AI_IDLE,
 } app_evt_type_t;
 
 
