@@ -38,28 +38,41 @@ static bk_h264_encode_ctlr_handle_t s_doorbell_enc_handler = NULL;
  * frame to write the next encoded H.264 unit into. */
 static void *encoder_buffer_request(uint32_t buffer_len, void *args)
 {
-    (void)args;
-    void *buf = NULL;
+    frame_buffer_t *temp_buffer = NULL;
     if (buffer_len > 0)
     {
-        buf = bk_encoded_data_request();
+        temp_buffer = (frame_buffer_t *)bk_encoded_data_request();
+        if(temp_buffer == NULL) {
+            return NULL;
+        }
     }
-    return buf;
+
+    return temp_buffer != NULL ? temp_buffer->frame : NULL;
 }
 
 /* HW-flexa output-buffer complete callback: encoder signals success/failure
  * for the previously-requested frame; we either push it to the ready queue
  * (consumer can take it) or recycle it back to the free queue. */
-static uint32_t encoder_buffer_complete(void *buffer, uint32_t result, void *args)
+static uint32_t encoder_buffer_complete(bk_h264_encode_outbuf_info_t *info)
 {
-    (void)args;
-    if (result == BK_OK)
+    if (info == NULL || info->outbuf == NULL) {
+        return BK_FAIL;
+    }
+
+    uint32_t frame_size = ((sizeof(frame_buffer_t) + 63) >> 6) << 6;
+    frame_buffer_t *buffer = (frame_buffer_t *)((uint8_t *)info->outbuf - frame_size);
+
+    if (info->status == BK_OK)
     {
-        bk_encoded_data_complete_request(buffer);
+        buffer->length = info->length;
+        buffer->h264_type = info->type;
+        buffer->fmt = PIXEL_FMT_H264;
+        buffer->sequence = info->sequence;
+        bk_encoded_data_complete_request((uint8_t *)buffer);
     }
     else
     {
-        bk_encoded_data_free_request(buffer);
+        bk_encoded_data_free_request((uint8_t *)buffer);
     }
     return BK_OK;
 }
@@ -115,7 +128,7 @@ int app_h264e_turn_on(void)
         .width  = isp_control->chn[chnl_id].chn_attr.chnFormat.width,
         .height = isp_control->chn[chnl_id].chn_attr.chnFormat.height,
         .input_format    = BK_PIXEL_FORMAT_NV12,
-        .pframe_number   = 30,
+        .gop_frame_count = 30,
         .input_flexa_cnt = 3,
         .input_buf       = isp_control->chn[chnl_id].y_addr,
         .input_size      = isp_control->chn[chnl_id].buf_cnt,
