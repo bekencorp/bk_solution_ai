@@ -55,6 +55,10 @@
 
 #include "bk_factory_config.h"
 
+#if CONFIG_LVGL
+#include "wifi_status_ui.h"
+#endif
+
 #if CONFIG_LED_BLINK
 #include "led_blink.h"
 #endif
@@ -267,6 +271,10 @@ int main(void)
     
     #if CONFIG_APP_EVT
         app_event_init();
+    #endif
+
+    #if CONFIG_LVGL
+        wifi_status_ui_init();
     #endif
 
     #if CONFIG_BK_NETWORK_TRANSFER

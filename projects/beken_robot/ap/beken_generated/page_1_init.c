@@ -18,6 +18,7 @@
 #include "event_runtime.h"
 #include <stdio.h>
 #include <string.h>
+#include "bk_smart_config.h"
 // custom page code
 #if ROBOT_TEST
 
@@ -134,6 +135,9 @@ void init_page_page_1(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_image_opa(bk_ui->page_1_image_2, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_image_recolor(bk_ui->page_1_image_2, lv_color_hex(0x00ff00), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_image_recolor_opa(bk_ui->page_1_image_2, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    if (!bk_sconf_is_network_provisioned()) {
+        lv_obj_add_flag(bk_ui->page_1_image_2, LV_OBJ_FLAG_HIDDEN);
+    }
 
     bk_ui->page_1_bar_1 = lv_bar_create(bk_ui->page_1);
     lv_bar_set_range(bk_ui->page_1_bar_1, 0, 100);
