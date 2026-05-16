@@ -30,6 +30,7 @@ struct audio_engine_ctx {
     uint8_t asr_result;            /**< 1: wakeup, 2: standby */
     asr_handle_t asr_handle;
     aud_asr_handle_t aud_asr_handle;
+    bool asr_started;
 #endif
     bool is_started;
 };
@@ -138,6 +139,26 @@ bool audio_engine_is_running(void);
  *         - < 0: Error codes (see audio_engine_err_t)
  */
 int audio_engine_write_data(const uint8_t *data, uint32_t size, uint32_t timeout_ms);
+
+#if (CONFIG_ASR_SERVICE)
+/**
+ * @brief Start ASR pipeline on demand.
+ *
+ * @return int
+ *         - 0: Success
+ *         - < 0: Error codes (see audio_engine_err_t)
+ */
+int audio_engine_asr_start(void);
+
+/**
+ * @brief Stop ASR pipeline on demand.
+ *
+ * @return int
+ *         - 0: Success
+ *         - < 0: Error codes (see audio_engine_err_t)
+ */
+int audio_engine_asr_stop(void);
+#endif
 
 /**
  * @brief Latest microphone PCM level after AEC, normalized to 0..100.

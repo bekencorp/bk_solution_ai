@@ -30,6 +30,7 @@
 #include "cli.h"
 #include "os/os.h"
 #include "os/str.h"
+#include "audio_engine.h"
 
 #define TAG "page5"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -270,6 +271,14 @@ static void on_screen_prev(bk_lv_ui_t *ui)
         return;
     }
     LOGI("page5 back -> page_3\r\n");
+    #if (CONFIG_ASR_SERVICE)
+    if (AUDIO_ENGINE_SUCCESS != audio_engine_asr_stop()) {
+        LOGI("page5 stop asr failed\r\n");
+    } else
+    {
+        LOGI("page5 stop asr\r\n");
+    }
+    #endif
     navigate_to_screen((lv_obj_t **)&ui->page_3,
                        LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                        init_page_page_3);

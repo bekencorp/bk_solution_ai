@@ -23,6 +23,7 @@
 
 #include "ui_nav_router.h"
 #include "components/log.h"
+#include "audio_engine.h"
 
 #define TAG "page3"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -115,9 +116,24 @@ static void on_screen_next(bk_lv_ui_t *ui)
         break;
     case 2:
         LOGI("Speech recognition -> page_8\r\n");
+#if (CONFIG_ASR_SERVICE)
+        if (AUDIO_ENGINE_SUCCESS == audio_engine_asr_start()) {
+            LOGI("page8 start asr\r\n");
+            navigate_to_screen((lv_obj_t **)&ui->page_8,
+                               LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
+                               init_page_page_8);
+            if (ui->page_8 == NULL || !lv_obj_is_valid(ui->page_8)) {
+                LOGI("page8 init failed, rollback asr\r\n");
+                (void)audio_engine_asr_stop();
+            }
+        } else {
+            LOGI("page8 start asr failed\r\n");
+        }
+#else
         navigate_to_screen((lv_obj_t **)&ui->page_8,
                            LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                            init_page_page_8);
+#endif
         break;
     case 3:
         LOGI("Face tracking\r\n");
@@ -130,9 +146,24 @@ static void on_screen_next(bk_lv_ui_t *ui)
         break;
     case 5:
         LOGI("Sound source localization -> page_5\r\n");
+#if (CONFIG_ASR_SERVICE)
+        if (AUDIO_ENGINE_SUCCESS == audio_engine_asr_start()) {
+            LOGI("page5 start asr\r\n");
+            navigate_to_screen((lv_obj_t **)&ui->page_5,
+                               LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
+                               init_page_page_5);
+            if (ui->page_5 == NULL || !lv_obj_is_valid(ui->page_5)) {
+                LOGI("page5 init failed, rollback asr\r\n");
+                (void)audio_engine_asr_stop();
+            }
+        } else {
+            LOGI("page5 start asr failed\r\n");
+        }
+#else
         navigate_to_screen((lv_obj_t **)&ui->page_5,
                            LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                            init_page_page_5);
+#endif
         break;
     case 6:
         LOGI("Music -> page_9\r\n");

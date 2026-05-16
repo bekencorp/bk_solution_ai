@@ -952,6 +952,167 @@ static void bk_onboard_spk_status_cb(audio_element_handle_t el,
 }
 #endif /* CONFIG_ADK_ONBOARD_SPEAKER_STREAM_V2 */
 
+#if (CONFIG_ASR_SERVICE)
+static int audio_engine_asr_build_cfg(asr_cfg_t *asr_cfg)
+{
+    if (asr_cfg == NULL) {
+        return AUDIO_ENGINE_ERR_INVALID_PARAM;
+    }
+
+    asr_cfg_t t_asr_cfg = ASR_BY_ONBOARD_MIC_CFG_DEFAULT();
+    *asr_cfg = t_asr_cfg;
+    asr_cfg->asr_en = true;
+
+    if (g_audio_engine_cfg.mic_sample_rate != asr_cfg->asr_sample_rate) {
+#if CONFIG_ADK_RSP_ALGORITHM
+        asr_cfg->asr_rsp_en = true;
+        asr_cfg->rsp_cfg.rsp_alg_cfg.rsp_cfg.src_rate = g_audio_engine_cfg.mic_sample_rate;
+#else
+        asr_cfg->asr_rsp_en = false;
+        LOGE("Need Open the aud resample Macro\n");
+        return AUDIO_ENGINE_ERR_ASR_INIT;
+#endif
+    } else {
+        asr_cfg->asr_rsp_en = false;
+    }
+
+    asr_cfg->args = NULL;
+    asr_cfg->event_handle = NULL;
+    if (g_audio_engine_cfg.mic_sample_rate == 16000) {
+        asr_cfg->read_pool_size = g_audio_engine_cfg.mic_sample_rate * 2 * 20 / 1000;
+    } else if (g_audio_engine_cfg.mic_sample_rate == 8000) {
+        asr_cfg->read_pool_size = 2 * g_audio_engine_cfg.mic_sample_rate * 2 * 20 / 1000;
+    }
+
+    return AUDIO_ENGINE_SUCCESS;
+}
+
+int audio_engine_asr_start(void)
+{
+    asr_cfg_t asr_cfg = {0};
+    voice_cfg_t mic_cfg = {0};
+
+    if (!g_audio_engine.is_started) {
+        LOGE("audio engine not started, cannot start asr\n");
+        return AUDIO_ENGINE_ERR_NOT_STARTED;
+    }
+
+    if (g_audio_engine.asr_started) {
+        return AUDIO_ENGINE_SUCCESS;
+    }
+
+    if ((g_audio_engine.asr_handle == NULL) != (g_audio_engine.aud_asr_handle == NULL)) {
+        /* Recover from a partial init state before recreating handles. */
+        (void)audio_engine_asr_stop();
+    }
+
+    if (g_audio_engine.asr_handle == NULL || g_audio_engine.aud_asr_handle == NULL) {
+        int cfg_ret = audio_engine_asr_build_cfg(&asr_cfg);
+        if (cfg_ret != AUDIO_ENGINE_SUCCESS) {
+            return cfg_ret;
+        }
+
+        g_audio_engine.asr_handle = bk_asr_create(&asr_cfg);
+        if (g_audio_engine.asr_handle == NULL) {
+            LOGE("asr create fail\n");
+            return AUDIO_ENGINE_ERR_ASR_INIT;
+        }
+
+        mic_cfg.aec_en = g_audio_engine_cfg.aec_enable ? true : false;
+        g_audio_engine.asr_handle->mic_str = (audio_element_handle_t)bk_voice_get_mic_str(g_audio_engine.voice_handle, &mic_cfg);
+
+        if (BK_OK != bk_asr_init(&asr_cfg, g_audio_engine.asr_handle)) {
+            LOGE("asr init fail\n");
+            (void)audio_engine_asr_stop();
+            return AUDIO_ENGINE_ERR_ASR_INIT;
+        }
+
+        aud_asr_cfg_t aud_asr_cfg = AUDIO_ASR_CFG_DEFAULT();
+        aud_asr_cfg.asr_handle = g_audio_engine.asr_handle;
+        aud_asr_cfg.aud_asr_result_handle = bk_audio_engine_asr_result_handle;
+#if CONFIG_WANSON_ARMINO_ASR
+        aud_asr_cfg.aud_asr_init   = bk_wanson_asr_common_init;
+        aud_asr_cfg.aud_asr_deinit = bk_wanson_asr_common_deinit;
+        aud_asr_cfg.aud_asr_recog  = bk_wanson_asr_recog;
+        aud_asr_cfg.max_read_size  = 960;
+#elif CONFIG_BEKEN_KWS
+        aud_asr_cfg.aud_asr_init   = bk_tflite_asr_init;
+        aud_asr_cfg.aud_asr_deinit = NULL;
+        aud_asr_cfg.aud_asr_recog  = bk_tflite_asr_recog;
+        aud_asr_cfg.max_read_size  = 1280;
+        aud_asr_cfg.task_stack     = 25 * 1024;
+        aud_asr_cfg.mem_type       = AUDIO_MEM_TYPE_SRAM;
+#endif
+        aud_asr_cfg.p1 = (void *)&g_audio_engine_asr_text;
+        aud_asr_cfg.p2 = (void *)&g_audio_engine_asr_score;
+
+        g_audio_engine.aud_asr_handle = bk_aud_asr_init(&aud_asr_cfg);
+        if (g_audio_engine.aud_asr_handle == NULL) {
+            LOGE("aud asr init fail\n");
+            (void)audio_engine_asr_stop();
+            return AUDIO_ENGINE_ERR_ASR_INIT;
+        }
+    }
+
+    if (BK_OK != bk_asr_start(g_audio_engine.asr_handle)) {
+        LOGE("asr start fail\n");
+        (void)audio_engine_asr_stop();
+        return AUDIO_ENGINE_ERR_ASR_START;
+    }
+
+    if (BK_OK != bk_aud_asr_start(g_audio_engine.aud_asr_handle)) {
+        LOGE("aud asr start fail\n");
+        (void)audio_engine_asr_stop();
+        return AUDIO_ENGINE_ERR_ASR_START;
+    }
+
+#if CONFIG_BEKEN_KWS
+    g_audio_engine.asr_result = BK_KWS_NONE;
+#else
+    g_audio_engine.asr_result = 0;
+#endif
+    g_audio_engine.asr_started = true;
+    LOGI("asr started on demand\n");
+    return AUDIO_ENGINE_SUCCESS;
+}
+
+int audio_engine_asr_stop(void)
+{
+    int ret = AUDIO_ENGINE_SUCCESS;
+
+    if (g_audio_engine.asr_started && g_audio_engine.aud_asr_handle) {
+        if (BK_OK != bk_aud_asr_stop(g_audio_engine.aud_asr_handle)) {
+            LOGE("aud asr stop failed\n");
+            ret = AUDIO_ENGINE_ERR_ASR_STOP;
+        }
+    }
+    if (g_audio_engine.asr_started && g_audio_engine.asr_handle) {
+        if (BK_OK != bk_asr_stop(g_audio_engine.asr_handle)) {
+            LOGE("asr stop failed\n");
+            ret = AUDIO_ENGINE_ERR_ASR_STOP;
+        }
+    }
+
+    if (g_audio_engine.aud_asr_handle) {
+        bk_aud_asr_deinit(g_audio_engine.aud_asr_handle);
+        g_audio_engine.aud_asr_handle = NULL;
+    }
+    if (g_audio_engine.asr_handle) {
+        bk_asr_deinit(g_audio_engine.asr_handle);
+        g_audio_engine.asr_handle = NULL;
+    }
+
+#if CONFIG_BEKEN_KWS
+    g_audio_engine.asr_result = BK_KWS_NONE;
+#else
+    g_audio_engine.asr_result = 0;
+#endif
+    g_audio_engine.asr_started = false;
+    LOGI("asr stopped on demand\n");
+    return ret;
+}
+#endif
+
 int audio_engine_start(audio_engine_cfg_t *cfg)
 {
     int ret = 0;
@@ -1183,24 +1344,6 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
 #endif
 
 #if (CONFIG_ASR_SERVICE)
-    asr_cfg_t asr_cfg = {0};
-    asr_cfg_t t_asr_cfg = ASR_BY_ONBOARD_MIC_CFG_DEFAULT();
-    asr_cfg = t_asr_cfg;
-    asr_cfg.asr_en = true;
-    if (cfg->mic_sample_rate != asr_cfg.asr_sample_rate)
-    {
-    #if CONFIG_ADK_RSP_ALGORITHM
-        asr_cfg.asr_rsp_en = true;
-        asr_cfg.rsp_cfg.rsp_alg_cfg.rsp_cfg.src_rate = cfg->mic_sample_rate;
-    #else
-        asr_cfg.asr_rsp_en = false;
-        LOGE("Need Open the aud resample Macro\n");
-        goto cleanup_asr;
-    #endif
-    } else
-    {
-        asr_cfg.asr_rsp_en = false;
-    }
     if (voice_cfg->aec_en) {
         voice_cfg->aec_cfg.aec_alg_cfg.multi_out_port_num++;
     } else
@@ -1224,56 +1367,6 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
         ret = AUDIO_ENGINE_ERR_VOICE_INIT;
         goto cleanup;
     }
-
-#if (CONFIG_ASR_SERVICE)
-    if (asr_cfg.asr_en == true)
-    {
-        asr_cfg.args		 = NULL;
-        asr_cfg.event_handle = NULL;
-        g_audio_engine.asr_handle = bk_asr_create(&asr_cfg);
-        if (!g_audio_engine.asr_handle)
-        {
-            LOGE("asr init fail\n");
-            goto cleanup_asr;
-        }
-        g_audio_engine.asr_handle->mic_str = (audio_element_handle_t)bk_voice_get_mic_str(g_audio_engine.voice_handle, voice_cfg);
-        if (cfg->mic_sample_rate == 16000) {
-            asr_cfg.read_pool_size = cfg->mic_sample_rate * 2 * 20 / 1000;
-        }
-        else if (cfg->mic_sample_rate == 8000) {
-            asr_cfg.read_pool_size = 2 * cfg->mic_sample_rate * 2 * 20 / 1000;
-        }
-
-        bk_asr_init(&asr_cfg, g_audio_engine.asr_handle);
-
-        {
-            aud_asr_cfg_t aud_asr_cfg = AUDIO_ASR_CFG_DEFAULT();
-            aud_asr_cfg.asr_handle	  = g_audio_engine.asr_handle;
-            aud_asr_cfg.aud_asr_result_handle = bk_audio_engine_asr_result_handle;
-            #if CONFIG_WANSON_ARMINO_ASR
-            aud_asr_cfg.aud_asr_init    = bk_wanson_asr_common_init;
-            aud_asr_cfg.aud_asr_deinit  = bk_wanson_asr_common_deinit;
-            aud_asr_cfg.aud_asr_recog   = bk_wanson_asr_recog;
-            aud_asr_cfg.max_read_size   = 960;
-            #elif CONFIG_BEKEN_KWS
-            aud_asr_cfg.aud_asr_init   = bk_tflite_asr_init;
-            aud_asr_cfg.aud_asr_deinit = NULL;
-            aud_asr_cfg.aud_asr_recog  = bk_tflite_asr_recog;
-            aud_asr_cfg.max_read_size  = 1280;
-            aud_asr_cfg.task_stack     = 25 * 1024;
-            aud_asr_cfg.mem_type       = AUDIO_MEM_TYPE_SRAM;
-            #endif
-            aud_asr_cfg.p1                    = (void *)&g_audio_engine_asr_text;
-            aud_asr_cfg.p2                    = (void *)&g_audio_engine_asr_score;
-            g_audio_engine.aud_asr_handle = bk_aud_asr_init(&aud_asr_cfg);
-            if (!g_audio_engine.aud_asr_handle)
-            {
-                LOGE("aud asr init fail\n");
-                goto cleanup_asr;
-            }
-        }
-    }
-#endif
 
 #if CONFIG_AUDIO_PARA
     bk_app_aud_get_service_handle((void *)g_audio_engine.voice_handle, AUD_SERVICE_AI_VOC);
@@ -1342,21 +1435,6 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
         goto cleanup_read_start;
     }
 
-#if (CONFIG_ASR_SERVICE)
-    if (asr_cfg.asr_en == true)
-    {
-        if (BK_OK != bk_asr_start(g_audio_engine.asr_handle))
-        {
-            LOGE("asr start fail\n");
-            goto cleanup_asr;
-        }
-        if (BK_OK != bk_aud_asr_start(g_audio_engine.aud_asr_handle))
-        {
-            LOGE("aud asr start fail\n");
-            goto cleanup_asr;
-        }
-    }
-#endif
     if(voice_cfg)
     {
         os_free(voice_cfg);
@@ -1379,23 +1457,6 @@ cleanup_read:
 cleanup_voice:
     bk_voice_deinit(g_audio_engine.voice_handle);
     g_audio_engine.voice_handle = NULL;
-#if (CONFIG_ASR_SERVICE)
-cleanup_asr:
-    if (g_audio_engine.aud_asr_handle) {
-        bk_aud_asr_stop(g_audio_engine.aud_asr_handle);
-    }
-    if (g_audio_engine.asr_handle) {
-        bk_asr_stop(g_audio_engine.asr_handle);
-    }
-    if (g_audio_engine.aud_asr_handle) {
-        bk_aud_asr_deinit(g_audio_engine.aud_asr_handle);
-    }
-    if (g_audio_engine.asr_handle) {
-        bk_asr_deinit(g_audio_engine.asr_handle);
-    }
-    g_audio_engine.asr_handle = NULL;
-    g_audio_engine.aud_asr_handle = NULL;
-#endif
 
 cleanup:
     if(voice_cfg)
@@ -1424,31 +1485,15 @@ int audio_engine_stop(void)
     int ret = AUDIO_ENGINE_SUCCESS;
 
 #if (CONFIG_ASR_SERVICE)
-    if (g_audio_engine.aud_asr_handle) {
-        if (BK_OK != bk_aud_asr_stop(g_audio_engine.aud_asr_handle)) {
-            LOGE("aud asr stop failed\n");
-            ret = AUDIO_ENGINE_ERR_ASR_STOP;
-        }
-    }
-    if (g_audio_engine.asr_handle) {
-        if (BK_OK != bk_asr_stop(g_audio_engine.asr_handle)) {
-            LOGE("asr stop failed\n");
-            ret = AUDIO_ENGINE_ERR_ASR_STOP;
-        }
-    }
-    if (g_audio_engine.aud_asr_handle) {
-        bk_aud_asr_deinit(g_audio_engine.aud_asr_handle);
-    }
-    if (g_audio_engine.asr_handle) {
-        bk_asr_deinit(g_audio_engine.asr_handle);
+    if (AUDIO_ENGINE_SUCCESS != audio_engine_asr_stop()) {
+        ret = AUDIO_ENGINE_ERR_ASR_STOP;
     }
 #if CONFIG_BEKEN_KWS
     g_audio_engine.asr_result = BK_KWS_NONE;
 #else
     g_audio_engine.asr_result = 0;
 #endif
-    g_audio_engine.asr_handle = NULL;
-    g_audio_engine.aud_asr_handle = NULL;
+    g_audio_engine.asr_started = false;
 #endif
 
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
@@ -1635,6 +1680,12 @@ const char *audio_engine_err_to_str(int err)
             return "Voice read stop failed";
         case AUDIO_ENGINE_ERR_WRITE_STOP:
             return "Voice write stop failed";
+        case AUDIO_ENGINE_ERR_ASR_INIT:
+            return "ASR init failed";
+        case AUDIO_ENGINE_ERR_ASR_START:
+            return "ASR start failed";
+        case AUDIO_ENGINE_ERR_ASR_STOP:
+            return "ASR stop failed";
         default:
             return "Unknown error";
     }
