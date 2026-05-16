@@ -1,8 +1,8 @@
 /**
  * @file wifi_status_ui.c
- * @brief Toggle page_1 wifi icon visibility based on provisioning status.
+ * @brief Toggle page_2 wifi icon visibility based on provisioning status.
  *
- * The wifi icon (page_1_image_2) is hidden by default during page init when
+ * The wifi icon (page_2_image_2) is hidden by default during page init when
  * bk_sconf_is_network_provisioned() returns false. This bridge subscribes to
  * provisioning / reconnect app_event messages and updates the icon under the
  * LVGL display lock whenever the link state changes.
@@ -25,7 +25,7 @@
 
 static void wifi_icon_set_visible_locked(bool visible)
 {
-    lv_obj_t *icon = bk_lv_tool_ui.page_1_image_2;
+    lv_obj_t *icon = bk_lv_tool_ui.page_2_image_2;
     if (icon == NULL || !lv_obj_is_valid(icon)) {
         return;
     }

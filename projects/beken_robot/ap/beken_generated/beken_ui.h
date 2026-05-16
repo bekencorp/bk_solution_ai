@@ -39,8 +39,6 @@ typedef struct
     /* Page: 0 objects */
     lv_obj_t *page_1;
     lv_obj_t *page_1_label_1;
-    lv_obj_t *page_1_image_2;
-    lv_obj_t *page_1_bar_1;
     lv_obj_t *page_1_image_3;
     /* Page: 1 objects */
     lv_obj_t *page_2;
@@ -49,6 +47,8 @@ typedef struct
     lv_obj_t *page_2_button_3;
     lv_obj_t *page_2_button_3_label;
     lv_obj_t *page_2_image_1;
+    lv_obj_t *page_2_image_2;
+    lv_obj_t *page_2_bar_1;
     /* Page: 2 objects */
     lv_obj_t *page_3;
     lv_obj_t *page_3_button_1;
@@ -104,6 +104,7 @@ LV_IMAGE_DECLARE(wifi_1_23x24_RGB565A8_NONE);
 
 /* declare fonts */
 LV_FONT_DECLARE(lv_font_ali_25);
+LV_FONT_DECLARE(lv_font_ali_30);
 LV_FONT_DECLARE(lv_font_ali_16);
 
 /**
