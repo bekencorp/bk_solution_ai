@@ -2,7 +2,7 @@
 // Ported from doorbell reference project for beken_robot multimedia_device_service component.
 
 #pragma once
-#include <components/bk_display_types.h>
+#include <components/bk_display.h>
 
 #ifdef __cplusplus
 extern "C" {

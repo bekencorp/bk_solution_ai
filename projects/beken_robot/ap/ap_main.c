@@ -8,6 +8,8 @@
 #include <components/bk_frame_buffer.h>
 #include "media_devices.h"
 #include <avdk_check.h>
+#include <avdk_error.h>
+#include <common/avdk_pixel_types.h>
 #if CONFIG_LVGL
 #include "lvgl.h"
 #include "lv_vendor.h"
@@ -20,7 +22,6 @@
 #endif
 #include <common/avdk_pixel_types.h>
 #include <components/bk_display.h>
-#include <components/bk_display_dpu_ctlr.h>
 #endif
 
 #if CONFIG_BK_NETWORK_TRANSFER
@@ -241,16 +242,16 @@ int main(void)
         AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_RGB565, false), TAG, "media lcd panel open error");
         AVDK_RETURN_ON_ERROR(bk_robot_lvgl_init(media_panel_get_dpu_handle()), TAG, "bk robot lvgl init error");
 #else
-        // AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true));
+        //AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true), TAG, "media lcd panel open error");
         AVDK_RETURN_ON_ERROR(media_camera_open(1280, 720, 25, 400, 368), TAG, "media camera open error");
-        // AVDK_RETURN_ON_ERROR(media_gpu_open(400, 368, 90));  //open gpu will display camera image on lcd
+        //AVDK_RETURN_ON_ERROR(media_gpu_open(400, 368, 90), TAG, "media gpu open error");  //open gpu will display camera image on lcd
         AVDK_RETURN_ON_ERROR(media_h264_encoder_start(), TAG, "media h264 encoder start error");
         AVDK_RETURN_ON_ERROR(media_test_thread_start(MEDIA_TEST_MODE_H264_WIFI_TX), TAG, "media test thread start error");
 #endif
 
     #ifdef CONFIG_LDO3V3_ENABLE
         BK_LOG_ON_ERR(gpio_dev_unmap(LDO3V3_CTRL_GPIO));
-        bk_gpio_disable_pull(LDO3V3_CTRL_GPIO);
+        bk_gpio_disable_pull(LDO3V3_CTRL_GPIO); 
         bk_gpio_enable_output(LDO3V3_CTRL_GPIO);
         bk_gpio_set_output_high(LDO3V3_CTRL_GPIO);
     #endif

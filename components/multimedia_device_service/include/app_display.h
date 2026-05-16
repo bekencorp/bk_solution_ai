@@ -9,8 +9,7 @@ extern "C" {
 
 #include "avdk_error.h"
 #include "app_display_types.h"
-#include <components/bk_lcd_types.h>
-#include <components/bk_display_types.h>
+#include <components/bk_display.h>
 
 #define DISP_DEBUG_TIMER_ENABLE   (0)
 #define DISP_DEBUG_TIMER_INTERVAL (5)

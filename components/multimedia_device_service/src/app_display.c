@@ -11,13 +11,9 @@
 #include <avdk_error.h>
 
 #include "components/bk_frame_buffer.h"
-#include <components/bk_lcd_types.h>
 #include "components/bk_display.h"
 #include "app_display.h"
 #include <avdk_check.h>
-#include <components/bk_display_dpu_ctlr.h>
-#include <components/bk_display_bus.h>
-#include <components/bk_lcd_panel.h>
 
 #include <sys_types.h>
 #include <modules/pm.h>
@@ -148,37 +144,12 @@ int app_mipi_lcd_turn_on(display_board_config_t *config)
      * write needs 1.8V vddio, otherwise the panel will not respond. */
     app_display_power_enable(true);
 
-    bk_display_dpu_config_t lcd_cfg = {
-        .video.enable = config->dpu_video.enable,
-        .video.decompress = config->dpu_video.decompress,
-        .video.format = config->dpu_video.format,
-        .clk_src = DPU_CLK_SRC_320M_480M,
-    };
-    bk_display_dsi_bus_config_t dsi_bus_cfg = { .clk_src = lcd_cfg.clk_src };   
-    AVDK_GOTO_ON_ERROR(bk_display_dsi_bus_new(&content->dis_bus_handle, &dsi_bus_cfg), err, TAG, "display dsi bus new err\n");
-    AVDK_GOTO_ON_ERROR(bk_display_bus_enable(content->dis_bus_handle), err, TAG, "display bus enable err\n");
-
-    /* Optional config bus for MIPI bridge over I2C, only when pins valid (>0) */
-    if (config->mipi.pin_scl > 0 && config->mipi.pin_sda > 0)
-    {
-        bk_display_i2c_bus_config_t i2c_cfg = {
-            .scl_pin = (uint8_t)config->mipi.pin_scl,
-            .sda_pin = (uint8_t)config->mipi.pin_sda,
-        };
-        AVDK_GOTO_ON_ERROR(bk_display_i2c_bus_new(&content->cfg_bus_handle, &i2c_cfg),
-                           err, TAG, "display i2c bus new err\n");
-    }
-    else
-    {
-        content->cfg_bus_handle = NULL;
-    }
-
+    dpu_clk_src_t clk_src = DPU_CLK_SRC_SYSCLK;
+    AVDK_GOTO_ON_ERROR(bk_display_dsi_bus_new(&content->dis_bus_handle, NULL), err, TAG, "display dsi bus new err\n");
+    AVDK_GOTO_ON_ERROR(bk_display_bus_set_clock_src(content->dis_bus_handle, clk_src), err, TAG, "display bus set clock src err\n");
     bk_lcd_panel_dev_config_t panel_dev_config = {
         .reset_pin = config->mipi.pin_reset,
-        .rgb_ele_order = COLOR_RGB_ELEMENT_ORDER_RGB,
-        .data_endian = LCD_RGB_DATA_ENDIAN_BIG,
-        .bits_per_pixel = 16,
-        .vendor_config = (content->cfg_bus_handle != NULL) ? &content->cfg_bus_handle : NULL,
+        .reset_active_level = false,
     };
 
     AVDK_GOTO_ON_ERROR(bk_lcd_mipi_panel_new(content->dis_bus_handle, &panel_dev_config, config->mipi.panel, &content->panel_handle),
@@ -186,8 +157,14 @@ int app_mipi_lcd_turn_on(display_board_config_t *config)
 
     bk_lcd_panel_reset(content->panel_handle);
     bk_lcd_panel_init(content->panel_handle);
+    bk_display_dpu_config_t lcd_cfg = {
+        .clk_src = clk_src,
+        .video.enable = config->dpu_video.enable,
+        .video.decompress = config->dpu_video.decompress,
+        .video.format = config->dpu_video.format,
+        .timing = config->mipi.panel->timing,
+    };
 
-    bk_lcd_panel_get_disp_timing(content->panel_handle, &lcd_cfg.timing);
     AVDK_GOTO_ON_ERROR(bk_display_dpu_ctlr_new(&content->dpu_ctlr_handle, &lcd_cfg), err, TAG, "display dpu ctlr new err\n");
     AVDK_GOTO_ON_ERROR(bk_display_init(content->dpu_ctlr_handle), err, TAG, "display init err\n");
     AVDK_GOTO_ON_ERROR(bk_display_open(content->dpu_ctlr_handle), err, TAG, "display open err\n");
