@@ -1,6 +1,8 @@
 #ifndef __BK_SMART_CONFIG_H__
 #define __BK_SMART_CONFIG_H__
 
+#include <stdbool.h>
+
 #include "bk_network_provisioning.h"
 
 #define CONFIG_IR_MODE_SWITCH_TASK_PRIORITY 4
@@ -63,4 +65,13 @@ int bk_sconf_sync_flash_request(void);
 void bk_sconf_sync_flash_handler(void);
 void bk_sconf_erase_smart_config(void);
 void bk_sconf_begin_to_switch_ir_mode(void);
+
+/**
+ * @brief Whether the device is currently provisioned with a working network link.
+ *
+ * The flag is set true by bk_sconf_network_provisioning_status_cb on
+ * BK_NETWORK_PROVISIONING_STATUS_SUCCEED / RECONNECT_SUCCEED, and reset to
+ * false on FAILED / RECONNECT_FAILED.
+ */
+bool bk_sconf_is_network_provisioned(void);
 #endif

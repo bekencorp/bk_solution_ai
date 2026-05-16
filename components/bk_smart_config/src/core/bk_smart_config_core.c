@@ -68,6 +68,13 @@ static beken_thread_t config_ir_mode_switch_thread_handle = NULL;
 static beken_thread_t s_sconf_cli_mode_thread_handle = NULL;
 static const char *s_sconf_start_model_type = "text";
 
+static volatile bool s_network_provisioned = false;
+
+bool bk_sconf_is_network_provisioned(void)
+{
+    return s_network_provisioned;
+}
+
 const char *bk_sconf_get_start_model_type(void)
 {
     return s_sconf_start_model_type;
@@ -640,6 +647,7 @@ void bk_sconf_network_provisioning_status_cb(bk_network_provisioning_status_t st
             #endif
             break;
         case BK_NETWORK_PROVISIONING_STATUS_SUCCEED:
+            s_network_provisioned = true;
             #if CONFIG_APP_EVT
             app_event_send_msg(APP_EVT_NETWORK_PROVISIONING_SUCCESS, 0);
             #endif
@@ -662,6 +670,7 @@ void bk_sconf_network_provisioning_status_cb(bk_network_provisioning_status_t st
             }
             break;
         case BK_NETWORK_PROVISIONING_STATUS_FAILED:
+            s_network_provisioned = false;
             #if CONFIG_APP_EVT
             app_event_send_msg(APP_EVT_NETWORK_PROVISIONING_FAIL, 0);
             #endif
@@ -672,12 +681,14 @@ void bk_sconf_network_provisioning_status_cb(bk_network_provisioning_status_t st
             #endif
             break;
         case BK_NETWORK_PROVISIONING_STATUS_RECONNECT_FAILED:
+            s_network_provisioned = false;
             #if CONFIG_APP_EVT
             app_event_send_msg(APP_EVT_RECONNECT_NETWORK_FAIL, 0);
             #endif
             break;
         case BK_NETWORK_PROVISIONING_STATUS_RECONNECT_SUCCEED:
         {
+            s_network_provisioned = true;
             #if CONFIG_APP_EVT
             app_event_send_msg(APP_EVT_RECONNECT_NETWORK_SUCCESS, 0);
             #endif
