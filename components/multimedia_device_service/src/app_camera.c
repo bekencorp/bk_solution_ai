@@ -214,6 +214,29 @@ int app_isp_dvp_camera_turn_on(camera_parameters_ext_t *paramters)
     AVDK_RETURN_ON_FALSE(sensor_object, ret, TAG, "sensor object is NULL");
     isp_ctlr_config.sensor_object = sensor_object;
 
+    /* Pull sensor's native output pixel format from its supported-format table
+     * (declared per-device in xxx_format_array[]); the macro no longer sets it.
+     * Prefer the entry matching the requested (w,h,fps); fall back to [0]. */
+    {
+        bk_camera_sensor_format_array_t format_array = {0};
+        if (bk_camera_sensor_query_support_formats(isp_cam_handle.sensor_handle, &format_array) == AVDK_ERR_OK
+            && format_array.size > 0)
+        {
+            uint32_t i;
+            isp_ctlr_config.input_pixel_fmt = format_array.format_array[0].output_pixel_fmt;
+            for (i = 0; i < format_array.size; i++)
+            {
+                if (format_array.format_array[i].width  == paramters->camera_width
+                    && format_array.format_array[i].height == paramters->camera_height
+                    && format_array.format_array[i].fps    == paramters->fps)
+                {
+                    isp_ctlr_config.input_pixel_fmt = format_array.format_array[i].output_pixel_fmt;
+                    break;
+                }
+            }
+        }
+    }
+
     AVDK_RETURN_ON_ERROR(bk_camera_isp_ctlr_new(&isp_cam_handle.camera_ctlr_handle), TAG, "bk_camera_isp_ctlr_new failed");
     bk_camera_isp_ctlr_t *control = __containerof(isp_cam_handle.camera_ctlr_handle, bk_camera_isp_ctlr_t, ops);
     AVDK_RETURN_ON_FALSE(control, ret, TAG, "control is NULL");
@@ -304,6 +327,10 @@ static int app_isp_mipi_sensor_init(const camera_board_config_t *config, bk_isp_
          format_array.format_array[detect_index].width,
          format_array.format_array[detect_index].height,
          format_array.format_array[detect_index].fps);
+
+    /* Pixel format is a property of the matched sensor mode; copy it back into
+     * isp_ctlr_config so the ISP port is configured for the correct raw type. */
+    isp_ctlr_config->input_pixel_fmt = format_array.format_array[detect_index].output_pixel_fmt;
 
     const void *sensor_object = bk_camera_sensor_get_sensor_object(isp_cam_handle.sensor_handle);
     AVDK_RETURN_ON_FALSE(sensor_object, ret, TAG, "sensor object is NULL");
