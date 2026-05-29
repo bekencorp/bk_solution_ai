@@ -26,6 +26,17 @@ extern "C" {
 #include "bk_aimi_servo.h"
 #include "bk_aimi_palm_tracker.h"
 
+#if CONFIG_LVGL
+extern "C" {
+#include "lvgl.h"
+#include "lv_vendor.h"
+#include "beken_ui.h"
+#include "event_runtime.h"
+
+bk_err_t bk_robot_lvgl_resume_display(void);
+}
+#endif
+
 static AvdkVideoReatorOSD *video_reator = NULL;
 static PalmDetectionModel *model = NULL;
 
@@ -83,11 +94,15 @@ static void palm_tracker_axis_cfg_init(bk_aimi_palm_tracker_axis_cfg_t *cfg,
  * So we offload the start-up to a dedicated one-shot worker thread, and
  * guard against double-start so that repeated key presses cannot create
  * duplicate models / cameras. */
-#define PALM_START_TASK_STACK_SIZE   (1024 * 16)
+#define PALM_START_TASK_STACK_SIZE   (1024 * 8)
 #define PALM_START_TASK_NAME         "palm_start"
 
 static beken_thread_t s_palm_start_thread = NULL;
 static volatile bool s_palm_started = false;
+
+#if CONFIG_LVGL
+static beken_thread_t s_palm_exit_thread = NULL;
+#endif
 
 static void detection_box_cb(Box *boxes, int count)
 {
@@ -212,6 +227,11 @@ void plam_detection_config(void)
 static void palm_detection_start_task(void *arg)
 {
     (void)arg;
+    int ret = BK_OK;
+    bool camera_opened = false;
+    bool display_open_attempted = false;
+    bk_aimi_servo_config_t servo_cfg_h;
+    bk_aimi_servo_config_t servo_cfg_v;
 
     plam_detection_config();
 
@@ -219,7 +239,6 @@ static void palm_detection_start_task(void *arg)
      * `initial_angle` does two jobs in one call: programs the PWM duty
      * AND primes handle->angle, so the first track frame computes its
      * delta against the real physical position (no startup jump). */
-    bk_aimi_servo_config_t servo_cfg_h;
     servo_cfg_h.chan          = PALM_SERVO_PWM_CHAN_H;
     servo_cfg_h.gpio          = PALM_SERVO_GPIO_ID_H;
     servo_cfg_h.initial_angle = SERVO_CENTER_ANGLE;
@@ -228,9 +247,10 @@ static void palm_detection_start_task(void *arg)
     s_servo_h = bk_aimi_servo_init(&servo_cfg_h);
     if (s_servo_h == NULL) {
         bk_printf("palm_detection_start_task: H servo init failed\n");
+        ret = BK_FAIL;
+        goto fail;
     }
 
-    bk_aimi_servo_config_t servo_cfg_v;
     servo_cfg_v.chan          = PALM_SERVO_PWM_CHAN_V;
     servo_cfg_v.gpio          = PALM_SERVO_GPIO_ID_V;
     servo_cfg_v.initial_angle = SERVO_CENTER_ANGLE;
@@ -239,6 +259,8 @@ static void palm_detection_start_task(void *arg)
     s_servo_v = bk_aimi_servo_init(&servo_cfg_v);
     if (s_servo_v == NULL) {
         bk_printf("palm_detection_start_task: V servo init failed\n");
+        ret = BK_FAIL;
+        goto fail;
     }
 
     /* Per-axis tracker cfg. `dir` is the sign that maps "palm offset on
@@ -255,15 +277,88 @@ static void palm_detection_start_task(void *arg)
     palm_tracker_axis_cfg_init(&s_tracker_cfg_v, s_servo_v, +1);
 
     model = new PalmDetectionModel();
+    if (model == NULL) {
+        bk_printf("palm_detection_start_task: model alloc failed\n");
+        ret = BK_FAIL;
+        goto fail;
+    }
     model->setBoxDetectionCallback(detection_box_cb);
+
     video_reator = new AvdkVideoReatorOSD(model);
-    video_reator->init();
-    video_reator->OpenISPCamera();
-    video_reator->OpenDisplay();
-    video_reator->start();
+    if (video_reator == NULL) {
+        bk_printf("palm_detection_start_task: video reator alloc failed\n");
+        ret = BK_FAIL;
+        goto fail;
+    }
+
+    ret = video_reator->init();
+    if (ret != BK_OK) {
+        bk_printf("palm_detection_start_task: init failed (%d)\n", ret);
+        goto fail;
+    }
+
+    ret = video_reator->OpenISPCamera();
+    if (ret != BK_OK) {
+        bk_printf("palm_detection_start_task: OpenISPCamera failed (%d)\n", ret);
+        goto fail;
+    }
+    camera_opened = true;
+
+    display_open_attempted = true;
+    ret = video_reator->OpenDisplay();
+    if (ret != BK_OK) {
+        bk_printf("palm_detection_start_task: OpenDisplay failed (%d)\n", ret);
+        goto fail;
+    }
+
+    ret = video_reator->start();
+    if (ret != BK_OK) {
+        bk_printf("palm_detection_start_task: start failed (%d)\n", ret);
+        goto fail;
+    }
 
     bk_printf("palm_detection_start_task: done, exiting worker\n");
 
+    s_palm_start_thread = NULL;
+    rtos_delete_thread(NULL);
+    return;
+
+fail:
+    bk_printf("palm_detection_start_task: failed (%d), aborting\n", ret);
+
+    if (video_reator != NULL) {
+        (void)video_reator->stop();
+        if (display_open_attempted) {
+            (void)video_reator->CloseDisplay();
+        }
+        if (camera_opened) {
+            (void)video_reator->CloseCamera();
+        }
+        delete video_reator;
+        video_reator = NULL;
+    }
+
+    if (model != NULL) {
+        (void)model->deinit();
+        delete model;
+        model = NULL;
+    }
+
+    if (s_servo_h != NULL) {
+        bk_aimi_servo_deinit(s_servo_h);
+        s_servo_h = NULL;
+    }
+    if (s_servo_v != NULL) {
+        bk_aimi_servo_deinit(s_servo_v);
+        s_servo_v = NULL;
+    }
+
+    display_board_config_t *display_config = app_display_board_config_get();
+    if (display_config) {
+        display_config->dpu_video.enable = false;
+    }
+
+    s_palm_started = false;
     s_palm_start_thread = NULL;
     rtos_delete_thread(NULL);
 }
@@ -274,6 +369,7 @@ int palm_detection_start()
         bk_printf("palm_detection_start: already started, ignore\n");
         return 0;
     }
+
     s_palm_started = true;
 
     bk_err_t ret = rtos_create_thread(&s_palm_start_thread,
@@ -290,4 +386,164 @@ int palm_detection_start()
     }
 
     return 0;
+}
+
+bool palm_detection_can_start(void)
+{
+    /* Pipeline currently active (live or mid-startup). */
+    if (s_palm_started || s_palm_start_thread != NULL) {
+        return false;
+    }
+#if CONFIG_LVGL
+    /* Exit task from the previous session is still tearing things down;
+     * starting now would race the teardown on shared statics
+     * (video_reator, model, s_servo_*) and on the LVGL display handle. */
+    if (s_palm_exit_thread != NULL) {
+        return false;
+    }
+#endif
+    return true;
+}
+
+bool palm_detection_is_active(void)
+{
+#if CONFIG_LVGL
+    if (s_palm_exit_thread != NULL) {
+        return true;
+    }
+#endif
+    return s_palm_started;
+}
+
+int palm_detection_stop(void)
+{
+    if (!s_palm_started) {
+        return 0;
+    }
+
+    for (int i = 0; i < 50 && s_palm_start_thread != NULL; i++) {
+        rtos_delay_milliseconds(20);
+    }
+
+    if (s_palm_start_thread != NULL) {
+        bk_printf("palm_detection_stop: start task still running, abort stop\n");
+        return BK_FAIL;
+    }
+
+    if (video_reator != NULL) {
+        int ret = video_reator->stop();
+        if (ret != BK_OK) {
+            bk_printf("palm_detection_stop: video stop failed (%d), abort stop\n", ret);
+            return ret;
+        }
+    }
+
+    box_detection_path_clear();
+
+    if (video_reator != NULL) {
+        (void)video_reator->CloseDisplay();
+        (void)video_reator->CloseCamera();
+        delete video_reator;
+        video_reator = NULL;
+    }
+
+    if (model != NULL) {
+        (void)model->deinit();
+        delete model;
+        model = NULL;
+    }
+
+    if (s_servo_h != NULL) {
+        bk_aimi_servo_set_angle(s_servo_h, SERVO_CENTER_ANGLE);
+    }
+
+    if (s_servo_v != NULL) {
+        bk_aimi_servo_set_angle(s_servo_v, SERVO_CENTER_ANGLE);
+    }
+
+    if (s_servo_h != NULL || s_servo_v != NULL) {
+        rtos_delay_milliseconds(300);
+    }
+
+    bk_aimi_servo_deinit(s_servo_h);
+    s_servo_h = NULL;
+    bk_aimi_servo_deinit(s_servo_v);
+    s_servo_v = NULL;
+
+    display_board_config_t *display_config = app_display_board_config_get();
+    if (display_config) {
+        display_config->dpu_video.enable = false;
+    }
+
+    s_palm_started = false;
+    return 0;
+}
+
+#if CONFIG_LVGL
+#define PALM_EXIT_TASK_STACK_SIZE   (1024 * 8)
+#define PALM_EXIT_TASK_NAME         "palm_exit"
+
+static void palm_detection_exit_task(void *arg)
+{
+    (void)arg;
+
+    int ret = palm_detection_stop();
+    if (ret != 0) {
+        bk_printf("palm_detection_exit_task: stop failed (%d)\n", ret);
+        goto done;
+    }
+
+    if (bk_robot_lvgl_resume_display() != BK_OK) {
+        bk_printf("palm_detection_exit_task: resume display failed\n");
+        goto done;
+    }
+
+    lv_vendor_start();
+
+    lv_vendor_disp_lock();
+    navigate_to_screen((lv_obj_t **)&bk_lv_tool_ui.page_3,
+                       LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
+                       init_page_page_3);
+
+    {
+        lv_obj_t *active = lv_screen_active();
+        if (active != NULL) {
+            lv_obj_invalidate(active);
+        }
+    }
+    lv_vendor_disp_unlock();
+
+done:
+    s_palm_exit_thread = NULL;
+    rtos_delete_thread(NULL);
+}
+#endif /* CONFIG_LVGL */
+
+int palm_detection_exit_to_menu(void)
+{
+#if CONFIG_LVGL
+    /* Idempotent fast path: nothing to exit. */
+    if (!s_palm_started) {
+        return 0;
+    }
+
+    if (s_palm_exit_thread != NULL) {
+        return 0;
+    }
+
+    bk_err_t ret = rtos_create_thread(&s_palm_exit_thread,
+                                      BEKEN_DEFAULT_WORKER_PRIORITY,
+                                      PALM_EXIT_TASK_NAME,
+                                      (beken_thread_function_t)palm_detection_exit_task,
+                                      PALM_EXIT_TASK_STACK_SIZE,
+                                      NULL);
+    if (ret != BK_OK) {
+        s_palm_exit_thread = NULL;
+        bk_printf("palm_detection_exit_to_menu: create thread failed, ret=%d\n", ret);
+        return -1;
+    }
+    return 0;
+#else
+    return palm_detection_stop();
+#endif
 }

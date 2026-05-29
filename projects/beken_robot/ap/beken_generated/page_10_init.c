@@ -179,6 +179,7 @@ static void on_screen_prev(bk_lv_ui_t *ui)
     navigate_to_screen((lv_obj_t **)&ui->page_3,
                        LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                        init_page_page_3);
+    destroy_page_page_10(ui);
 }
 
 static void on_screen_next(bk_lv_ui_t *ui)

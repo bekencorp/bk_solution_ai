@@ -90,6 +90,7 @@ protected:
 
 public:
     AvdkDetectionModel() : boxDetectionCallback(nullptr) {}
+    virtual ~AvdkDetectionModel() {}
 
     void setBoxDetectionCallback(boxDetectionCallbackT cb) { boxDetectionCallback = cb; }
     void onBoxDetectionCallback(Box *boxes, int count);

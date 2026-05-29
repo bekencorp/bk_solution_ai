@@ -244,6 +244,10 @@ static void on_screen_next(bk_lv_ui_t *ui)
 #endif
         break;
     case 6: /* btn_8: palm tracking */
+        if (!palm_detection_can_start()) {
+            LOGI("Palm tracking busy (start/exit in progress), ignore\r\n");
+            break;
+        }
         LOGI("Palm tracking\r\n");
         lv_vendor_stop();
         palm_detection_start();
@@ -646,4 +650,4 @@ void destroy_page_page_3(bk_lv_ui_t *bk_ui)
         lv_obj_del(bk_ui->page_3);
         bk_ui->page_3 = NULL;
     }
-}
+} 

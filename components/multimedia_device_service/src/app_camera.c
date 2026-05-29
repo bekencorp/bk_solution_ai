@@ -208,10 +208,10 @@ int app_isp_dvp_camera_turn_on(camera_parameters_ext_t *paramters)
 
     sensor_config.bus = bus;
     isp_cam_handle.sensor_handle = bk_camera_sensor_auto_detect(&sensor_config, DVP_CAMERA_PORT);
-    AVDK_RETURN_ON_FALSE(isp_cam_handle.sensor_handle, ret, TAG, "sensor handle is NULL");
+    AVDK_RETURN_ON_FALSE(isp_cam_handle.sensor_handle, AVDK_ERR_GENERIC, TAG, "sensor handle is NULL");
 
     const void *sensor_object = bk_camera_sensor_get_sensor_object(isp_cam_handle.sensor_handle);
-    AVDK_RETURN_ON_FALSE(sensor_object, ret, TAG, "sensor object is NULL");
+    AVDK_RETURN_ON_FALSE(sensor_object, AVDK_ERR_GENERIC, TAG, "sensor object is NULL");
     isp_ctlr_config.sensor_object = sensor_object;
 
     /* Pull sensor's native output pixel format from its supported-format table
@@ -239,7 +239,7 @@ int app_isp_dvp_camera_turn_on(camera_parameters_ext_t *paramters)
 
     AVDK_RETURN_ON_ERROR(bk_camera_isp_ctlr_new(&isp_cam_handle.camera_ctlr_handle), TAG, "bk_camera_isp_ctlr_new failed");
     bk_camera_isp_ctlr_t *control = __containerof(isp_cam_handle.camera_ctlr_handle, bk_camera_isp_ctlr_t, ops);
-    AVDK_RETURN_ON_FALSE(control, ret, TAG, "control is NULL");
+    AVDK_RETURN_ON_FALSE(control, AVDK_ERR_GENERIC, TAG, "control is NULL");
 
     AVDK_GOTO_ON_ERROR(bk_isp_camera_dev_init(isp_cam_handle.camera_ctlr_handle), err, TAG, "bk_isp_camera_dev_init failed");
     isp_cam_handle.isp_handle = control->isp_handle;
@@ -299,11 +299,11 @@ static int app_isp_mipi_sensor_init(const camera_board_config_t *config, bk_isp_
 
     sensor_config.bus = bus;
     isp_cam_handle.sensor_handle = bk_camera_sensor_auto_detect(&sensor_config, CSI_CAMERA_PORT);
-    AVDK_RETURN_ON_FALSE(isp_cam_handle.sensor_handle, ret, TAG, "sensor handle is NULL");
+    AVDK_RETURN_ON_FALSE(isp_cam_handle.sensor_handle, AVDK_ERR_GENERIC, TAG, "sensor handle is NULL");
 
     bk_camera_sensor_format_array_t format_array = {0};
     AVDK_RETURN_ON_ERROR(bk_camera_sensor_query_support_formats(isp_cam_handle.sensor_handle, &format_array), TAG, "bk_camera_sensor_query_support_formats failed");
-    AVDK_RETURN_ON_FALSE(format_array.size > 0, ret, TAG, "format array size is 0");
+    AVDK_RETURN_ON_FALSE(format_array.size > 0, AVDK_ERR_INVAL, TAG, "format array size is 0");
 
     int detect_index = 0;
     for (detect_index = 0; detect_index < format_array.size; detect_index++)
@@ -333,7 +333,7 @@ static int app_isp_mipi_sensor_init(const camera_board_config_t *config, bk_isp_
     isp_ctlr_config->input_pixel_fmt = format_array.format_array[detect_index].output_pixel_fmt;
 
     const void *sensor_object = bk_camera_sensor_get_sensor_object(isp_cam_handle.sensor_handle);
-    AVDK_RETURN_ON_FALSE(sensor_object, ret, TAG, "sensor object is NULL");
+    AVDK_RETURN_ON_FALSE(sensor_object, AVDK_ERR_GENERIC, TAG, "sensor object is NULL");
     isp_ctlr_config->sensor_object = sensor_object;
 
     return AVDK_ERR_OK;
@@ -358,10 +358,12 @@ static int app_isp_mipi_camera_mp_turn_on(const camera_board_config_t *config, b
 {
     bk_err_t ret = BK_OK;
     AVDK_GOTO_ON_FALSE(config, AVDK_ERR_INVAL, err, TAG, "config is null");
+    AVDK_GOTO_ON_FALSE(isp_ctlr_config, AVDK_ERR_INVAL, err, TAG, "isp_ctlr_config is null");
+    AVDK_GOTO_ON_FALSE(isp_ctlr_config->sensor_object, AVDK_ERR_INVAL, err, TAG, "sensor_object is null");
 
     AVDK_RETURN_ON_ERROR(bk_camera_isp_ctlr_new(&isp_cam_handle.camera_ctlr_handle), TAG, "bk_camera_isp_ctlr_new failed");
     bk_camera_isp_ctlr_t *control = __containerof(isp_cam_handle.camera_ctlr_handle, bk_camera_isp_ctlr_t, ops);
-    AVDK_RETURN_ON_FALSE(control, ret, TAG, "control is NULL");
+    AVDK_RETURN_ON_FALSE(control, AVDK_ERR_GENERIC, TAG, "control is NULL");
 
     AVDK_GOTO_ON_ERROR(bk_isp_camera_dev_init(isp_cam_handle.camera_ctlr_handle), err, TAG, "bk_isp_camera_dev_init failed");
     isp_cam_handle.isp_handle = control->isp_handle;

@@ -91,11 +91,18 @@ extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_360x390;
 #define LVGL_DISP_WIDTH  360
 #define LVGL_DISP_HEIGHT 390
 
+static bk_display_ctlr_handle_t s_lvgl_dpu_handle = NULL;
+
 static void bk_robot_lvgl_flush_cb(void *args, void *frame_buffer, int (*cb)(void *args))
 {
-    /* Fetch DPU handle each flush; preview reopens panel and replaces handle. */
-    (void)args;
+    bk_display_ctlr_handle_t *slot = (bk_display_ctlr_handle_t *)args;
+
+    /* Panel resume/reopen replaces the DPU controller, so refresh per flush. */
     bk_display_ctlr_handle_t dpu = media_panel_get_dpu_handle();
+    if (slot != NULL) {
+        *slot = dpu;
+    }
+
     if (dpu == NULL) {
         if (cb != NULL) {
             cb(frame_buffer);
@@ -121,7 +128,8 @@ static bk_err_t bk_robot_lvgl_init(bk_display_ctlr_handle_t dpu_handle)
         LOGE("LVGL frame buffer alloc failed\n");
         return BK_FAIL;
     }
-    cfg.args = dpu_handle;
+    s_lvgl_dpu_handle = dpu_handle;
+    cfg.args = &s_lvgl_dpu_handle;
     cfg.flush_cb = bk_robot_lvgl_flush_cb;
 
     lv_vendor_init(&cfg);
@@ -138,6 +146,28 @@ static bk_err_t bk_robot_lvgl_init(bk_display_ctlr_handle_t dpu_handle)
     lv_vendor_start();
 
     LOGI("LVGL started on %dx%d MIPI\n", LVGL_DISP_WIDTH, LVGL_DISP_HEIGHT);
+    return BK_OK;
+}
+
+bk_err_t bk_robot_lvgl_resume_display(void)
+{
+    (void)media_lcd_panel_close();
+
+    avdk_err_t ret = media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_RGB565, false);
+    if (ret != AVDK_ERR_OK) {
+        LOGE("bk_robot_lvgl_resume_display: media_lcd_panel_open failed %d\n", ret);
+        return BK_FAIL;
+    }
+
+    bk_display_ctlr_handle_t new_handle = media_panel_get_dpu_handle();
+    if (new_handle == NULL) {
+        LOGE("bk_robot_lvgl_resume_display: dpu handle NULL after open\n");
+        return BK_FAIL;
+    }
+
+    s_lvgl_dpu_handle = new_handle;
+    LOGI("bk_robot_lvgl_resume_display: dpu handle refreshed %p\n", new_handle);
+
     return BK_OK;
 }
 #endif

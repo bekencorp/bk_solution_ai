@@ -63,9 +63,13 @@ protected:
     /* Semaphore for display thread synchronization (start and exit) */
     beken_semaphore_t display_thread_sem;
 
+    volatile uint8_t  worker_stop_req;
+    beken_semaphore_t worker_exited_sem;
+
 public:
 
     AvdkVideoReatorOSD(AvdkDetectionModel *detection_model);
+    ~AvdkVideoReatorOSD();
 
     /**
      * @brief Initialize detection model.

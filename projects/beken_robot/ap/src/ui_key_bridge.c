@@ -12,6 +12,12 @@
  * | GPIO_KEY1_ANY_LONG  | UI_NAV_EVENT_SCREEN_PREV | 上一屏（长按） |
  *
  * 未映射的事件（双击等）当前忽略；需要时在下方 switch 中补充。
+ *
+ * 特例：手掌跟随（page_3 -> palm_detection_start）会调用 lv_vendor_stop()
+ * 暂停 LVGL 并接管显示，此时常规的 ui_nav_dispatch_event 路径无法工作
+ * （lv_screen_active() 不会更新）。我们在进入 switch 之前先把
+ * "S4 双击" 截走，直接调用 palm_detection_exit_to_menu() 完成停流+恢复
+ * LVGL+回到 page_3。
  */
 #include <common/sys_config.h>
 
@@ -19,6 +25,7 @@
 
 #include "ui_nav_router.h"
 #include "ui_nav_events.h"
+#include "palm_detection.h"
 
 #include <key_adapter.h>
 #include <components/log.h>
@@ -28,6 +35,16 @@
 
 void bk_key_app_notify_ui_nav(uint8_t event)
 {
+#if CONFIG_ADC_KEY
+    if (palm_detection_is_active()) {
+        if ((key_event_t)event == ADC_KEY_S4_DOUBLE) {
+            LOGI("key S4 double -> exit palm tracking, back to page_3\r\n");
+            (void)palm_detection_exit_to_menu();
+        }
+        return;
+    }
+#endif
+
     ui_nav_event_t nav = UI_NAV_EVENT_COUNT;
 
     switch ((key_event_t)event) {

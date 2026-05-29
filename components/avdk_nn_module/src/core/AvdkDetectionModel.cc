@@ -83,6 +83,7 @@ int AvdkDetectionModel::LoadModel()
         if (model_data == NULL)
         {
             LOGE("Failed to allocate model data\n");
+            resourceUnload();
             return -1;
         }
 
@@ -112,8 +113,8 @@ int AvdkDetectionModel::npuStartup()
 
     if (fast_ram_data == NULL)
     {
-      LOGE("Failed to allocate fast RAM\n");
-      return -1;
+        LOGE("Failed to allocate fast RAM\n");
+        return -1;
     }
 
     void* aligned_ptr = fast_ram_data ? (void*)(((uint32_t)fast_ram_data + 15) & ~15) : nullptr;
@@ -136,10 +137,9 @@ int AvdkDetectionModel::npuStartup()
 
 int AvdkDetectionModel::npuShutdown()
 {
-    bk_ethosu_deinit();
-
     if (fast_ram_data)
     {
+        bk_ethosu_deinit();
         freeMemory(fast_ram_type, fast_ram_data);
         fast_ram_data = NULL;
     }
@@ -162,6 +162,7 @@ int AvdkDetectionModel::cpuShutdown()
 int AvdkDetectionModel::init()
 {
     int ret = -1;
+    const tflite::Model* model = NULL;
 
     ret = LoadModel();
 
@@ -173,16 +174,24 @@ int AvdkDetectionModel::init()
 
     if (model_type == AVDK_NN_MODEL_TYPE_NPU)
     {
-      ret = npuStartup();
+        ret = npuStartup();
     }
     else if (model_type == AVDK_NN_MODEL_TYPE_CPU)
     {
-      ret = cpuStartup();
+        ret = cpuStartup();
     }
     else
     {
-      LOGE("Unsupported model type\n");
-      return -1;
+        LOGE("Unsupported model type\n");
+        UnloadModel();
+        return -1;
+    }
+
+    if (ret != 0)
+    {
+        LOGE("Failed to startup model runtime, ret=%d\n", ret);
+        UnloadModel();
+        return -1;
     }
 
     LOGI("AvdkDetectionModel::init %s\n", name);
@@ -191,15 +200,15 @@ int AvdkDetectionModel::init()
     if (model_data == NULL)
     {
         LOGE("model_data is NULL\n");
-        return -1;
+        goto error;
     }
 
-    const tflite::Model* model = ::tflite::GetModel(model_data);
+    model = ::tflite::GetModel(model_data);
 
     if(TFLITE_SCHEMA_VERSION != model->version())
     {
         LOGE("Model schema version mismatch\n");
-        return -1;
+        goto error;
     }
 
     resolverLoad();
@@ -208,8 +217,8 @@ int AvdkDetectionModel::init()
 
     if (arena_ram_data == NULL)
     {
-      LOGE("Failed to allocate arena RAM\n");
-      goto error;
+        LOGE("Failed to allocate arena RAM\n");
+        goto error;
     }
 
     if(!(pinterpreter = new tflite::MicroInterpreter(model, micro_op_resolver, arena_ram_data, arena_data_size)))
@@ -237,26 +246,36 @@ error:
         cpuShutdown();
     }
 
-    if (arena_ram_data)
-    {
-        freeMemory(arena_ram_type, arena_ram_data);
-        arena_ram_data = NULL;
-    }
-
     if (pinterpreter)
     {
         delete pinterpreter;
         pinterpreter = NULL;
     }
 
+    if (arena_ram_data)
+    {
+        freeMemory(arena_ram_type, arena_ram_data);
+        arena_ram_data = NULL;
+    }
+
     UnloadModel();
 
-  return -1;
+    return -1;
 }
 
 int AvdkDetectionModel::deinit()
 {
-    int ret = -1;
+    if (pinterpreter)
+    {
+        delete pinterpreter;
+        pinterpreter = NULL;
+    }
+
+    if (arena_ram_data)
+    {
+        freeMemory(arena_ram_type, arena_ram_data);
+        arena_ram_data = NULL;
+    }
 
     if (model_type == AVDK_NN_MODEL_TYPE_NPU)
     {
@@ -267,8 +286,7 @@ int AvdkDetectionModel::deinit()
         cpuShutdown();
     }
 
-    ret = UnloadModel();
-    if (ret != 0)
+    if (UnloadModel() != 0)
     {
         LOGE("Failed to unload model\n");
         return -1;
