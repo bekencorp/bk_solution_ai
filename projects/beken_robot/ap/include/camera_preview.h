@@ -111,6 +111,37 @@ int camera_preview_get_photo_nv12(void **buf, uint32_t *size,
  */
 int camera_preview_get_photo_jpeg(void **buf, uint32_t *size);
 
+/**
+ * @brief Debug-only: power on SD-NAND and mount the FATFS volume once,
+ *        for the rest of the app lifetime, so take_photo can persist
+ *        each JPEG to disk with only mkdir + write per shot.
+ *
+ * Call this ONCE during app init (ap_main.c). After this returns:
+ *   * NAND_VDD stays HIGH for the rest of the session (~mA of static
+ *     current -- acceptable for a developer build).
+ *   * "1:" stays mounted; each camera_preview_take_photo() lands a
+ *     new "1:/photos/NNNN/photo.jpg" file when the photo worker
+ *     completes its HW JPEG encode.
+ *
+ * There is intentionally NO matching deinit. An earlier design
+ * unmounted + powered off SD-NAND on every camera_preview_stop(), but
+ * that f_unmount + board_sd_nand_power_off pair reliably left the LCD
+ * panel black after the LVGL panel reopen + lv_vendor_start. The root
+ * cause is somewhere in {sdio_dwc::sdio_reset, gpio_dev_unmap(GPIO_53)
+ * for the LCD_B2 second-func pin, NAND_VDD HIGH->LOW transient} and
+ * has not been pinpointed; persisting NAND_VDD HIGH for the whole
+ * session sidesteps the issue cleanly.
+ *
+ * Compiled out (to a no-op returning 0) when
+ * CONFIG_CAM_PREVIEW_SDNAND_DEBUG=0 or when FATFS / SD-NAND power gate
+ * are absent from defconfig. Failure is non-fatal: preview keeps
+ * working without the debug persist (just no JPEGs land on disk).
+ *
+ * @return 0 on mount success or no-op build; <0 on mount failure
+ *         (NAND_VDD is left LOW on failure to save idle current).
+ */
+int camera_preview_sdnand_debug_init(void);
+
 #ifdef __cplusplus
 }
 #endif
