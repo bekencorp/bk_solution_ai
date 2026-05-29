@@ -70,6 +70,11 @@ typedef struct
     /* Camera preview button (manual, not from Designer); slot (131, 212). */
     lv_obj_t *page_3_button_9;
     lv_obj_t *page_3_button_9_label;
+    /* NOTE: page_3_button_4 is reused as the U-disk (USB MSC) entry
+     * (label "U盘"). The earlier dedicated page_3_button_udisk struct
+     * member / centered 4th-row layout was dropped -- the original
+     * "人脸跟踪" slot now drives board_usb_switch_to_usb(). See
+     * page_3_init.c for the menu/action mapping. */
     /* Page: 3 objects */
     lv_obj_t *page_4;
     lv_obj_t *page_4_button_1;

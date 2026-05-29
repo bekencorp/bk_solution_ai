@@ -27,6 +27,7 @@
 #include "ui_nav_router.h"
 #include "components/log.h"
 #include "audio_engine.h"
+#include "board_usb_switch.h"
 
 #define TAG "page3"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -49,7 +50,15 @@ static int s_page3_menu_idx;
  *  y=153  btn_7            btn_5           btn_6
  *         音乐播放         音量设置        声源定位
  *  y=212  btn_8            btn_9           btn_4
- *         手掌跟随        摄像头预览       人脸跟踪
+ *         手掌跟随        摄像头预览       U盘
+ *
+ * btn_4 used to be "人脸跟踪" (face tracking). The face-tracking pipeline
+ * was never wired up, so the slot is now repurposed as the U-disk (USB
+ * MSC) entry -- pressing it flips the Type-C mux to BK7259 USB and the
+ * PC enumerates the on-board SD-NAND as a removable disk. This avoids
+ * the previous 4th-row layout (a single centered btn_udisk at y=272)
+ * which was awkward visually and required carrying an extra struct
+ * member that was never actually instantiated.
  *
  * If a button is moved on screen, update both this table AND the
  * matching case in on_screen_next() so the action stays in sync.
@@ -68,7 +77,7 @@ static lv_obj_t *page_3_menu_btn(bk_lv_ui_t *ui, int idx)
     case 5: return ui->page_3_button_6;
     case 6: return ui->page_3_button_8;
     case 7: return ui->page_3_button_9;  /* camera preview */
-    case 8: return ui->page_3_button_4;
+    case 8: return ui->page_3_button_4;  /* U-disk (USB MSC) */
     default: return NULL;
     }
 }
@@ -246,13 +255,20 @@ static void on_screen_next(bk_lv_ui_t *ui)
             LOGE("camera_preview_start trigger failed\r\n");
         }
         break;
-    case 8: /* btn_4: face tracking */
-        /* Face tracking is a separate demo from palm tracking.
-         * The face-tracking pipeline is not yet implemented here; do not
-         * fall through to palm_detection_start() so the user doesn't get
-         * the wrong behaviour when they pick this button.
-         * TODO: hook up real face tracking here when available. */
-        LOGI("Face tracking (not implemented yet)\r\n");
+    case 8: /* btn_4: U-disk (USB MSC).
+             *
+             * Switch the Type-C mux to BK7259 USB and bring up MSC so the
+             * PC enumerates the on-board SD-NAND as a removable U-disk.
+             *
+             * NOTE: this also disconnects the CH340 UART log path from
+             * the Type-C connector -- the user has to reset / power-cycle
+             * the board to fall back to UART mode (see board_usb_switch
+             * .c warnings). Since the call is best-effort and one-way,
+             * we don't try to navigate to a new screen here. */
+        LOGI("U-disk mode -> route Type-C to BK7259 USB + MSC up\r\n");
+        if (board_usb_switch_to_usb() != BK_OK) {
+            LOGE("board_usb_switch_to_usb failed\r\n");
+        }
         break;
     default:
         break;
@@ -273,6 +289,11 @@ const ui_page_nav_ops_t page_3_nav_ops = {
  * camera-preview guard on_screen_next() uses: while the preview is
  * active, menu re-entry is blocked, but focus tracking still updates so
  * the user sees the highlight follow their finger when they come back.
+ *
+ * Index 8 here is btn_4 (= "U盘" / U-disk in the merged layout). The
+ * action lives in on_screen_next() case 8, so a TP tap on the U-disk
+ * tile goes through the exact same board_usb_switch_to_usb() path as
+ * the keypad "ENTER" — no extra wiring needed for the new button.
  */
 static void page_3_button_click_cb(lv_event_t *e)
 {
@@ -412,9 +433,16 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_shadow_offset_y(bk_ui->page_3_button_3, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_spread(bk_ui->page_3_button_3, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+    /* btn_4 was originally "人脸跟踪" (face tracking) in the LVGL Designer
+     * export, but the face-tracking pipeline is not implemented on this
+     * board. The slot is now reused as the U-disk (USB MSC) entry so we
+     * don't need an awkward extra 4th centered row just for it. The
+     * geometry (x/y/size/style) is kept identical to the rest of the
+     * 3x3 grid -- only the label text and the on_screen_next() action
+     * for this index changed. See page_3_menu_btn() for index mapping. */
     bk_ui->page_3_button_4 = lv_btn_create(bk_ui->page_3);
     bk_ui->page_3_button_4_label = lv_label_create(bk_ui->page_3_button_4);
-    lv_label_set_text(bk_ui->page_3_button_4_label, "人脸跟踪");
+    lv_label_set_text(bk_ui->page_3_button_4_label, "U盘");
     lv_label_set_long_mode(bk_ui->page_3_button_4_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_4_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_x(bk_ui->page_3_button_4, 244);

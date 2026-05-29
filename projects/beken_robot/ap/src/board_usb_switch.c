@@ -443,6 +443,8 @@ bk_err_t board_usb_switch_to_uart(void)
 
 bk_err_t board_usb_switch_to_usb(void)
 {
+    board_sd_nand_power_on();
+
     /* Flip the physical mux first, then bring USB Device MSC up. Order
      * matters: msc_storage_init() pulls D+/D- and asks for enumeration,
      * but those lines are useless until the FSW3157A actually routes
