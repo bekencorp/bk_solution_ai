@@ -18,6 +18,7 @@
 #include <components/log.h>
 #include <driver/gpio.h>
 #include <driver/flash.h>
+#include <components/bk_frame_buffer.h>
 #if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
 #include "video_frame_que.h"
 #include <components/bk_camera_ctlr_types.h>
@@ -55,6 +56,13 @@
 #define VIDEO_TRANSFER_STOP_WAIT_MS     (1000)
 #define VIDEO_TRANSFER_STOP_POLL_MS     (20)
 #define VIDEO_MIPI_ENCODER_DRAIN_MS     (80)
+#define VIDEO_PREVIEW_TASK_NAME         "ve_preview"
+#define VIDEO_PREVIEW_TASK_STACK_SIZE   (4 * 1024)
+#define VIDEO_PREVIEW_STOP_WAIT_MS      (1000)
+#define VIDEO_PREVIEW_STOP_POLL_MS      (20)
+#define VIDEO_PREVIEW_READ_TIMEOUT_MS   (350)
+#define VIDEO_PREVIEW_DEFAULT_FPS       (15)
+#define VIDEO_PREVIEW_MAX_FPS           (20)
 
 #if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
 #define VIDEO_ENGINE_MIPI_CAM_SCL       GPIO_70
@@ -96,6 +104,21 @@ typedef struct {
     void *h264_bond;                            /**< ISP MP -> H.264 encoder flexa bond */
     uint16_t encoded_width;                     /**< Encoded frame width for metadata fixup */
     uint16_t encoded_height;                    /**< Encoded frame height for metadata fixup */
+    bool preview_sp_opened;                     /**< ISP SP channel opened for local preview/capture */
+    bool preview_running;                       /**< Preview worker loop flag */
+    beken_thread_t preview_task_handle;         /**< Local RGB565 preview worker */
+    uint16_t preview_in_width;                  /**< SP NV12 input width */
+    uint16_t preview_in_height;                 /**< SP NV12 input height */
+    uint16_t preview_out_width;                 /**< RGB565 callback width */
+    uint16_t preview_out_height;                /**< RGB565 callback height */
+    uint16_t preview_rotate;                    /**< 0/90/180/270 */
+    uint8_t preview_fps;                        /**< Local preview frame rate */
+    uint8_t *preview_nv12_buf;                  /**< SP NV12 scratch buffer */
+    uint8_t *preview_rgb565_buf;                /**< RGB565 output buffer */
+    uint32_t preview_nv12_size;
+    uint32_t preview_rgb565_size;
+    video_engine_preview_sink_t preview_sink;
+    void *preview_user_data;
 #endif
     /* Engine state */
     bool is_started;                            /**< Video engine started flag */
@@ -653,10 +676,366 @@ static int video_engine_mipi_camera_close(void)
     g_video_engine_ctx->use_encoded_manager = false;
     g_video_engine_ctx->encoded_width = 0;
     g_video_engine_ctx->encoded_height = 0;
+    g_video_engine_ctx->preview_sp_opened = false;
+    g_video_engine_ctx->preview_in_width = 0;
+    g_video_engine_ctx->preview_in_height = 0;
     g_video_engine_ctx->camera_opened = false;
 
     return final_ret;
 #endif
+}
+#endif
+
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+static uint8_t video_engine_clip_u8(int value)
+{
+    if (value < 0)
+    {
+        return 0;
+    }
+    if (value > 255)
+    {
+        return 255;
+    }
+    return (uint8_t)value;
+}
+
+static uint16_t video_engine_rgb_to_rgb565(uint8_t r, uint8_t g, uint8_t b)
+{
+    return (uint16_t)(((uint16_t)(r & 0xF8) << 8) |
+                      ((uint16_t)(g & 0xFC) << 3) |
+                      ((uint16_t)b >> 3));
+}
+
+static void video_engine_preview_map_xy(uint16_t out_x,
+                                        uint16_t out_y,
+                                        uint16_t in_w,
+                                        uint16_t in_h,
+                                        uint16_t rotate,
+                                        uint16_t *src_x,
+                                        uint16_t *src_y)
+{
+    switch (rotate)
+    {
+    case 90:
+        *src_x = out_y;
+        *src_y = (uint16_t)(in_h - 1U - out_x);
+        break;
+    case 180:
+        *src_x = (uint16_t)(in_w - 1U - out_x);
+        *src_y = (uint16_t)(in_h - 1U - out_y);
+        break;
+    case 270:
+        *src_x = (uint16_t)(in_w - 1U - out_y);
+        *src_y = out_x;
+        break;
+    default:
+        *src_x = out_x;
+        *src_y = out_y;
+        break;
+    }
+}
+
+static void video_engine_nv12_to_rgb565(const uint8_t *nv12,
+                                        uint8_t *rgb565,
+                                        uint16_t in_w,
+                                        uint16_t in_h,
+                                        uint16_t rotate,
+                                        uint16_t out_w,
+                                        uint16_t out_h)
+{
+    /* Logical size after rotation (before scaling to the display size). */
+    uint16_t rot_w = (rotate == 90 || rotate == 270) ? in_h : in_w;
+    uint16_t rot_h = (rotate == 90 || rotate == 270) ? in_w : in_h;
+    uint16_t *dst = (uint16_t *)rgb565;
+    const uint8_t *uv = nv12 + ((uint32_t)in_w * in_h);
+
+    for (uint16_t y = 0; y < out_h; y++)
+    {
+        /* Nearest-neighbor scale from display row to rotated-space row. */
+        uint16_t ry = (uint16_t)(((uint32_t)y * rot_h) / out_h);
+        if (ry >= rot_h)
+        {
+            ry = (uint16_t)(rot_h - 1U);
+        }
+        for (uint16_t x = 0; x < out_w; x++)
+        {
+            uint16_t rx = (uint16_t)(((uint32_t)x * rot_w) / out_w);
+            if (rx >= rot_w)
+            {
+                rx = (uint16_t)(rot_w - 1U);
+            }
+
+            uint16_t sx;
+            uint16_t sy;
+            video_engine_preview_map_xy(rx, ry, in_w, in_h, rotate, &sx, &sy);
+
+            uint8_t yv = nv12[(uint32_t)sy * in_w + sx];
+            uint32_t uv_index = ((uint32_t)(sy >> 1) * in_w) + (uint32_t)(sx & ~1U);
+            int u = (int)uv[uv_index] - 128;
+            int v = (int)uv[uv_index + 1] - 128;
+            int c = (int)yv - 16;
+            if (c < 0)
+            {
+                c = 0;
+            }
+
+            uint8_t r = video_engine_clip_u8((298 * c + 409 * v + 128) >> 8);
+            uint8_t g = video_engine_clip_u8((298 * c - 100 * u - 208 * v + 128) >> 8);
+            uint8_t b = video_engine_clip_u8((298 * c + 516 * u + 128) >> 8);
+            dst[(uint32_t)y * out_w + x] = video_engine_rgb_to_rgb565(r, g, b);
+        }
+    }
+}
+
+static void video_engine_preview_release_buffers(void)
+{
+    if (g_video_engine_ctx == NULL)
+    {
+        return;
+    }
+
+    if (g_video_engine_ctx->preview_nv12_buf != NULL)
+    {
+        bk_frame_buffer_free(g_video_engine_ctx->preview_nv12_buf);
+        g_video_engine_ctx->preview_nv12_buf = NULL;
+    }
+    if (g_video_engine_ctx->preview_rgb565_buf != NULL)
+    {
+        bk_frame_buffer_free(g_video_engine_ctx->preview_rgb565_buf);
+        g_video_engine_ctx->preview_rgb565_buf = NULL;
+    }
+    g_video_engine_ctx->preview_nv12_size = 0;
+    g_video_engine_ctx->preview_rgb565_size = 0;
+}
+
+static void video_engine_preview_task(void *arg)
+{
+    (void)arg;
+    LOGI("%s: started\n", __func__);
+
+    while (g_video_engine_ctx != NULL && g_video_engine_ctx->preview_running)
+    {
+        uint32_t fps = g_video_engine_ctx->preview_fps ?
+                       g_video_engine_ctx->preview_fps : VIDEO_PREVIEW_DEFAULT_FPS;
+        uint32_t frame_interval_ms = 1000U / fps;
+        uint32_t loop_start = rtos_get_time();
+
+        if (app_isp_camera_channel_read(APP_ISP_SP_CHN_ID,
+                                        g_video_engine_ctx->preview_nv12_buf,
+                                        g_video_engine_ctx->preview_nv12_size,
+                                        VIDEO_PREVIEW_READ_TIMEOUT_MS) == BK_OK)
+        {
+            video_engine_nv12_to_rgb565(g_video_engine_ctx->preview_nv12_buf,
+                                        g_video_engine_ctx->preview_rgb565_buf,
+                                        g_video_engine_ctx->preview_in_width,
+                                        g_video_engine_ctx->preview_in_height,
+                                        g_video_engine_ctx->preview_rotate,
+                                        g_video_engine_ctx->preview_out_width,
+                                        g_video_engine_ctx->preview_out_height);
+
+            video_engine_preview_sink_t sink = g_video_engine_ctx->preview_sink;
+            if (sink != NULL)
+            {
+                sink(g_video_engine_ctx->preview_rgb565_buf,
+                     g_video_engine_ctx->preview_out_width,
+                     g_video_engine_ctx->preview_out_height,
+                     g_video_engine_ctx->preview_user_data);
+            }
+        }
+
+        /* The SP read already blocks at the sensor frame rate, so only pad
+         * out the remaining time toward the target interval instead of
+         * adding a full fixed delay on top of the capture latency. */
+        uint32_t elapsed = rtos_get_time() - loop_start;
+        if (elapsed < frame_interval_ms)
+        {
+            rtos_delay_milliseconds(frame_interval_ms - elapsed);
+        }
+        else
+        {
+            rtos_delay_milliseconds(1);
+        }
+    }
+
+    if (g_video_engine_ctx != NULL)
+    {
+        g_video_engine_ctx->preview_task_handle = NULL;
+    }
+    LOGI("%s: exit\n", __func__);
+    rtos_delete_thread(NULL);
+}
+
+int video_engine_preview_start(const video_engine_preview_config_t *config)
+{
+    bk_err_t ret;
+
+    if (g_video_engine_ctx == NULL || !g_video_engine_ctx->camera_opened)
+    {
+        LOGW("%s: camera not ready\n", __func__);
+        return BK_FAIL;
+    }
+    if (curr_cam_type != VIDEO_ENGINE_CAMERA_MIPI)
+    {
+        LOGW("%s: only MIPI camera preview is supported\n", __func__);
+        return BK_FAIL;
+    }
+    if (config == NULL || config->sink == NULL ||
+        config->width == 0 || config->height == 0)
+    {
+        LOGE("%s: invalid config\n", __func__);
+        return BK_FAIL;
+    }
+    if (config->rotate != 0 && config->rotate != 90 &&
+        config->rotate != 180 && config->rotate != 270)
+    {
+        LOGE("%s: unsupported rotate=%u\n", __func__, config->rotate);
+        return BK_FAIL;
+    }
+    if (g_video_engine_ctx->preview_running)
+    {
+        LOGI("%s: already running\n", __func__);
+        return BK_OK;
+    }
+
+    uint16_t rot_w = (config->rotate == 90 || config->rotate == 270) ?
+                     config->height : config->width;
+    uint16_t rot_h = (config->rotate == 90 || config->rotate == 270) ?
+                     config->width : config->height;
+    /* Display output size: caller-provided target, or the rotated size. */
+    uint16_t out_w = config->out_width ? config->out_width : rot_w;
+    uint16_t out_h = config->out_height ? config->out_height : rot_h;
+
+    if (g_video_engine_ctx->preview_sp_opened &&
+        (g_video_engine_ctx->preview_in_width != config->width ||
+         g_video_engine_ctx->preview_in_height != config->height))
+    {
+        LOGE("%s: SP already opened as %ux%u, cannot switch to %ux%u without camera restart\n",
+             __func__,
+             g_video_engine_ctx->preview_in_width,
+             g_video_engine_ctx->preview_in_height,
+             config->width,
+             config->height);
+        return BK_FAIL;
+    }
+
+    if (!g_video_engine_ctx->preview_sp_opened)
+    {
+        camera_board_config_t *board_config = app_camera_board_config_get();
+        if (board_config == NULL)
+        {
+            LOGE("%s: camera board config is NULL\n", __func__);
+            return BK_FAIL;
+        }
+        board_config->isp.sp_enable = 1;
+        board_config->isp.sp_flexa = 0;
+        board_config->isp.sp_width = config->width;
+        board_config->isp.sp_height = config->height;
+        board_config->isp.sp_format = BK_PIXEL_FORMAT_NV12;
+
+        ret = app_isp_camera_sp_channel_turn_on(board_config);
+        if (ret != BK_OK)
+        {
+            LOGE("%s: app_isp_camera_sp_channel_turn_on failed ret=%d\n", __func__, ret);
+            return ret;
+        }
+        g_video_engine_ctx->preview_sp_opened = true;
+    }
+
+    g_video_engine_ctx->preview_in_width = config->width;
+    g_video_engine_ctx->preview_in_height = config->height;
+    g_video_engine_ctx->preview_out_width = out_w;
+    g_video_engine_ctx->preview_out_height = out_h;
+    g_video_engine_ctx->preview_rotate = config->rotate;
+    g_video_engine_ctx->preview_fps = (config->fps == 0) ? VIDEO_PREVIEW_DEFAULT_FPS : config->fps;
+    if (g_video_engine_ctx->preview_fps > VIDEO_PREVIEW_MAX_FPS)
+    {
+        g_video_engine_ctx->preview_fps = VIDEO_PREVIEW_MAX_FPS;
+    }
+    g_video_engine_ctx->preview_sink = config->sink;
+    g_video_engine_ctx->preview_user_data = config->user_data;
+    g_video_engine_ctx->preview_nv12_size = (uint32_t)config->width * config->height * 3U / 2U;
+    g_video_engine_ctx->preview_rgb565_size = (uint32_t)out_w * out_h * 2U;
+
+    g_video_engine_ctx->preview_nv12_buf =
+        (uint8_t *)bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED,
+                                          g_video_engine_ctx->preview_nv12_size + 32U);
+    g_video_engine_ctx->preview_rgb565_buf =
+        (uint8_t *)bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED,
+                                          g_video_engine_ctx->preview_rgb565_size + 32U);
+    if (g_video_engine_ctx->preview_nv12_buf == NULL ||
+        g_video_engine_ctx->preview_rgb565_buf == NULL)
+    {
+        LOGE("%s: buffer alloc failed nv12=%p rgb565=%p\n",
+             __func__,
+             g_video_engine_ctx->preview_nv12_buf,
+             g_video_engine_ctx->preview_rgb565_buf);
+        video_engine_preview_release_buffers();
+        return BK_FAIL;
+    }
+
+    g_video_engine_ctx->preview_running = true;
+    ret = rtos_create_thread(&g_video_engine_ctx->preview_task_handle,
+                             VIDEO_TRANSFER_TASK_PRIORITY,
+                             VIDEO_PREVIEW_TASK_NAME,
+                             video_engine_preview_task,
+                             VIDEO_PREVIEW_TASK_STACK_SIZE,
+                             NULL);
+    if (ret != BK_OK)
+    {
+        LOGE("%s: create preview task failed ret=%d\n", __func__, ret);
+        g_video_engine_ctx->preview_running = false;
+        video_engine_preview_release_buffers();
+        return BK_FAIL;
+    }
+
+    LOGI("%s: SP %ux%u -> RGB565 %ux%u rotate=%u fps=%u\n",
+         __func__, config->width, config->height, out_w, out_h,
+         config->rotate, g_video_engine_ctx->preview_fps);
+    return BK_OK;
+}
+
+int video_engine_preview_stop(void)
+{
+    if (g_video_engine_ctx == NULL)
+    {
+        return BK_OK;
+    }
+
+    if (g_video_engine_ctx->preview_running)
+    {
+        g_video_engine_ctx->preview_running = false;
+        for (uint32_t waited_ms = 0;
+             g_video_engine_ctx->preview_task_handle != NULL &&
+             waited_ms < VIDEO_PREVIEW_STOP_WAIT_MS;
+             waited_ms += VIDEO_PREVIEW_STOP_POLL_MS)
+        {
+            rtos_delay_milliseconds(VIDEO_PREVIEW_STOP_POLL_MS);
+        }
+        if (g_video_engine_ctx->preview_task_handle != NULL)
+        {
+            LOGW("%s: preview task did not exit within %u ms\n",
+                 __func__, VIDEO_PREVIEW_STOP_WAIT_MS);
+        }
+    }
+
+    g_video_engine_ctx->preview_sink = NULL;
+    g_video_engine_ctx->preview_user_data = NULL;
+    video_engine_preview_release_buffers();
+    LOGI("%s: stopped\n", __func__);
+    return BK_OK;
+}
+#else
+int video_engine_preview_start(const video_engine_preview_config_t *config)
+{
+    (void)config;
+    LOGW("%s: MIPI camera disabled\n", __func__);
+    return BK_FAIL;
+}
+
+int video_engine_preview_stop(void)
+{
+    return BK_OK;
 }
 #endif
 
@@ -980,6 +1359,8 @@ int video_engine_stop(void)
     }
     
     LOGI("%s: Stopping video engine\n", __func__);
+
+    (void)video_engine_preview_stop();
     
     /* Stop video transfer task */
     if (g_video_engine_ctx->transfer_task_running) {

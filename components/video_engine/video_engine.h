@@ -33,6 +33,23 @@ typedef struct
 	uint16_t rotate;
 } camera_parameters_t;
 
+typedef void (*video_engine_preview_sink_t)(const uint8_t *rgb565,
+                                            uint16_t width,
+                                            uint16_t height,
+                                            void *user_data);
+
+typedef struct
+{
+    uint16_t width;      /**< ISP SP input width (NV12). */
+    uint16_t height;     /**< ISP SP input height (NV12). */
+    uint8_t fps;         /**< Local preview frame rate, 1-15 fps recommended. */
+    uint16_t rotate;     /**< Software output rotation: 0/90/180/270. */
+    uint16_t out_width;  /**< Target RGB565 output width; 0 = rotated input width. */
+    uint16_t out_height; /**< Target RGB565 output height; 0 = rotated input height. */
+    video_engine_preview_sink_t sink;
+    void *user_data;
+} video_engine_preview_config_t;
+
 // extern camera_parameters_t camera_parameters;
 
 
@@ -164,6 +181,22 @@ int video_engine_deinit(void);
  *         - false: Video engine is not running
  */
 bool video_engine_is_running(void);
+
+/**
+ * @brief Start local RGB565 preview from the running MIPI camera SP channel.
+ *
+ * The preview path is a secondary local consumer. It does not own the camera
+ * lifecycle and must be stopped before the UI object receiving frames is
+ * destroyed. H.264 uplink continues to use the MP flexa path.
+ */
+int video_engine_preview_start(const video_engine_preview_config_t *config);
+
+/**
+ * @brief Stop local preview worker and release its temporary buffers.
+ *
+ * This does not close the MIPI camera; video_engine_deinit() owns that.
+ */
+int video_engine_preview_stop(void);
 
 #ifdef __cplusplus
 }
