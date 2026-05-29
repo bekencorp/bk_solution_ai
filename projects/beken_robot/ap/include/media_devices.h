@@ -74,6 +74,34 @@ avdk_err_t media_camera_close(void);
 avdk_err_t media_gpu_open(uint16_t src_w, uint16_t src_h, uint16_t rotate_deg);
 avdk_err_t media_gpu_close(void);
 
+/* ---------- One-shot NV12 -> JPEG (HW VCENC, synchronous) ----------
+ * Full encoder lifecycle per call (~50-150ms). Caller supplies output buffer.
+ * quality: 0..10 (SDK jpeg_param.quality).
+ */
+avdk_err_t media_jpeg_encode_nv12_oneshot(const void *nv12_buf,
+                                          uint16_t w,
+                                          uint16_t h,
+                                          uint8_t quality,
+                                          void *out_jpeg_buf,
+                                          uint32_t out_capacity,
+                                          uint32_t *out_len);
+
+/* ---------- ISP SP channel (HD photo capture) ----------
+ * Second ISP channel, frame-mode NV12. Opened with preview; read on take_photo.
+ * Pre-condition: media_camera_open() (MP running).
+ */
+avdk_err_t media_camera_sp_open(uint16_t sp_w, uint16_t sp_h);
+avdk_err_t media_camera_sp_close(void);
+
+/** @brief Blocking read of one SP NV12 frame into caller buffer. */
+avdk_err_t media_camera_sp_read(uint8_t *buf, uint32_t size, uint32_t timeout_ms);
+
+/* ---------- GPU snapshot / freeze (photo still on DPU) ---------- */
+avdk_err_t media_gpu_arm_snapshot(void);
+avdk_err_t media_gpu_resume_live(void);
+avdk_err_t media_gpu_drop_snapshot(void);
+bool       media_gpu_is_frozen(void);
+
 /* ---------- H.264 encoder (img_xfer) ----------
  *
  * Binds the running ISP MP NV12 stream to the hardware H.264 encoder via

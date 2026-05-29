@@ -13,6 +13,7 @@ set(srcs
     beken_generated/page_7_init.c
     beken_generated/page_10_init.c
     src/palm_detection.cc
+    src/camera_preview.c
 )
 
 include(${CMAKE_CURRENT_LIST_DIR}/beken_generated/beken_generated.cmake)

@@ -67,6 +67,9 @@ typedef struct
     lv_obj_t *page_3_button_7_label;
     lv_obj_t *page_3_button_8;
     lv_obj_t *page_3_button_8_label;
+    /* Camera preview button (manual, not from Designer); slot (131, 212). */
+    lv_obj_t *page_3_button_9;
+    lv_obj_t *page_3_button_9_label;
     /* Page: 3 objects */
     lv_obj_t *page_4;
     lv_obj_t *page_4_button_1;

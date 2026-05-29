@@ -34,6 +34,9 @@
 #endif
 #endif
 
+#include <components/bk_encode/bk_jpeg_encode_ctlr.h>
+#include <components/bk_encode/bk_jpeg_encode_types.h>
+
 #define TAG "media_dev"
 
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -365,10 +368,181 @@ avdk_err_t media_camera_close(void)
     }
 #endif
 
+    /* app_isp_camera_turn_off closes MP and SP together. */
     app_isp_camera_turn_off();
     LOGI("camera closed\n");
     return AVDK_ERR_OK;
 #endif
+}
+
+/* ---------- ISP SP channel (HD photo) ---------- */
+avdk_err_t media_camera_sp_open(uint16_t sp_w, uint16_t sp_h)
+{
+#if !CONFIG_ISP
+    (void)sp_w; (void)sp_h;
+    LOGE("CONFIG_ISP not enabled\n");
+    return AVDK_ERR_UNSUPPORTED;
+#else
+    AVDK_RETURN_ON_FALSE((sp_w > 0 && sp_h > 0), AVDK_ERR_INVAL, TAG, "sp w/h=0");
+
+    camera_board_config_t *cfg = app_camera_board_config_get();
+    AVDK_RETURN_ON_FALSE(cfg, AVDK_ERR_INVAL, TAG, "camera config not set");
+
+    /* SP size must not exceed sensor output. */
+    AVDK_RETURN_ON_FALSE((sp_w <= cfg->mipi.sensor_max_width &&
+                          sp_h <= cfg->mipi.sensor_max_height),
+                         AVDK_ERR_INVAL, TAG,
+                         "sp %ux%u exceeds sensor %ux%u",
+                         sp_w, sp_h, cfg->mipi.sensor_max_width, cfg->mipi.sensor_max_height);
+
+    cfg->isp.sp_enable = 1;
+    cfg->isp.sp_flexa  = 0;            /* frame-mode for SP read */
+    cfg->isp.sp_width  = sp_w;
+    cfg->isp.sp_height = sp_h;
+    cfg->isp.sp_format = BK_PIXEL_FORMAT_NV12;
+
+    avdk_err_t ret = app_isp_camera_sp_channel_turn_on(cfg);
+    if (ret != AVDK_ERR_OK)
+    {
+        LOGE("app_isp_camera_sp_channel_turn_on failed: %d\n", ret);
+        cfg->isp.sp_enable = 0;
+        return ret;
+    }
+
+    LOGI("ISP SP open: %ux%u NV12 frame-mode\n", sp_w, sp_h);
+    return AVDK_ERR_OK;
+#endif
+}
+
+avdk_err_t media_camera_sp_close(void)
+{
+#if !CONFIG_ISP
+    return AVDK_ERR_UNSUPPORTED;
+#else
+    /* SP closed via media_camera_close only. */
+    return AVDK_ERR_OK;
+#endif
+}
+
+avdk_err_t media_camera_sp_read(uint8_t *buf, uint32_t size, uint32_t timeout_ms)
+{
+#if !CONFIG_ISP
+    (void)buf; (void)size; (void)timeout_ms;
+    return AVDK_ERR_UNSUPPORTED;
+#else
+    AVDK_RETURN_ON_FALSE(buf, AVDK_ERR_INVAL, TAG, "sp_read: buf NULL");
+    AVDK_RETURN_ON_FALSE(size > 0, AVDK_ERR_INVAL, TAG, "sp_read: size=0");
+    return app_isp_camera_channel_read(APP_ISP_SP_CHN_ID, buf, size, timeout_ms);
+#endif
+}
+
+/* ---------- NV12 -> JPEG oneshot (sync via enc_done_sem) ---------- */
+typedef struct {
+    uint32_t length;
+    uint32_t status;
+} media_jpeg_oneshot_ctx_t;
+
+static uint32_t media_jpeg_oneshot_complete_cb(bk_jpeg_encode_outbuf_info_t *info)
+{
+    if (info == NULL) {
+        return 0;
+    }
+    media_jpeg_oneshot_ctx_t *ctx =
+        (media_jpeg_oneshot_ctx_t *)info->args;
+    if (ctx != NULL) {
+        ctx->length = info->length;
+        ctx->status = info->status;
+    }
+    /* Caller-owned out buffer; return 0 is fine for sync path. */
+    return 0;
+}
+
+avdk_err_t media_jpeg_encode_nv12_oneshot(const void *nv12_buf,
+                                          uint16_t w,
+                                          uint16_t h,
+                                          uint8_t quality,
+                                          void *out_jpeg_buf,
+                                          uint32_t out_capacity,
+                                          uint32_t *out_len)
+{
+    AVDK_RETURN_ON_FALSE(nv12_buf,     AVDK_ERR_INVAL, TAG, "jpeg: nv12 NULL");
+    AVDK_RETURN_ON_FALSE(out_jpeg_buf, AVDK_ERR_INVAL, TAG, "jpeg: out buf NULL");
+    AVDK_RETURN_ON_FALSE(out_len,      AVDK_ERR_INVAL, TAG, "jpeg: out_len NULL");
+    AVDK_RETURN_ON_FALSE(w > 0 && h > 0, AVDK_ERR_INVAL, TAG, "jpeg: w/h=0");
+    AVDK_RETURN_ON_FALSE(out_capacity > 0, AVDK_ERR_INVAL, TAG, "jpeg: cap=0");
+
+    *out_len = 0;
+
+    media_jpeg_oneshot_ctx_t ctx = { .length = 0, .status = 0 };
+
+    /* pic_buf per encode_frame; out via input.out_buf */
+    bk_jpeg_encode_frame_config_t cfg = DEFAULT_JPEG_ENCODE_FRAME_CONFIG;
+    cfg.width        = w;
+    cfg.height       = h;
+    cfg.input_format = (uint32_t)BK_PIXEL_FORMAT_NV12;
+    cfg.input_buf    = 0;
+    cfg.input_size   = 0;
+    cfg.quality      = quality;
+    cfg.outbuf_complete      = media_jpeg_oneshot_complete_cb;
+    cfg.outbuf_complete_args = &ctx;
+
+    bk_jpeg_encode_ctlr_handle_t handle = NULL;
+    avdk_err_t ret = bk_jpeg_encode_frame_new(&handle, &cfg);
+    if (ret != AVDK_ERR_OK || handle == NULL) {
+        LOGE("bk_jpeg_encode_frame_new failed: %d\n", ret);
+        return (ret == AVDK_ERR_OK) ? AVDK_ERR_GENERIC : ret;
+    }
+
+    /* Strict reverse teardown on failure paths. */
+    ret = bk_jpeg_encode_init(handle);
+    if (ret != AVDK_ERR_OK) {
+        LOGE("bk_jpeg_encode_init failed: %d\n", ret);
+        (void)bk_jpeg_encode_delete(handle);
+        return ret;
+    }
+
+    ret = bk_jpeg_encode_open(handle);
+    if (ret != AVDK_ERR_OK) {
+        LOGE("bk_jpeg_encode_open failed: %d\n", ret);
+        (void)bk_jpeg_encode_deinit(handle);
+        (void)bk_jpeg_encode_delete(handle);
+        return ret;
+    }
+
+    bk_jpeg_encode_input_t input = {
+        .pic_buf   = (uint32_t)(uintptr_t)nv12_buf,
+        .pic_lines = 0,
+        .out_buf   = (uint32_t)(uintptr_t)out_jpeg_buf,
+        .out_size  = out_capacity,
+    };
+
+    /* encode_frame blocks until done; callback fills ctx.length */
+    ret = bk_jpeg_encode_frame(handle, &input);
+
+    (void)bk_jpeg_encode_close(handle);
+    (void)bk_jpeg_encode_deinit(handle);
+    (void)bk_jpeg_encode_delete(handle);
+
+    if (ret != AVDK_ERR_OK) {
+        LOGE("bk_jpeg_encode_frame failed: %d\n", ret);
+        return ret;
+    }
+
+    if (ctx.length == 0) {
+        LOGE("jpeg encode: length=0 status=%u\n", (unsigned)ctx.status);
+        return AVDK_ERR_GENERIC;
+    }
+    if (ctx.length > out_capacity) {
+        /* Defensive: encoded length must fit caller buffer */
+        LOGE("jpeg encode: length %u exceeds capacity %u\n",
+             (unsigned)ctx.length, (unsigned)out_capacity);
+        return AVDK_ERR_BUSY;
+    }
+
+    *out_len = ctx.length;
+    LOGI("JPEG encode %ux%u q=%u -> %u bytes\n",
+         w, h, quality, (unsigned)ctx.length);
+    return AVDK_ERR_OK;
 }
 
 /* ===========================================================================
@@ -454,6 +628,43 @@ avdk_err_t media_gpu_close(void)
     }
     LOGI("GPU closed\n");
     return AVDK_ERR_OK;
+#endif
+}
+
+/* GPU snapshot/freeze wrappers (logic in app_gpu.c). */
+avdk_err_t media_gpu_arm_snapshot(void)
+{
+#if !(CONFIG_ISP && CONFIG_GPU)
+    return AVDK_ERR_UNSUPPORTED;
+#else
+    return (app_gpu_arm_snapshot() == 0) ? AVDK_ERR_OK : AVDK_ERR_GENERIC;
+#endif
+}
+
+avdk_err_t media_gpu_resume_live(void)
+{
+#if !(CONFIG_ISP && CONFIG_GPU)
+    return AVDK_ERR_UNSUPPORTED;
+#else
+    return (app_gpu_resume_live() == 0) ? AVDK_ERR_OK : AVDK_ERR_GENERIC;
+#endif
+}
+
+avdk_err_t media_gpu_drop_snapshot(void)
+{
+#if !(CONFIG_ISP && CONFIG_GPU)
+    return AVDK_ERR_UNSUPPORTED;
+#else
+    return (app_gpu_drop_snapshot() == 0) ? AVDK_ERR_OK : AVDK_ERR_GENERIC;
+#endif
+}
+
+bool media_gpu_is_frozen(void)
+{
+#if !(CONFIG_ISP && CONFIG_GPU)
+    return false;
+#else
+    return app_gpu_is_frozen();
 #endif
 }
 

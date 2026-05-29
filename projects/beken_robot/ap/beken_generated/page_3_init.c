@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "palm_detection.h"
+#include "camera_preview.h"
 #include "lv_vendor.h"
 // custom page code
 #ifdef ROBOT_TEST
@@ -29,8 +30,9 @@
 
 #define TAG "page3"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
+#define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 
-#define PAGE3_MENU_COUNT 8
+#define PAGE3_MENU_COUNT 9
 
 static int s_page3_menu_idx;
 
@@ -46,8 +48,8 @@ static int s_page3_menu_idx;
  *         AI对话          视觉识别        命令词识别
  *  y=153  btn_7            btn_5           btn_6
  *         音乐播放         音量设置        声源定位
- *  y=212  btn_8           (empty)          btn_4
- *         手掌跟随                         人脸跟踪
+ *  y=212  btn_8            btn_9           btn_4
+ *         手掌跟随        摄像头预览       人脸跟踪
  *
  * If a button is moved on screen, update both this table AND the
  * matching case in on_screen_next() so the action stays in sync.
@@ -58,14 +60,15 @@ static lv_obj_t *page_3_menu_btn(bk_lv_ui_t *ui, int idx)
         return NULL;
     }
     switch (idx) {
-    case 0: return ui->page_3_button_1;  /* AI对话      */
-    case 1: return ui->page_3_button_2;  /* 视觉识别    */
-    case 2: return ui->page_3_button_3;  /* 命令词识别  */
-    case 3: return ui->page_3_button_7;  /* 音乐播放    */
-    case 4: return ui->page_3_button_5;  /* 音量设置    */
-    case 5: return ui->page_3_button_6;  /* 声源定位    */
-    case 6: return ui->page_3_button_8;  /* 手掌跟随    */
-    case 7: return ui->page_3_button_4;  /* 人脸跟踪    */
+    case 0: return ui->page_3_button_1;
+    case 1: return ui->page_3_button_2;
+    case 2: return ui->page_3_button_3;
+    case 3: return ui->page_3_button_7;
+    case 4: return ui->page_3_button_5;
+    case 5: return ui->page_3_button_6;
+    case 6: return ui->page_3_button_8;
+    case 7: return ui->page_3_button_9;  /* camera preview */
+    case 8: return ui->page_3_button_4;
     default: return NULL;
     }
 }
@@ -93,6 +96,14 @@ static void on_focus_prev(bk_lv_ui_t *ui)
     if (ui == NULL) {
         return;
     }
+    /* In preview: FOCUS_PREV -> take photo (RUNNING only). */
+    if (camera_preview_is_active()) {
+        if (camera_preview_is_running()) {
+            LOGI("Camera preview: take photo\r\n");
+            (void)camera_preview_take_photo();
+        }
+        return;
+    }
     s_page3_menu_idx = (s_page3_menu_idx + PAGE3_MENU_COUNT - 1) % PAGE3_MENU_COUNT;
     page_3_apply_menu_focus(ui);
 }
@@ -102,6 +113,14 @@ static void on_focus_next(bk_lv_ui_t *ui)
     if (ui == NULL) {
         return;
     }
+    /* In preview: FOCUS_NEXT -> resume live (FROZEN only). */
+    if (camera_preview_is_active()) {
+        if (camera_preview_is_frozen()) {
+            LOGI("Camera preview: resume live\r\n");
+            (void)camera_preview_resume_live();
+        }
+        return;
+    }
     s_page3_menu_idx = (s_page3_menu_idx + 1) % PAGE3_MENU_COUNT;
     page_3_apply_menu_focus(ui);
 }
@@ -109,6 +128,16 @@ static void on_focus_next(bk_lv_ui_t *ui)
 static void on_screen_prev(bk_lv_ui_t *ui)
 {
     if (ui == NULL) {
+        return;
+    }
+    /* In preview: SCREEN_PREV -> exit preview (worker teardown, 16KB stack). */
+    if (camera_preview_is_running() || camera_preview_is_frozen()) {
+        LOGI("Exit camera preview\r\n");
+        (void)camera_preview_stop();
+        return;
+    }
+    /* STARTING/STOPPING: ignore back until stable. */
+    if (camera_preview_is_active()) {
         return;
     }
     navigate_to_screen((lv_obj_t **)&ui->page_2,
@@ -121,23 +150,27 @@ static void on_screen_next(bk_lv_ui_t *ui)
     if (ui == NULL) {
         return;
     }
+    /* Block menu enter while preview is active (avoid re-entry). */
+    if (camera_preview_is_active()) {
+        return;
+    }
     LOGI("page3 enter idx=%d\r\n", s_page3_menu_idx);
     /* Case indices follow the visual top->bottom, left->right order from
      * page_3_menu_btn() above. Keep both tables in sync. */
     switch (s_page3_menu_idx) {
-    case 0: /* btn_1: AI对话 */
+    case 0: /* btn_1: AI chat */
         LOGI("AI chat -> page_6\r\n");
         navigate_to_screen((lv_obj_t **)&ui->page_6,
                            LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                            init_page_page_6);
         break;
-    case 1: /* btn_2: 视觉识别 */
+    case 1: /* btn_2: vision */
         LOGI("Vision recognition -> page_7\r\n");
         navigate_to_screen((lv_obj_t **)&ui->page_7,
                            LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                            init_page_page_7);
         break;
-    case 2: /* btn_3: 命令词识别 */
+    case 2: /* btn_3: speech */
         LOGI("Speech recognition -> page_8\r\n");
 #if (CONFIG_ASR_SERVICE)
         if (AUDIO_ENGINE_SUCCESS == audio_engine_asr_start()) {
@@ -158,19 +191,19 @@ static void on_screen_next(bk_lv_ui_t *ui)
                            init_page_page_8);
 #endif
         break;
-    case 3: /* btn_7: 音乐播放 */
+    case 3: /* btn_7: music */
         LOGI("Music -> page_9\r\n");
         navigate_to_screen((lv_obj_t **)&ui->page_9,
                            LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                            init_page_page_9);
         break;
-    case 4: /* btn_5: 音量设置 */
+    case 4: /* btn_5: volume */
         LOGI("Volume settings -> page_10\r\n");
         navigate_to_screen((lv_obj_t **)&ui->page_10,
                            LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                            init_page_page_10);
         break;
-    case 5: /* btn_6: 声源定位 */
+    case 5: /* btn_6: DOA */
         LOGI("Sound source localization -> page_5\r\n");
 #if (CONFIG_ASR_SERVICE)
         if (AUDIO_ENGINE_SUCCESS == audio_engine_asr_start()) {
@@ -191,12 +224,19 @@ static void on_screen_next(bk_lv_ui_t *ui)
                            init_page_page_5);
 #endif
         break;
-    case 6: /* btn_8: 手掌跟随 */
+    case 6: /* btn_8: palm tracking */
         LOGI("Palm tracking\r\n");
         lv_vendor_stop();
         palm_detection_start();
         break;
-    case 7: /* btn_4: 人脸跟踪 */
+    case 7: /* btn_9: camera preview (display only, no NN) */
+        LOGI("Camera preview\r\n");
+        /* Trigger only; heavy work runs in camera_preview_start worker (16KB). */
+        if (camera_preview_start() != 0) {
+            LOGE("camera_preview_start trigger failed\r\n");
+        }
+        break;
+    case 8: /* btn_4: face tracking */
         /* Face tracking is a separate demo from palm tracking.
          * The face-tracking pipeline is not yet implemented here; do not
          * fall through to palm_detection_start() so the user doesn't get
@@ -444,6 +484,37 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_shadow_offset_x(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_offset_y(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_spread(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    /* page_3_button_9: camera preview (manual slot 131,212; merge if Designer regen). */
+    bk_ui->page_3_button_9 = lv_btn_create(bk_ui->page_3);
+    bk_ui->page_3_button_9_label = lv_label_create(bk_ui->page_3_button_9);
+    lv_label_set_text(bk_ui->page_3_button_9_label, "摄像头预览");
+    lv_label_set_long_mode(bk_ui->page_3_button_9_label, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_align(bk_ui->page_3_button_9_label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_x(bk_ui->page_3_button_9, 131);
+    lv_obj_set_y(bk_ui->page_3_button_9, 212);
+    lv_obj_set_width(bk_ui->page_3_button_9, 100);
+    lv_obj_set_height(bk_ui->page_3_button_9, 40);
+    lv_obj_set_style_bg_color(bk_ui->page_3_button_9, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(bk_ui->page_3_button_9, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_dir(bk_ui->page_3_button_9, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(bk_ui->page_3_button_9, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(bk_ui->page_3_button_9, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(bk_ui->page_3_button_9, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_side(bk_ui->page_3_button_9, LV_BORDER_SIDE_FULL, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(bk_ui->page_3_button_9, 5, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_clip_corner(bk_ui->page_3_button_9, false, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(bk_ui->page_3_button_9, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(bk_ui->page_3_button_9, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(bk_ui->page_3_button_9, &lv_font_ali_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(bk_ui->page_3_button_9, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_letter_space(bk_ui->page_3_button_9, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_color(bk_ui->page_3_button_9, lv_color_hex(0x1e7fcf), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(bk_ui->page_3_button_9, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(bk_ui->page_3_button_9, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_x(bk_ui->page_3_button_9, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_y(bk_ui->page_3_button_9, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_spread(bk_ui->page_3_button_9, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     bk_ui->page_3_button_8 = lv_btn_create(bk_ui->page_3);
     bk_ui->page_3_button_8_label = lv_label_create(bk_ui->page_3_button_8);

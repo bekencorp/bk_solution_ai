@@ -92,7 +92,16 @@ extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_360x390;
 
 static void bk_robot_lvgl_flush_cb(void *args, void *frame_buffer, int (*cb)(void *args))
 {
-    bk_display_flush(args, frame_buffer, cb);
+    /* Fetch DPU handle each flush; preview reopens panel and replaces handle. */
+    (void)args;
+    bk_display_ctlr_handle_t dpu = media_panel_get_dpu_handle();
+    if (dpu == NULL) {
+        if (cb != NULL) {
+            cb(frame_buffer);
+        }
+        return;
+    }
+    bk_display_flush(dpu, frame_buffer, cb);
 }
 
 static bk_err_t bk_robot_lvgl_init(bk_display_ctlr_handle_t dpu_handle)
