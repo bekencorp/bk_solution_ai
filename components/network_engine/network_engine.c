@@ -219,7 +219,7 @@ int ntwk_eng_send_audio(const uint8_t *data, size_t size, audio_enc_type_t audio
     int ret = 0;
 
     if (!g_ntwk_eng_ctx.initialized) {
-        LOGE("Network transfer not initialized\n");
+        LOGW("Network transfer not initialized\n");
         return -1;
     }
     
