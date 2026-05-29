@@ -123,13 +123,11 @@ avdk_err_t app_gpu_turn_on(gpu_board_config_t *config)
     gpu_config.flexa_lines = 16;
     gpu_config.flexa_buff_cnt = isp_control->chn[APP_ISP_MP_CHN_ID].buf_cnt;
     gpu_config.flexa = true;
-    gpu_config.malloc = bkmm_frame_malloc;
-    gpu_config.free = bkmm_frame_free;
-    gpu_config.frame_display = bkmm_frame_complete;
-    gpu_config.frame_display_args = NULL;
+    gpu_config.frame_malloc = bkmm_frame_malloc;
+    gpu_config.frame_free = bkmm_frame_free;
     gpu_config.flexa_line_done = NULL;
     gpu_config.flexa_line_done_args = NULL;
-    gpu_config.frame_done = NULL;
+    gpu_config.frame_done = bkmm_frame_complete;
     gpu_config.frame_done_args = NULL;
 
     avdk_err_t ret = bk_gpu_ctlr_new(&s_gpu_handle, &gpu_config);
