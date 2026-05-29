@@ -87,19 +87,13 @@ int app_mipi_lcd_turn_off(void)
     }
     if (config->panel_handle)
     {
-        bk_lcd_panel_reset(config->panel_handle);
-        bk_lcd_panel_del(config->panel_handle);
+        bk_lcd_panel_delete(config->panel_handle);
         config->panel_handle = NULL;
     }
     if (config->dis_bus_handle)
     {
         bk_display_bus_delete(config->dis_bus_handle);
         config->dis_bus_handle = NULL;
-    }
-    if (config->cfg_bus_handle)
-    {
-        bk_display_bus_delete(config->cfg_bus_handle);
-        config->cfg_bus_handle = NULL;
     }
 
     os_memset(config, 0, sizeof(display_ctx_t));
@@ -148,15 +142,11 @@ int app_mipi_lcd_turn_on(display_board_config_t *config)
     AVDK_GOTO_ON_ERROR(bk_display_dsi_bus_new(&content->dis_bus_handle, NULL), err, TAG, "display dsi bus new err\n");
     bk_lcd_panel_config_t panel_config = {
         .reset_pin = config->mipi.pin_reset,
-        .reset_active_level = false,
-        .clk_src = DPU_CLK_SRC_SYSCLK,
     };
 
     AVDK_GOTO_ON_ERROR(bk_lcd_mipi_panel_new(content->dis_bus_handle, &panel_config, config->mipi.panel, &content->panel_handle),
                        err, TAG, "create panel err\n");
 
-    bk_lcd_panel_reset(content->panel_handle);
-    bk_lcd_panel_init(content->panel_handle);
     bk_display_dpu_config_t lcd_cfg = {
         .video.enable = config->dpu_video.enable,
         .video.decompress = config->dpu_video.decompress,
