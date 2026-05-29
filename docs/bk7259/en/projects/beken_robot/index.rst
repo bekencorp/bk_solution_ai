@@ -253,7 +253,7 @@ Path: ``components/bk_smart_config/src/core/bk_smart_config_core.c``.
 - **BLE message handler from the phone app**: ``bk_sconf_ble_msg_handler(ble_prov_msg_t *msg)``.
 - **Send agent params to the phone**: ``bk_sconf_send_agent_info(char *payload, uint16_t max_len)``.
 - **Parse server-issued agent params**: ``bk_sconf_prase_agent_info(char *payload, uint8_t reset)``.
-- **Start agent + RTC**: ``bk_sconf_start_network_transfer(char *device_id)``. With Agora as the backend, this calls ``bk_agora_start(device_id)`` (in ``components/network_transfer/agora_rtc/agora_rtc_engine.c``) which starts both the RTC stream and the agent.
+- **Start agent + RTC**: ``bk_sconf_start_network_transfer(char *device_id)``. With Agora as the backend, this calls ``bk_agora_start(device_id)`` (in ``components/network_engine/agora_rtc/agora_rtc_engine.c``) which starts both the RTC stream and the agent.
 - **Post-provisioning hooks**: ``bk_sconf_network_provisioning_status_cb(...)`` saves WiFi / agent info and starts the agent after a successful join.
 - **Multimodal switch (voice ↔ vision)**: ``bk_sconf_switch_ir_mode_handler(void)`` pairs ``video_engine_init() / video_engine_deinit()`` with ``bk_sconf_upate_agent_info(device_id, "vision"|"text")``.
 
@@ -267,7 +267,7 @@ Path: ``components/bk_smart_config/src/core/bk_smart_config_core.c``.
 4.1 Agora RTC commands
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 
-Source: ``components/network_transfer/agora_rtc/agora_rtc_engine.c``.
+Source: ``components/network_engine/agora_rtc/agora_rtc_engine.c``.
 
 **Format**:
 

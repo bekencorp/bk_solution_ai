@@ -84,7 +84,7 @@ Software stack (illustrative)::
 
     Application (LVGL UI / robot main flow / state machine)
             ↓
-    Services (audio_engine / video_engine / network_transfer / bk_smart_config / bk_app_event)
+    Services (audio_engine / video_engine / network_engine / bk_smart_config / bk_app_event)
             ↓
     RTC (Agora RTC SDK)
             ↓
@@ -104,5 +104,5 @@ Technical Highlights
 ---------------------------------
 
 1. **End-to-end solution paired with SMP**: this repo focuses on the robot business and UI; HW drivers / RTOS / stacks ship with SMP.
-2. **Modular components/**: ``audio_engine`` / ``video_engine`` / ``network_transfer`` / ``bk_smart_config`` / ``bk_app_event`` / ``bk_factory_config`` / ``bk_key_app`` / ``bk_led_blink`` / ``bk_motor`` / ``bk_servo`` / ``bk_countdown`` / ``avdk_nn_module`` / ``multimedia_device_service`` are independent and trimmable.
+2. **Modular components/**: ``audio_engine`` / ``video_engine`` / ``network_engine`` / ``bk_smart_config`` / ``bk_app_event`` / ``bk_factory_config`` / ``bk_key_app`` / ``bk_led_blink`` / ``bk_motor`` / ``bk_servo`` / ``bk_countdown`` / ``avdk_nn_module`` / ``multimedia_device_service`` are independent and trimmable.
 3. **Real LVGL demo**: 10 pages cover boot logo, main menu, provisioning, sound source, AI dialog, vision, command words, music and volume.

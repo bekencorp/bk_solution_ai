@@ -26,7 +26,7 @@ Network Transfer 模块架构如下：
 
     应用层 (Application)
             ↓
-    Network Transfer API (network_transfer.h)
+    Network Transfer API (network_engine.h)
             ↓
     RTC 后端适配层
         ├── Agora RTC (bk_agora_api.c)
@@ -401,7 +401,7 @@ Kconfig 配置宏
 .. code:: c
 
     // 启用网络传输模块
-    CONFIG_BK_NETWORK_TRANSFER=y
+    CONFIG_BK_NETWORK_ENGINE=y
 
 **RTC 后端选择** :
 
@@ -439,7 +439,7 @@ Kconfig 配置宏
 
 .. code:: c
 
-    #include "network_transfer.h"
+    #include "network_engine.h"
     #include "audio_engine.h"
     #include "video_engine.h"
 

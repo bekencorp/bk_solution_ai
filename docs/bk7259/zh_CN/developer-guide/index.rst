@@ -18,7 +18,7 @@ BK7259 机器人方案 开发者指南
 
     audio_engine
     video_engine
-    network_transfer
+    network_engine
     bk_app_event
     bk_countdown
     bk_factory_config

@@ -262,7 +262,7 @@ BLE 配网及 Agent 相关代码主要分布在 ``components/bk_smart_config`` �
 - **手机 App 通过 BLE 交互配网信息**：参考 ``bk_sconf_ble_msg_handler(ble_prov_msg_t *msg)``。
 - **将 Agent 配置参数发送给手机 App**：参考 ``bk_sconf_send_agent_info(char *payload, uint16_t max_len)``。
 - **解析服务器启动 Agent 参数**：参考 ``bk_sconf_prase_agent_info(char *payload, uint8_t reset)``。
-- **启动 Agent 和 RTC**：参考 ``bk_sconf_start_network_transfer(char *device_id)``，会根据 RTC 后端（当前为 Agora）调用 ``bk_agora_start(device_id)``，同时启动 Agent 与 RTC（``components/network_transfer/agora_rtc/agora_rtc_engine.c``）。
+- **启动 Agent 和 RTC**：参考 ``bk_sconf_start_network_transfer(char *device_id)``，会根据 RTC 后端（当前为 Agora）调用 ``bk_agora_start(device_id)``，同时启动 Agent 与 RTC（``components/network_engine/agora_rtc/agora_rtc_engine.c``）。
 - **WiFi 连上后启动 Agent / 保存 wifi 与 Agent 信息**：参考 ``bk_sconf_network_provisioning_status_cb(...)``。
 - **多模态切换（语音 ↔ 视觉）**：参考 ``bk_sconf_switch_ir_mode_handler(void)``，对 ``video_engine_init() / video_engine_deinit()`` 与 ``bk_sconf_upate_agent_info(device_id, "vision"|"text")`` 进行配对调用。
 
@@ -276,7 +276,7 @@ BLE 配网及 Agent 相关代码主要分布在 ``components/bk_smart_config`` �
 4.1 Agora RTC 调试命令
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 
-代码路径：``components/network_transfer/agora_rtc/agora_rtc_engine.c``。
+代码路径：``components/network_engine/agora_rtc/agora_rtc_engine.c``。
 
 **基本格式**:
 

@@ -26,7 +26,7 @@ The Network Transfer module architecture is as follows:
 
     Application Layer (Application)
             ↓
-    Network Transfer API (network_transfer.h)
+    Network Transfer API (network_engine.h)
             ↓
     RTC Backend Adapter Layer
         ├── Agora RTC (bk_agora_api.c)
@@ -401,7 +401,7 @@ Kconfig Configuration Macros
 .. code-block:: C
 
     // Enable network transfer module
-    CONFIG_BK_NETWORK_TRANSFER=y
+    CONFIG_BK_NETWORK_ENGINE=y
 
 **RTC Backend Selection**:
 
@@ -439,7 +439,7 @@ Basic Usage
 
 .. code-block:: C
 
-    #include "network_transfer.h"
+    #include "network_engine.h"
     #include "audio_engine.h"
     #include "video_engine.h"
 

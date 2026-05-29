@@ -84,7 +84,7 @@ Armino SMP 在 BK7259 上采用 AP（应用处理器） + CP（通信处理器�
 
     应用层 (LVGL UI / 机器人主流程 / 状态机)
             ↓
-    服务层 (audio_engine / video_engine / network_transfer / bk_smart_config / bk_app_event)
+    服务层 (audio_engine / video_engine / network_engine / bk_smart_config / bk_app_event)
             ↓
     RTC 层 (Agora RTC SDK)
             ↓
@@ -104,5 +104,5 @@ Armino SMP 在 BK7259 上采用 AP（应用处理器） + CP（通信处理器�
 ---------------------------------
 
 1. **与 SMP 配套的完整解决方案**：本方案聚焦机器人业务与 UI；硬件驱动 / RTOS / 协议栈统一由 BK AVDK SMP 提供，二者形成完整开发路径。
-2. **模块化的 components/**：``audio_engine`` / ``video_engine`` / ``network_transfer`` / ``bk_smart_config`` / ``bk_app_event`` / ``bk_factory_config`` / ``bk_key_app`` / ``bk_led_blink`` / ``bk_motor`` / ``bk_servo`` / ``bk_countdown`` / ``avdk_nn_module`` / ``multimedia_device_service`` 等模块独立可裁剪。
+2. **模块化的 components/**：``audio_engine`` / ``video_engine`` / ``network_engine`` / ``bk_smart_config`` / ``bk_app_event`` / ``bk_factory_config`` / ``bk_key_app`` / ``bk_led_blink`` / ``bk_motor`` / ``bk_servo`` / ``bk_countdown`` / ``avdk_nn_module`` / ``multimedia_device_service`` 等模块独立可裁剪。
 3. **真实可跑的 LVGL Demo**：开机首页 / 主菜单 / 配网 / 声源定位 / AI 对话 / 视觉识别 / 命令词 / 音乐 / 音量等 10 个 LVGL 页面，覆盖典型机器人 UI 场景。

@@ -142,7 +142,7 @@ Audio Engine 的初始化流程如下：
         ↓
     读取回调 (audio_engine_read_callback_t)
         ↓
-    network_transfer
+    network_engine
         ↓
     网络发送
 
