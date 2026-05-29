@@ -62,16 +62,24 @@ bool bk_agora_is_agent_active(void);
 
 #if CONFIG_AGORA_RTC_USE_STRING_UID
 /**
- * @brief One-shot: upload a JPEG to the agent and immediately trigger an
- *        LLM image-recognition turn.
+ * @brief One-shot: hand a JPEG to the agent and immediately trigger an
+ *        LLM image-recognition turn, auto-picking the best transport.
  *
  * This is the camera_preview "take photo -> describe" convenience wrapper.
  * Internally it:
  *   1. Builds the peer rtm uid as "a_<channel>" (the agent side mirrors
  *      "r_<channel>" used by the local device when joining RTC).
- *   2. Sends the JPEG inline through RTM customType="image.upload" in its
- *      base64 form -- subject to the BK_AGORA_RTM_IMG_RAW_MAX_LEN (22 KB)
- *      ceiling enforced by bk_agora_rtm_send_image_base64().
+ *   2. Submits the JPEG to ConvoAI through RTM customType="image.upload"
+ *      using one of two paths, chosen automatically by @p jpeg_len:
+ *        - jpeg_len <= BK_AGORA_RTM_IMG_RAW_MAX_LEN (~22 KB):
+ *          inline base64 via bk_agora_rtm_send_image_base64() -- a
+ *          single self-contained RTM message, no extra network round
+ *          trip.
+ *        - jpeg_len >  BK_AGORA_RTM_IMG_RAW_MAX_LEN:
+ *          first POST the JPEG to the shared Beken image-upload HTTPS
+ *          server via bk_image_upload_jpeg() (multipart/form-data),
+ *          then push only the returned URL through RTM via
+ *          bk_agora_rtm_send_image_url(). Bypasses the 22 KB RTM cap.
  *   3. Pushes a user.transcription right after so convoai runs an LLM
  *      turn on the freshly staged image without waiting for the user to
  *      speak. If @p query is NULL/empty, a built-in Chinese default
@@ -84,20 +92,20 @@ bool bk_agora_is_agent_active(void);
  * Prerequisites: RTC must already be joined and RTM logged in (i.e. one
  * of bk_agora_start / `agora_rtc start` was issued and succeeded). When
  * the channel name is empty or RTM is not yet login, this returns
- * BK_FAIL without retry.
+ * BK_FAIL without retry. For the oversize/URL path, network connectivity
+ * to BK_IMAGE_UPLOAD_URL is also required.
  *
  * @param[in] jpeg      Pointer to raw JPEG bytes (NOT base64).
- * @param[in] jpeg_len  Size of jpeg in bytes. MUST be in
- *                      (0, BK_AGORA_RTM_IMG_RAW_MAX_LEN]; oversize
- *                      images are rejected and the caller should fall
- *                      back to bk_agora_rtm_send_image_url() instead.
+ * @param[in] jpeg_len  Size of jpeg in bytes; must be > 0. There is no
+ *                      hard upper bound any more -- callers do not need
+ *                      to gate on BK_AGORA_RTM_IMG_RAW_MAX_LEN.
  * @param[in] query     Optional UTF-8 prompt fed to the LLM together
  *                      with the image. Pass NULL to use the default.
  *
- * @return BK_OK if BOTH submits succeeded; BK_FAIL otherwise. The text
- *         step is best-effort: a text failure after a successful image
- *         submit still returns BK_FAIL but the image is already staged
- *         on the agent side.
+ * @return BK_OK if image submit AND follow-up text both succeeded;
+ *         BK_FAIL otherwise. The text step is best-effort: a text
+ *         failure after a successful image submit still returns BK_FAIL
+ *         but the image is already staged on the agent side.
  */
 bk_err_t bk_agora_rtc_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
                                             const char *query);

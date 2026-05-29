@@ -20,6 +20,7 @@
 #include "bk_agora_api.h"
 #include "bk_agora_rtm.h"
 #include "agora_agent_engine.h"
+#include "bk_image_upload.h"
 #include <modules/wifi.h>
 #include "modules/wifi_types.h"
 #include "components/bk_uid.h"
@@ -718,7 +719,39 @@ bk_err_t bk_agora_rtc_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len
     LOGI("send_image_with_query peer=%s jpeg=%u query=\"%s\"\r\n",
          peer_uid, (unsigned)jpeg_len, q);
 
-    ret = bk_agora_rtm_send_image_base64(peer_uid, jpeg, jpeg_len);
+    /* Two image-submit paths into ConvoAI:
+     *   - base64 inline through RTM customType="image.upload" -- cheap
+     *     and self-contained, but capped by the RTM payload ceiling
+     *     (BK_AGORA_RTM_IMG_RAW_MAX_LEN ~= 22 KB raw JPEG).
+     *   - URL-only through RTM customType="image.upload"        -- the
+     *     device first POSTs the JPEG to the Beken image-upload HTTPS
+     *     server (multipart/form-data, see bk_image_upload_jpeg), then
+     *     pushes only the returned "image_url" through RTM. No size
+     *     cap from RTM, just from network/storage on the server side.
+     *
+     * Pick the URL path automatically whenever the JPEG is too big for
+     * the base64 channel; that way camera_preview / take_photo callers
+     * never have to know which underlying flow is in use. */
+    if (jpeg_len > BK_AGORA_RTM_IMG_RAW_MAX_LEN)
+    {
+        char image_url[BK_IMAGE_URL_MAX_LEN] = {0};
+
+        LOGI("send_image_with_query: jpeg=%u > %u, use server-upload + URL flow\r\n",
+             (unsigned)jpeg_len, (unsigned)BK_AGORA_RTM_IMG_RAW_MAX_LEN);
+
+        ret = bk_image_upload_jpeg(jpeg, jpeg_len, image_url, sizeof(image_url));
+        if (ret != BK_OK)
+        {
+            LOGE("send_image_with_query: server upload failed, query skipped\r\n");
+            return BK_FAIL;
+        }
+
+        ret = bk_agora_rtm_send_image_url(peer_uid, image_url);
+    }
+    else
+    {
+        ret = bk_agora_rtm_send_image_base64(peer_uid, jpeg, jpeg_len);
+    }
     if (ret != BK_OK) {
         LOGE("send_image_with_query: image submit failed, query skipped\r\n");
         return BK_FAIL;
@@ -846,10 +879,13 @@ static void bk_agora_rtc_test_cmd(char *pcWriteBuffer, int xWriteBufferLen, int 
         UINT br = 0;
         FRESULT fr;
 
-        /* CLI side only does file IO + size sanity check; peer_uid build,
-         * RTM login check and the actual two-step send are delegated to
-         * bk_agora_rtc_send_image_with_query() so this stays in sync with
-         * the camera_preview path used in production. */
+        /* CLI side only does file IO; peer_uid build, RTM login check
+         * and the actual transport selection (base64 vs. server upload
+         * + URL) are delegated to bk_agora_rtc_send_image_with_query()
+         * so this CLI path stays in sync with the camera_preview path
+         * used in production. Oversize images no longer hard-fail
+         * here -- the unified API will route them through the
+         * upload-then-URL flow instead. */
 
         /* FATFS FIL is ~580 B; keep it off-stack so we don't blow the
          * shell task. */
@@ -871,16 +907,6 @@ static void bk_agora_rtc_test_cmd(char *pcWriteBuffer, int xWriteBufferLen, int 
         if (f_sz == 0)
         {
             LOGE("send_image_b64: %s is empty\r\n", path);
-            (void)f_close(fp);
-            goto __b64_exit;
-        }
-        /* Reject oversize images BEFORE allocating to fail fast. The
-         * RTM-level check inside bk_agora_rtm_send_image_base64 will
-         * catch it again as a safety net. */
-        if ((size_t)f_sz > BK_AGORA_RTM_IMG_RAW_MAX_LEN)
-        {
-            LOGE("send_image_b64: %s is %u bytes (> %u limit), use 'send_image' URL flow instead\r\n",
-                 path, (unsigned)f_sz, (unsigned)BK_AGORA_RTM_IMG_RAW_MAX_LEN);
             (void)f_close(fp);
             goto __b64_exit;
         }

@@ -5,6 +5,7 @@ if (CONFIG_BK_NETWORK_TRANSFER)
 
 list(APPEND srcs
     network_transfer.c
+    common/bk_image_upload.c
 )
 
 if (CONFIG_AGORA_IOT_SDK)
