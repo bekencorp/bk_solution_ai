@@ -1,12 +1,12 @@
 
 
 
-export ARMINO_SOC := bk7258
+export ARMINO_SOC := bk7259
 export CMD_TARGET := $(MAKECMDGOALS)
 
 
 ifeq ("$(ARMINO_SOC)", "")
-	ARMINO_SOC := bk7258
+	ARMINO_SOC := bk7259
 	ARMINO_TARGET := $(MAKECMDGOALS)
 else
 	ARMINO_TARGET := build

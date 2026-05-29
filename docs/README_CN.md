@@ -1,123 +1,133 @@
-Armino AI 解决方案简介
-------------------------------------
+# 博通集成 BK7259 机器人方案
 
-:link_to_translation:`en:[English]`
+## 概述
 
-概述
-------------------------------------
+**BK7259 机器人方案**是博通集成电路（上海）股份有限公司基于 BK7259 主控、**Armino SMP（BK AVDK SMP）** v4.0.x 架构开发的智能机器人参考设计，提供 LCD 显示、本地语音唤醒、AI 语音 / 视觉对话、BLE 配网、多种传感器与外设的完整端到端示例工程。
 
-Armino AI 解决方案是博通集成电路（上海）股份有限公司基于 Armino SMP 架构开发的智能 AI 设备解决方案。该方案提供了完整的端到云、云到大模型的 AI 交互能力，支持多种大语言模型接入，为开发者提供快速构建智能 AI 设备的完整开发框架。当前支持火山、声网等大模型应用。
+机器人方案对应的代码仓库为 **AI Solution**（`bk_solution_ai`），仓库根目录下直接是 `projects/` / `components/` / `docs/`，没有外层 `solution/` 包装。当前发布的参考工程为 `projects/beken_robot`，该工程使用 **声网 Agora RTC** 接入云端 AI Agent，完成语音 / 视觉双模态对话。
 
 
-工程编译
--------------------------------------
+## 文档
 
-1. 环境准备
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+- 中文文档源码：`docs/bk7259/zh_CN/`（含简介、快速入门、H/W 参考、开发者指南、参考工程、第三方工程）。
+- English source: `docs/bk7259/en/`.
 
-1.1  **下载 Armino SMP SDK**:
+## 获取代码
 
-您可从 gitlab 上下载 Armino SMP 代码::
+### 1. Armino SMP SDK（BK7259 v4.0.1）
 
-    mkdir -p ~/armino
-    cd ~/armino
-    git clone https://gitlab.bekencorp.com/armino/bk_avdk_smp.git -b release/v3.1.1
+**GitLab**
 
-1.2 **下载 AI 解决方案代码**:
+```bash
+mkdir -p ~/armino
+cd ~/armino
+git clone https://gitlab.bekencorp.com/armino/bk_avdk_smp.git -b release/v4.0.1
+```
 
-您可从 gitlab 上下载 Armino AI解决方案 代码::
+**GitHub**
 
-    mkdir -p ~/armino
-    cd ~/armino
-    git clone https://gitlab.bekencorp.com/armino/smp_solution/bk_solution_ai.git -b release/v3.1.1
+```bash
+mkdir -p ~/armino
+cd ~/armino
+git clone https://github.com/bekencorp/bk_avdk_smp.git -b release/v4.0.1
+```
 
+### 2. BK7259 机器人方案（本仓库 AI Solution）
 
-2. 工程介绍
---------------------------------
-Armino AI 解决方案主要包含声网RTC版本工程、火山RTC版本工程、AI camera版本工程。
+仓库主页：[bk_solution_ai (release/v4.0.1)](https://gitlab.bekencorp.com/armino/smp_solution/bk_solution_ai/-/tree/release/v4.0.1?ref_type=heads)。
 
-声网RTC版本工程 (beken_genie)
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+**GitLab**
 
-基于BK7258芯片和声网RTC SDK的AI设备解决方案，提供端到云、云到大模型的完整AI交互能力。
-- 支持声网RTC实时音视频通信，集成音频处理引擎（AEC、NS、KWS）
-- 支持OPUS、PCM音频编码格式，支持提示音播放
-- 支持多种大语言模型接入（OpenAI、豆包、DeepSeek等）
-- 支持双SPI LCD屏幕显示，提供视觉加语音的交互体验
-- 包含丰富外设参考设计：陀螺仪、NFC、按键、震动马达、NAND Flash、LED灯效、充电管理、DVP camera等
+```bash
+mkdir -p ~/armino
+cd ~/armino
+git clone https://gitlab.bekencorp.com/armino/smp_solution/bk_solution_ai.git -b release/v4.0.1
+```
 
-火山RTC版本工程 (volc_rtc)
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+**GitHub**（如已开放）
 
-基于BK7258芯片和火山引擎RTC SDK的实时音视频通信解决方案，支持与云端AI Agent进行实时对话。
-- 支持火山引擎RTC实时音视频通信，集成音频处理引擎（AEC、NS）
-- 支持G722、OPUS、PCM音频编码格式
-- 支持火山引擎AI Agent服务集成，支持语音对话和图像识别
-- 支持双SPI LCD屏幕显示，提供视觉加语音的交互体验
-- 包含丰富外设参考设计：陀螺仪、NFC、按键、震动马达、NAND Flash、LED灯效、充电管理、DVP camera等
+```bash
+mkdir -p ~/armino
+cd ~/armino
+git clone https://github.com/bekencorp/bk_solution_ai.git -b release/v4.0.1
+```
 
-AI Camera版本工程 (ai_camera)
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+## 编译环境
 
-AI相机解决方案，目前正在开发中。
+`Armino SMP` 提供 **本地编译**（推荐，Windows / Linux）和 **Docker 编译**（Linux / macOS / Windows）两套部署方案。环境部署细节（安装脚本、Armino Bash、Docker 镜像、`dbuild` 等）请参阅在线 SMP 文档的 *Quick Start*。
 
+## 编译项目
 
-3. 编译项目
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+以下以 `beken_robot` 工程为例（仓库根 = `~/armino/bk_solution_ai`，工程位于 `projects/beken_robot`）。
 
-**方式一：直接编译**
+**方式一：命令行直接指定 SDK 路径**
 
-.. code:: bash
+```bash
+cd ~/armino/bk_solution_ai/projects/beken_robot
+make clean SDK_DIR=~/armino/bk_avdk_smp
+make bk7259 SDK_DIR=~/armino/bk_avdk_smp
+```
 
-    cd ~/armino/bk_solution_ai/projects/beken_genie
-    make clean SDK_DIR=~/armino/bk_avdk_smp
-    make bk7258 SDK_DIR=~/armino/bk_avdk_smp
+**方式二：通过环境变量指定 SDK 路径**
 
-**方式二：或者可以通过export来指定SDK路径**
+```bash
+cd ~/armino/bk_solution_ai/projects/beken_robot
+export SDK_DIR=~/armino/bk_avdk_smp
+make clean
+make bk7259
+```
 
-.. code:: bash
+**方式三：Docker（Linux / macOS）**
 
-    cd ~/armino/bk_solution_ai/projects/beken_genie
-    export SDK_DIR=~/armino/bk_avdk_smp
-    make clean
-    make bk7258
+```bash
+cd ~/armino/bk_solution_ai/projects/beken_robot
+export SDK_DIR=~/armino/bk_avdk_smp
+./dbuild.sh make clean
+./dbuild.sh make bk7259
+```
 
-**方式三：使用 Docker（Linux/Mac）**
+**方式四：Docker（Windows PowerShell）**
 
-.. code:: bash
+```powershell
+cd C:\armino\bk_solution_ai\projects\beken_robot
+$env:SDK_DIR = "C:\armino\bk_avdk_smp"
+.\dbuild.ps1 make clean
+.\dbuild.ps1 make bk7259
+```
 
-    cd ~/armino/bk_solution_ai/projects/beken_genie
-        export SDK_DIR=~/armino/bk_avdk_smp
-        ./dbuild.sh make clean
-        ./dbuild.sh make bk7258
+## 参考工程简介
 
-**方式四：使用 Docker（Windows PowerShell）**
+当前公开的 BK7259 机器人参考工程为：
 
-.. code:: powershell
+### `beken_robot`（声网 Agora RTC 版本）
 
-    cd C:\armino\bk_solution_ai\projects\beken_genie
-        $env:SDK_DIR = "C:\armino\bk_avdk_smp"
-        .\dbuild.ps1 make clean
-        .\dbuild.ps1 make bk7258
+基于 BK7259 + Armino SMP v4.0.x，提供机器人产品形态的完整参考实现：
 
-4. 烧录固件到设备
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+- **显示**：360x390 MIPI LCD（`jd9855` 面板），LVGL 图形界面（10 个 Demo 页面，覆盖开机首页 / 主菜单 / 配网 / 声源定位 / AI 对话 / 视觉识别 / 命令词 / 音乐 / 音量等场景）。
+- **音频**：板载双麦克风 + 扬声器；支持 AEC / NS、本地唤醒词「你好博通 / 再见博通」、提示音播放，AI 对话使用 Agora RTC + OPUS。
+- **视频**：MIPI CSI 摄像头采集（默认 `jd9855` 配套），通过 Agora RTC 上传，支持视觉问答模式。
+- **网络**：WiFi STA + BLE 配网（BK App），并预留 4G 蜂窝模组接口；配网完成后主菜单右上角自动显示 WiFi 图标。
+- **传感器与外设**：4 路按键（V1 板有效按键 S2 / S4 / S5）、ToF、环境光、G-Sensor、NFC、LED 指示灯、震动马达、舵机；电池充电管理预留。
+- **存储与升级**：partitions/SD-NAND 资源；支持 OTA / 工厂配置。
 
-在编译完成后，在AI 解决方案代码的/build/bk7258/beken_genie/package目录下将生成all-app.bin，使用烧录工具烧录到开发板即可。
+更详细的工程说明、按键映射、UI 流程与配置参数见在线文档 `参考工程 → BK7259 机器人工程`。
 
-4.1 **资源文件烧录**
+## 烧录固件
 
-    - 1、Armino 支持在 Windows/Linux 平台进行固件烧录, 烧录方法参考烧录工具中指导文档。以Windows 平台为例， Armino 目前支持 UART 烧录。
+编译完成后，固件位于（路径相对仓库根 `bk_solution_ai/`）：
 
-      具体 `烧录流程 <https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/get-started/index.html>`_ 请参考 `SMP <https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/index.html>`_
+```
+projects/beken_robot/build/bk7259/beken_robot/package/all-app.bin
+```
 
+使用博通 `BKFIL` 烧录工具（UART）写入开发板即可。
 
-5. 工程演示以及操作步骤请见如下链接
-----------------------------------
+## 上电与配网
 
-5.1  APP下载地址：`下载 <https://docs.bekencorp.com/arminodoc/bk_app/app/zh_CN/v2.0.1/app_download/index.html>`_
+- 上电后 LCD 显示「BK7259 机器人方案」蓝色 LOGO 开机首页；按 V1 板按键映射进入主菜单（详见在线文档 *参考工程 → BK7259 机器人工程*）。
+- 进入「配网」→「开始」短按【确认】键，使用 BK App 完成 BLE 配网；成功后主菜单右上角显示 WiFi 图标。
 
-    注册登录：使用邮箱注册登录
+## APP
 
-5.2  操作步骤：主要包含关于APP配网方式和流程，如何正常启动Agent，详细流程请参考 `AI解决方案 <https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/intro/index.html>`_
-
+- BK App 下载：[应用下载说明](https://docs.bekencorp.com/arminodoc/bk_app/app/zh_CN/v2.0.1/app_download/index.html)（使用邮箱注册登录）。
+- 配网与设备管理操作步骤：见在线文档 *快速入门* 与 *参考工程*。
