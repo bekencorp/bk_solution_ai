@@ -440,7 +440,7 @@ if (video_engine_is_running()) {
 
 - **`video_frame_que.h`** (61行) - 帧队列接口
 - **`video_frame_que.c`** (532行) - 帧队列实现
-- **`network_transfer.c`** - 网络传输接口
+- **`network_engine.c`** - 网络传输接口
 
 ### 配置文件
 

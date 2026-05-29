@@ -23,7 +23,7 @@
 #include <components/bk_camera_ctlr_types.h>
 #include <components/dvp_camera_types.h>
 #endif
-#include "network_transfer.h"
+#include "network_engine.h"
 
 #if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
 #include <components/bk_flexa_bond.h>
@@ -291,12 +291,12 @@ static void video_engine_transfer_task(void *arg)
             }
 #endif
 
-            /* 直接调用 ntwk_trans_send_video() 发送帧数据 */
+            /* 直接调用 ntwk_eng_send_video() 发送帧数据 */
             //video_engine_log_frame_info(frame);
-            ret = ntwk_trans_send_video(frame);
+            ret = ntwk_eng_send_video(frame);
             if (ret != BK_OK)
             {
-                //LOGW("%s: ntwk_trans_send_video failed, ret=%d\n", __func__, ret);
+                //LOGW("%s: ntwk_eng_send_video failed, ret=%d\n", __func__, ret);
             }
 
             /* 处理完成后释放帧 */
@@ -732,7 +732,7 @@ int video_engine_camera_close(void)
  * @brief Start video transfer task
  * 
  * This function creates a task that continuously pops frames from the frame queue
- * and sends them using ntwk_trans_send_video().
+ * and sends them using ntwk_eng_send_video().
  * 
  * @return BK_OK on success, BK_FAIL otherwise
  */

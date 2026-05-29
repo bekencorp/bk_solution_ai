@@ -6,7 +6,7 @@
 #include <os/os.h>
 #include <os/mem.h>
 #include <os/str.h>
-#include "network_transfer.h"
+#include "network_engine.h"
 #include "cli.h"
 #if CONFIG_VOLC_RTC_EN
 #include "bk_volc_api.h"
@@ -20,7 +20,7 @@
 #include "video_engine.h"
 #endif
 
-#define TAG "ntwk_trans"
+#define TAG "ntwk_eng"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
@@ -29,27 +29,27 @@
 /**
  * @brief 网络传输模块全局上下文实例
  */
-static ntwk_trans_ctx_t g_ntwk_trans_ctx = {0};
+static ntwk_eng_ctx_t g_ntwk_eng_ctx = {0};
 
-/* Uplink audio mute flag. Set by ntwk_trans_set_uplink_audio_muted() from any
+/* Uplink audio mute flag. Set by ntwk_eng_set_uplink_audio_muted() from any
  * task (UI / camera_preview workers) and read by the audio engine task that
- * pushes encoded frames into ntwk_trans_send_audio(). volatile is enough here
+ * pushes encoded frames into ntwk_eng_send_audio(). volatile is enough here
  * -- a single-byte flag flip is racy at worst by one frame, which is fine.
  *
- * Downlink (ntwk_trans_recv_audio) is intentionally NOT gated by this flag:
+ * Downlink (ntwk_eng_recv_audio) is intentionally NOT gated by this flag:
  * the agent's voice still needs to reach the speaker. */
 static volatile bool s_uplink_audio_muted = false;
 
-int ntwk_trans_update(void *user_data, void *update_info)
+int ntwk_eng_update(void *user_data, void *update_info)
 {
     int ret = 0;
 
-    if (!g_ntwk_trans_ctx.initialized) {
+    if (!g_ntwk_eng_ctx.initialized) {
         LOGW("Network transfer not initialized\n");
         return -1;
     }
-    if (g_ntwk_trans_ctx.update_cb) {
-        ret = g_ntwk_trans_ctx.update_cb(user_data, update_info);
+    if (g_ntwk_eng_ctx.update_cb) {
+        ret = g_ntwk_eng_ctx.update_cb(user_data, update_info);
     }
     if (ret != 0) {
         LOGE("Failed to update network transfer\n");
@@ -63,37 +63,37 @@ int ntwk_trans_update(void *user_data, void *update_info)
  * @param user_data 用户数据指针，传递给启动回调函数
  * @return int 0表示成功，负数表示失败
  */
-int ntwk_trans_start(void *user_data)
+int ntwk_eng_start(void *user_data)
 {
     int ret = 0;
-    if (!g_ntwk_trans_ctx.initialized) {
+    if (!g_ntwk_eng_ctx.initialized) {
         LOGW("Network transfer not initialized\n");
         return -1;
     }
 
-    if (g_ntwk_trans_ctx.is_started) {
+    if (g_ntwk_eng_ctx.is_started) {
         LOGW("Network transfer already started\n");
         return 0;
     }
     
     // 调用启动回调函数
-    if (g_ntwk_trans_ctx.start_cb) {
-        ret = g_ntwk_trans_ctx.start_cb(user_data);
+    if (g_ntwk_eng_ctx.start_cb) {
+        ret = g_ntwk_eng_ctx.start_cb(user_data);
     }
     if (ret != 0) {
         LOGE("Failed to start network transfer\n");
         return ret; 
     }
 
-    g_ntwk_trans_ctx.is_started = true;
+    g_ntwk_eng_ctx.is_started = true;
     LOGI("Network transfer started\n");
     
     return 0;
 }
 
-bool ntwk_trans_is_started(void)
+bool ntwk_eng_is_started(void)
 {
-    return g_ntwk_trans_ctx.initialized && g_ntwk_trans_ctx.is_started;
+    return g_ntwk_eng_ctx.initialized && g_ntwk_eng_ctx.is_started;
 }
 
 /**
@@ -101,25 +101,25 @@ bool ntwk_trans_is_started(void)
  * @param user_data 用户数据指针，传递给停止回调函数
  * @return int 0表示成功，负数表示失败
  */
-int ntwk_trans_stop(void *user_data)
+int ntwk_eng_stop(void *user_data)
 {
     int ret = 0;
 
-    if (!g_ntwk_trans_ctx.initialized) {
+    if (!g_ntwk_eng_ctx.initialized) {
         LOGW("Network transfer not initialized\n");
         return -1;
     }
 
-    if (!g_ntwk_trans_ctx.is_started) {
+    if (!g_ntwk_eng_ctx.is_started) {
         LOGW("Network transfer not started\n");
         return -1;
     }
 
-    g_ntwk_trans_ctx.is_started = false;
+    g_ntwk_eng_ctx.is_started = false;
 
     // 调用停止回调函数
-    if (g_ntwk_trans_ctx.stop_cb) {
-        ret = g_ntwk_trans_ctx.stop_cb(user_data);
+    if (g_ntwk_eng_ctx.stop_cb) {
+        ret = g_ntwk_eng_ctx.stop_cb(user_data);
     }
 
     if (ret != 0) {
@@ -135,38 +135,38 @@ int ntwk_trans_stop(void *user_data)
  * @brief 初始化网络传输模块
  * @return int 0表示成功，负数表示失败
  */
-int ntwk_trans_init(void)
+int ntwk_eng_init(void)
 {
     int ret = 0;
 
-    if (g_ntwk_trans_ctx.initialized) {
+    if (g_ntwk_eng_ctx.initialized) {
         LOGW("Network transfer already initialized\n");
         return 0;
     }
     
     // 根据配置选择RTC后端并设置相应的回调函数
     #if CONFIG_VOLC_RTC_EN
-    g_ntwk_trans_ctx.audio_tx_cb = bk_byte_rtc_audio_data_send;
-    g_ntwk_trans_ctx.video_tx_cb = bk_byte_rtc_video_data_send;  // 设置底层视频发送回调
-    g_ntwk_trans_ctx.start_cb = bk_byte_start;
-    g_ntwk_trans_ctx.stop_cb = bk_byte_stop;
-    g_ntwk_trans_ctx.pre_config_cb = bk_byte_pre_config;
-    g_ntwk_trans_ctx.update_cb = bk_byte_update_agent;
-    g_ntwk_trans_ctx.network_type = NETWORK_TYPE_VOLC_RTC;
+    g_ntwk_eng_ctx.audio_tx_cb = bk_byte_rtc_audio_data_send;
+    g_ntwk_eng_ctx.video_tx_cb = bk_byte_rtc_video_data_send;  // 设置底层视频发送回调
+    g_ntwk_eng_ctx.start_cb = bk_byte_start;
+    g_ntwk_eng_ctx.stop_cb = bk_byte_stop;
+    g_ntwk_eng_ctx.pre_config_cb = bk_byte_pre_config;
+    g_ntwk_eng_ctx.update_cb = bk_byte_update_agent;
+    g_ntwk_eng_ctx.network_type = NETWORK_TYPE_VOLC_RTC;
     #elif CONFIG_AGORA_IOT_SDK
     // 声网Agora RTC配置
-    g_ntwk_trans_ctx.audio_tx_cb = bk_agora_rtc_audio_data_send;
-    g_ntwk_trans_ctx.video_tx_cb = bk_agora_rtc_video_data_send;
-    g_ntwk_trans_ctx.start_cb = bk_agora_start;
-    g_ntwk_trans_ctx.stop_cb = bk_agora_stop;
-    g_ntwk_trans_ctx.pre_config_cb = bk_agora_pre_config;
-    g_ntwk_trans_ctx.update_cb = bk_agora_update_agent;
-    g_ntwk_trans_ctx.network_type = NETWORK_TYPE_AGORA_RTC;
+    g_ntwk_eng_ctx.audio_tx_cb = bk_agora_rtc_audio_data_send;
+    g_ntwk_eng_ctx.video_tx_cb = bk_agora_rtc_video_data_send;
+    g_ntwk_eng_ctx.start_cb = bk_agora_start;
+    g_ntwk_eng_ctx.stop_cb = bk_agora_stop;
+    g_ntwk_eng_ctx.pre_config_cb = bk_agora_pre_config;
+    g_ntwk_eng_ctx.update_cb = bk_agora_update_agent;
+    g_ntwk_eng_ctx.network_type = NETWORK_TYPE_AGORA_RTC;
     #endif
 
     // 执行预配置回调
-    if (g_ntwk_trans_ctx.pre_config_cb) {
-        ret = g_ntwk_trans_ctx.pre_config_cb(g_ntwk_trans_ctx.user_data);
+    if (g_ntwk_eng_ctx.pre_config_cb) {
+        ret = g_ntwk_eng_ctx.pre_config_cb(g_ntwk_eng_ctx.user_data);
     }
 
     if (ret != 0) {
@@ -174,8 +174,8 @@ int ntwk_trans_init(void)
         return ret;
     }
     
-    g_ntwk_trans_ctx.initialized = true;
-    LOGI("Network transfer initialized with network type: %d\n", g_ntwk_trans_ctx.network_type);
+    g_ntwk_eng_ctx.initialized = true;
+    LOGI("Network transfer initialized with network type: %d\n", g_ntwk_eng_ctx.network_type);
     
     return 0;
 }
@@ -184,24 +184,24 @@ int ntwk_trans_init(void)
  * @brief 反初始化网络传输模块
  * @return int 0表示成功，负数表示失败
  */
-int ntwk_trans_deinit(void)
+int ntwk_eng_deinit(void)
 {
     int ret = 0;
 
-    if (!g_ntwk_trans_ctx.initialized) {
+    if (!g_ntwk_eng_ctx.initialized) {
         LOGW("Network transfer not initialized\n");
         return 0;
     }
     
     // 先停止网络传输
-    ret = ntwk_trans_stop(g_ntwk_trans_ctx.user_data);
+    ret = ntwk_eng_stop(g_ntwk_eng_ctx.user_data);
     if (ret != 0) {
         LOGE("Failed to deinitialize network transfer\n");
         return ret;
     }
     
     // 清空全局上下文
-    os_memset(&g_ntwk_trans_ctx, 0, sizeof(ntwk_trans_ctx_t));
+    os_memset(&g_ntwk_eng_ctx, 0, sizeof(ntwk_eng_ctx_t));
     LOGI("Network transfer deinitialized\n");
     
     return 0;
@@ -214,11 +214,11 @@ int ntwk_trans_deinit(void)
  * @param audio_type 音频编码类型
  * @return int 0表示成功，负数表示失败
  */
-int ntwk_trans_send_audio(const uint8_t *data, size_t size, audio_enc_type_t audio_type)
+int ntwk_eng_send_audio(const uint8_t *data, size_t size, audio_enc_type_t audio_type)
 {
     int ret = 0;
 
-    if (!g_ntwk_trans_ctx.initialized) {
+    if (!g_ntwk_eng_ctx.initialized) {
         LOGE("Network transfer not initialized\n");
         return -1;
     }
@@ -243,8 +243,8 @@ int ntwk_trans_send_audio(const uint8_t *data, size_t size, audio_enc_type_t aud
     }
 
     // 调用音频发送回调函数
-    if (g_ntwk_trans_ctx.audio_tx_cb) {
-        ret = g_ntwk_trans_ctx.audio_tx_cb((uint8_t *)data, size, audio_type);
+    if (g_ntwk_eng_ctx.audio_tx_cb) {
+        ret = g_ntwk_eng_ctx.audio_tx_cb((uint8_t *)data, size, audio_type);
     }
 
     if (ret < 0) {
@@ -263,11 +263,11 @@ int ntwk_trans_send_audio(const uint8_t *data, size_t size, audio_enc_type_t aud
  * @param video_type 视频类型
  * @return int 0表示成功，负数表示失败
  */
-int ntwk_trans_send_video(frame_buffer_t *frame)
+int ntwk_eng_send_video(frame_buffer_t *frame)
 {
     int ret = 0;
 
-    if (!g_ntwk_trans_ctx.initialized) {
+    if (!g_ntwk_eng_ctx.initialized) {
         LOGE("Network transfer not initialized\n");
         return -1;
     }
@@ -279,8 +279,8 @@ int ntwk_trans_send_video(frame_buffer_t *frame)
     }
 
     // 调用视频发送回调函数
-    if (g_ntwk_trans_ctx.video_tx_cb) {
-        ret = g_ntwk_trans_ctx.video_tx_cb(frame);
+    if (g_ntwk_eng_ctx.video_tx_cb) {
+        ret = g_ntwk_eng_ctx.video_tx_cb(frame);
     } else {
         LOGW("video_tx_cb not set, video data dropped\n");
         return -4;
@@ -299,9 +299,9 @@ int ntwk_trans_send_video(frame_buffer_t *frame)
  * @brief 获取当前网络传输类型
  * @return network_type_t 网络类型枚举值
  */
-network_type_t ntwk_trans_get_network_type(void)
+network_type_t ntwk_eng_get_network_type(void)
 {
-    return g_ntwk_trans_ctx.network_type;
+    return g_ntwk_eng_ctx.network_type;
 }
 
 /* g_connected_flag is the public "agent joined" indicator exported by both
@@ -310,12 +310,12 @@ network_type_t ntwk_trans_get_network_type(void)
  * backend is active. */
 extern bool g_connected_flag;
 
-bool ntwk_trans_is_agent_connected(void)
+bool ntwk_eng_is_agent_connected(void)
 {
-    return g_ntwk_trans_ctx.initialized && g_connected_flag;
+    return g_ntwk_eng_ctx.initialized && g_connected_flag;
 }
 
-void ntwk_trans_set_uplink_audio_muted(bool muted)
+void ntwk_eng_set_uplink_audio_muted(bool muted)
 {
     if (s_uplink_audio_muted == muted) {
         return;
@@ -324,12 +324,12 @@ void ntwk_trans_set_uplink_audio_muted(bool muted)
     LOGI("uplink audio %s\n", muted ? "muted" : "unmuted");
 }
 
-bool ntwk_trans_uplink_audio_is_muted(void)
+bool ntwk_eng_uplink_audio_is_muted(void)
 {
     return s_uplink_audio_muted;
 }
 
-int ntwk_trans_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
+int ntwk_eng_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
                                      const char *query)
 {
 #if CONFIG_AGORA_IOT_SDK && CONFIG_AGORA_RTC_USE_STRING_UID
@@ -350,9 +350,9 @@ int ntwk_trans_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
  * @param size 音频数据大小
  * @return int 0表示成功，负数表示失败
  */
-int ntwk_trans_recv_audio(const uint8_t *data, size_t size)
+int ntwk_eng_recv_audio(const uint8_t *data, size_t size)
 {
-    if (!g_ntwk_trans_ctx.initialized) {
+    if (!g_ntwk_eng_ctx.initialized) {
         LOGE("Network transfer not initialized\n");
         return -1;
     }
@@ -380,7 +380,7 @@ int ntwk_trans_recv_audio(const uint8_t *data, size_t size)
  * @brief 获取音频编码器类型
  * @return audio_enc_type_t 音频编码器类型枚举值
  */
-audio_enc_type_t ntwk_trans_get_audio_encoder_type(void)
+audio_enc_type_t ntwk_eng_get_audio_encoder_type(void)
 {
     // 如果音频引擎已启用，则从音频引擎获取编码器类型
     #if CONFIG_BK_AUDIO_ENGINE

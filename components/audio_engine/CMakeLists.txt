@@ -17,5 +17,5 @@ endif()
 armino_component_register(
     SRCS "${srcs}"
 	INCLUDE_DIRS "${incs}"
-	PRIV_REQUIRES bk_common include bk_voice_service network_transfer bk_player_service bk_vfs bk_factory_config bk_asr_service bk_app_event
+	PRIV_REQUIRES bk_common include bk_voice_service network_engine bk_player_service bk_vfs bk_factory_config bk_asr_service bk_app_event
 )

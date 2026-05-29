@@ -10,7 +10,7 @@ menu "Audio Engine"
 
 	config AE_SEND_AUDIO_WITHOUT_ASR_RESULT
 		bool "Send audio without checking ASR result"
-		depends on BK_NETWORK_TRANSFER
+		depends on BK_NETWORK_ENGINE
 		default n
 
 	config AE_AUDIO_ADC_SAMP_RATE

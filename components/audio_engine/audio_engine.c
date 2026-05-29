@@ -2,7 +2,7 @@
 #include <os/os.h>
 #include <common/bk_include.h>
 #include <common/bk_err.h>
-#include <network_transfer.h>
+#include <network_engine.h>
 #include <string.h>
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
 #include "audio_engine_prompt_tone.h"
@@ -1585,7 +1585,7 @@ static int voice_read_callback(unsigned char *data, unsigned int len, void *args
 {
     int ret = 0;
 
-    #if CONFIG_BK_NETWORK_TRANSFER
+    #if CONFIG_BK_NETWORK_ENGINE
     #if (CONFIG_ASR_SERVICE) && (!CONFIG_AE_SEND_AUDIO_WITHOUT_ASR_RESULT)
     #if CONFIG_BEKEN_KWS
         if (g_audio_engine.asr_result == BK_KWS_ARMINO)
@@ -1594,7 +1594,7 @@ static int voice_read_callback(unsigned char *data, unsigned int len, void *args
     #endif
     #endif
     {
-        ret = ntwk_trans_send_audio(data, len, g_audio_engine_cfg.enc_type);
+        ret = ntwk_eng_send_audio(data, len, g_audio_engine_cfg.enc_type);
     }
     #else
     ret = bk_voice_write_frame_data(g_audio_engine.write_handle, (char *)data, len);

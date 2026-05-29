@@ -1,5 +1,5 @@
-#ifndef __NETWORK_TRANSFER_H__
-#define __NETWORK_TRANSFER_H__
+#ifndef __NETWORK_ENGINE_H__
+#define __NETWORK_ENGINE_H__
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,27 +55,27 @@ typedef int (*video_tx_callback_t)(frame_buffer_t *frame);
  * @param user_data 用户数据
  * @return bk_err_t 启动结果
  */
-typedef bk_err_t (*ntwk_trans_start_callback_t)(void *user_data);
+typedef bk_err_t (*ntwk_eng_start_callback_t)(void *user_data);
 
 /**
  * @brief 网络传输停止回调函数类型
  * @param user_data 用户数据
  * @return bk_err_t 停止结果
  */
-typedef bk_err_t (*ntwk_trans_stop_callback_t)(void *user_data);
+typedef bk_err_t (*ntwk_eng_stop_callback_t)(void *user_data);
 
 /**
  * @brief 网络传输预配置回调函数类型
  * @param user_data 用户数据
  * @return bk_err_t 预配置结果
  */
-typedef bk_err_t (*ntwk_trans_pre_config_callback_t)(void *user_data);
+typedef bk_err_t (*ntwk_eng_pre_config_callback_t)(void *user_data);
 /**
  * @brief 网络传输更新回调函数类型
  * @param user_data 用户数据
  * @return bk_err_t 更新结果
  */
-typedef bk_err_t (*ntwk_trans_update_callback_t)(void *user_data, void *update_info);
+typedef bk_err_t (*ntwk_eng_update_callback_t)(void *user_data, void *update_info);
 /**
  * @brief 网络传输模块上下文结构体
  */
@@ -84,25 +84,25 @@ typedef struct {
     void *network_config;              /**< network特定配置 */
     audio_tx_callback_t audio_tx_cb; /**< 音频接收回调 */
     video_tx_callback_t video_tx_cb; /**< 视频接收回调 */
-    ntwk_trans_start_callback_t start_cb; /**< 网络传输开始回调 */
-    ntwk_trans_stop_callback_t stop_cb; /**< 网络传输停止回调 */
-    ntwk_trans_pre_config_callback_t pre_config_cb; /**< 网络传输预配置回调 */
-    ntwk_trans_update_callback_t update_cb; /**< 网络传输更新回调 */
+    ntwk_eng_start_callback_t start_cb; /**< 网络传输开始回调 */
+    ntwk_eng_stop_callback_t stop_cb; /**< 网络传输停止回调 */
+    ntwk_eng_pre_config_callback_t pre_config_cb; /**< 网络传输预配置回调 */
+    ntwk_eng_update_callback_t update_cb; /**< 网络传输更新回调 */
     void *user_data;               /**< 用户数据 */
     bool is_started;               /**< 是否已启动 */
     bool initialized;                      /**< 初始化标志 */
-} ntwk_trans_ctx_t;
+} ntwk_eng_ctx_t;
 /**
  * @brief 初始化网络传输模块
  * @return int 初始化结果
  */
-int ntwk_trans_init(void);
+int ntwk_eng_init(void);
 
 /**
  * @brief 反初始化网络传输模块
  * @return int 反初始化结果
  */
-int ntwk_trans_deinit(void);
+int ntwk_eng_deinit(void);
 
 /**
  * @brief 更新网络传输
@@ -110,20 +110,20 @@ int ntwk_trans_deinit(void);
  * @param update_info 更新信息
  * @return int 更新结果
  */
-int ntwk_trans_update(void *user_data, void *update_info);
+int ntwk_eng_update(void *user_data, void *update_info);
 /**
  * @brief 启动网络传输
  * @param user_data 用户数据指针，传递给启动回调函数
  * @return int 0表示成功，负数表示失败
  */
-int ntwk_trans_start(void *user_data);
-bool ntwk_trans_is_started(void);
+int ntwk_eng_start(void *user_data);
+bool ntwk_eng_is_started(void);
 /**
  * @brief 停止网络传输
  * @param user_data 用户数据指针，传递给停止回调函数
  * @return int 0表示成功，负数表示失败
  */
-int ntwk_trans_stop(void *user_data);
+int ntwk_eng_stop(void *user_data);
 /**
  * @brief 发送音频数据
  * @param data 音频数据指针
@@ -131,7 +131,7 @@ int ntwk_trans_stop(void *user_data);
  * @param audio_type 音频编码类型
  * @return int 发送结果
  */
-int ntwk_trans_send_audio(const uint8_t *data, size_t size, audio_enc_type_t audio_type);
+int ntwk_eng_send_audio(const uint8_t *data, size_t size, audio_enc_type_t audio_type);
 
 
 /**
@@ -139,17 +139,17 @@ int ntwk_trans_send_audio(const uint8_t *data, size_t size, audio_enc_type_t aud
  * @param frame 视频帧缓冲区指针
  * @return int 0表示成功，负数表示失败
  */
-int ntwk_trans_send_video(frame_buffer_t *frame); 
+int ntwk_eng_send_video(frame_buffer_t *frame); 
 /**
  * @brief 获取当前network类型
  * @return network_type_t network类型
  */
-network_type_t ntwk_trans_get_network_type(void);
+network_type_t ntwk_eng_get_network_type(void);
 /**
  * @brief 获取音频编码器类型
  * @return audio_enc_type_t 音频编码器类型
  */
-audio_enc_type_t ntwk_trans_get_audio_encoder_type(void);
+audio_enc_type_t ntwk_eng_get_audio_encoder_type(void);
 
 /**
  * @brief 接收音频数据
@@ -157,7 +157,7 @@ audio_enc_type_t ntwk_trans_get_audio_encoder_type(void);
  * @param size 数据大小
  * @return int 接收结果
  */
-int ntwk_trans_recv_audio(const uint8_t *data, size_t size);
+int ntwk_eng_recv_audio(const uint8_t *data, size_t size);
 
 /**
  * @brief Whether the underlying RTC engine is currently joined to the agent.
@@ -169,12 +169,12 @@ int ntwk_trans_recv_audio(const uint8_t *data, size_t size);
  * @return true  if both volc/agora g_connected_flag is set,
  *         false otherwise (not initialized, or not yet joined).
  */
-bool ntwk_trans_is_agent_connected(void);
+bool ntwk_eng_is_agent_connected(void);
 
 /**
  * @brief Mute or unmute the uplink audio path to the agent / LLM.
  *
- * When muted, ntwk_trans_send_audio() drops every encoded frame on the floor
+ * When muted, ntwk_eng_send_audio() drops every encoded frame on the floor
  * BEFORE calling the backend audio_tx callback, returning success to the
  * caller so the audio engine pipeline stays running.
  *
@@ -188,12 +188,12 @@ bool ntwk_trans_is_agent_connected(void);
  *
  * @param muted  true to drop uplink audio; false to resume sending.
  */
-void ntwk_trans_set_uplink_audio_muted(bool muted);
+void ntwk_eng_set_uplink_audio_muted(bool muted);
 
 /**
- * @brief Current uplink audio mute state (see ntwk_trans_set_uplink_audio_muted).
+ * @brief Current uplink audio mute state (see ntwk_eng_set_uplink_audio_muted).
  */
-bool ntwk_trans_uplink_audio_is_muted(void);
+bool ntwk_eng_uplink_audio_is_muted(void);
 
 /**
  * @brief Backend-agnostic shim: upload a JPEG to the active AI agent and
@@ -222,10 +222,10 @@ bool ntwk_trans_uplink_audio_is_muted(void);
  * @return 0 on success; <0 on failure (no backend support, RTC/RTM not
  *         joined, oversized image, or SDK submit error).
  */
-int ntwk_trans_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
+int ntwk_eng_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
                                      const char *query);
 
 #ifdef __cplusplus
 }
 #endif
-#endif /* __NETWORK_TRANSFER_H__ */
+#endif /* __NETWORK_ENGINE_H__ */

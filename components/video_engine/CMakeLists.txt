@@ -17,5 +17,5 @@ armino_component_register(
     SRCS "${srcs}"
 	INCLUDE_DIRS "${incs}"
 	REQUIRES bk_common bk_camera driver
-	PRIV_REQUIRES include bk_voice_service network_transfer avdk_utils bk_display bk_player_service multimedia_device_service bk_peripheral
+	PRIV_REQUIRES include bk_voice_service network_engine avdk_utils bk_display bk_player_service multimedia_device_service bk_peripheral
 )

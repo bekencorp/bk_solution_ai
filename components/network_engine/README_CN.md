@@ -2,7 +2,7 @@
 
 ## 概述
 
-network_transfer模块提供了统一的音频网络传输接口，支持多种RTC后端（Volc RTC、Agora RTC等）。
+network_engine模块提供了统一的音频网络传输接口，支持多种RTC后端（Volc RTC、Agora RTC等）。
 
 ## 主要特性
 
@@ -16,7 +16,7 @@ network_transfer模块提供了统一的音频网络传输接口，支持多种R
 
 ### 头文件
 ```c
-#include "network_transfer.h"
+#include "network_engine.h"
 ```
 
 ### 主要函数
@@ -57,7 +57,7 @@ audio_enc_type_t ntwk_trans_get_audio_encoder_type(void);
 
 ### 基本使用
 ```c
-#include "network_transfer.h"
+#include "network_engine.h"
 
 int main() {
     // 初始化网络传输模块
@@ -115,15 +115,15 @@ int main() {
 ## 扩展说明
 
 要添加新的RTC后端支持：
-1. 在`network_transfer.h`中添加新的网络类型枚举
-2. 在`network_transfer.c`的ntwk_trans_init函数中添加对应的配置和回调函数设置
+1. 在`network_engine.h`中添加新的网络类型枚举
+2. 在`network_engine.c`的ntwk_trans_init函数中添加对应的配置和回调函数设置
 3. 实现相应的适配器模块（如volc_rtc目录下的火山引擎适配器）
 4. 更新配置检查和编译选项
 
 ## 文件说明
 
-- `network_transfer.h` - 头文件，包含所有接口定义和数据结构
-- `network_transfer.c` - 实现文件，包含网络传输模块的核心功能
+- `network_engine.h` - 头文件，包含所有接口定义和数据结构
+- `network_engine.c` - 实现文件，包含网络传输模块的核心功能
 - `volc_rtc/` - 火山引擎RTC适配器目录
   - `bk_volc_api.c` - 火山引擎适配器实现
   - `bk_volc_api.h` - 火山引擎适配器头文件

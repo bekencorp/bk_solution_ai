@@ -31,8 +31,8 @@
 #if (CONFIG_EASY_FLASH && CONFIG_EASY_FLASH_V4)
 #include "bk_ef.h"
 #endif
-#if CONFIG_BK_NETWORK_TRANSFER
-#include "network_transfer.h"
+#if CONFIG_BK_NETWORK_ENGINE
+#include "network_engine.h"
 #endif
 #if CONFIG_BK_AUDIO_ENGINE
 #include "audio_engine.h"
@@ -258,8 +258,8 @@ static int bk_sconf_start_network_transfer(char *device_id)
 //     audio_engine_init();
 // #endif
 
-#if CONFIG_BK_NETWORK_TRANSFER
-    return ntwk_trans_start(device_id);
+#if CONFIG_BK_NETWORK_ENGINE
+    return ntwk_eng_start(device_id);
 #else
     LOGW("%s, Network transfer not supported\r\n", __func__);
     return BK_FAIL;
@@ -275,8 +275,8 @@ static int bk_sconf_stop_network_transfer(char *device_id)
         return BK_FAIL;
     }
 
-#if CONFIG_BK_NETWORK_TRANSFER
-    return ntwk_trans_stop(device_id);
+#if CONFIG_BK_NETWORK_ENGINE
+    return ntwk_eng_stop(device_id);
 #else
     LOGW("%s, Network transfer not supported\r\n", __func__);
     return BK_FAIL;
@@ -363,12 +363,12 @@ int bk_sconf_upate_agent_info(char *device_id, char *update_info)
         return BK_FAIL;
     }
 
-    #if CONFIG_BK_NETWORK_TRANSFER
+    #if CONFIG_BK_NETWORK_ENGINE
     LOGI("%s %d, Network transfer stopped\r\n", __func__, __LINE__);
 
     while (agent_retry_cnt < 3)
     {
-        if (ntwk_trans_update(device_id, update_info) == 0)
+        if (ntwk_eng_update(device_id, update_info) == 0)
         {
             break;
         }
@@ -404,9 +404,9 @@ static int bk_sconf_start_rtc_for_model(char *device_id, const char *model_type,
         *was_running = false;
     }
 
-#if CONFIG_BK_NETWORK_TRANSFER
+#if CONFIG_BK_NETWORK_ENGINE
     if (was_running != NULL) {
-        *was_running = ntwk_trans_is_started();
+        *was_running = ntwk_eng_is_started();
     }
 #endif
 

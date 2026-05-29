@@ -1,10 +1,10 @@
 set(incs . common)
 set(srcs "")
 
-if (CONFIG_BK_NETWORK_TRANSFER)
+if (CONFIG_BK_NETWORK_ENGINE)
 
 list(APPEND srcs
-    network_transfer.c
+    network_engine.c
     common/bk_image_upload.c
 )
 

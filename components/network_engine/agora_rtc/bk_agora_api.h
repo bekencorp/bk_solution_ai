@@ -13,7 +13,7 @@ extern "C" {
 #endif
 
 #include "agora_rtc_engine.h"
-#include "network_transfer.h"
+#include "network_engine.h"
 
 #define VIDEO_FRAME_INTERVAL            500
 #define BANDWIDTH_ESTIMATE_MAX_BITRATE   (2000000)

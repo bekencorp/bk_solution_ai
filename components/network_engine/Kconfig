@@ -1,5 +1,5 @@
 menu "net_transfer"
-	config BK_NETWORK_TRANSFER
+	config BK_NETWORK_ENGINE
 		bool "Enable BEKEN Network Transfer"
 		default y
 

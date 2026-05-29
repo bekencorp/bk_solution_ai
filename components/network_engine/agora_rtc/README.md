@@ -12,7 +12,7 @@ agora_rtc/
 ├── agora_rtc_engine.h       # RTC引擎接口定义
 ├── agora_rtc_engine.c       # RTC引擎核心实现
 ├── bk_agora_api.h           # 顶层公共API接口
-├── bk_agora_api.c           # 顶层API实现（对接network_transfer）
+├── bk_agora_api.c           # 顶层API实现（对接network_engine）
 └── README.md                # 本文档
 ```
 
@@ -21,7 +21,7 @@ agora_rtc/
 ```
 Application Layer (app_main.c)
         ↓
-Network Transfer Layer (network_transfer.c)
+Network Transfer Layer (network_engine.c)
         ↓
 Agora API Layer (bk_agora_api.c)
         ↓
@@ -60,7 +60,7 @@ RTC引擎核心实现：
 
 ### 1. Kconfig 配置
 
-在 `components/network_transfer/Kconfig` 中启用：
+在 `components/network_engine/Kconfig` 中启用：
 
 ```kconfig
 config BK_AGORA_RTC
@@ -109,7 +109,7 @@ os_strcpy(agora_room_info->token, CONFIG_AGORA_TOKEN);
 ### 1. 基本初始化流程
 
 ```c
-#include "network_transfer.h"
+#include "network_engine.h"
 
 // 1. 初始化网络传输模块
 ntwk_trans_init();
@@ -123,14 +123,14 @@ ntwk_trans_start(NULL);
 ### 2. 发送音频数据
 
 ```c
-// 音频数据会通过 network_transfer 自动路由到 Agora
+// 音频数据会通过 network_engine 自动路由到 Agora
 ntwk_trans_send_audio(audio_data, audio_len, AUDIO_ENC_TYPE_G711A);
 ```
 
 ### 3. 发送视频数据
 
 ```c
-// 视频数据会通过 network_transfer 自动路由到 Agora
+// 视频数据会通过 network_engine 自动路由到 Agora
 frame_buffer_t *frame = ...; // 从 video_engine 获取
 ntwk_trans_send_video(frame);
 ```

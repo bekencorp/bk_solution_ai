@@ -324,8 +324,8 @@ int bk_byte_rtc_video_data_send(frame_buffer_t *frame)
 
 static int bk_byte_rtc_user_audio_rx_data_handle(unsigned char *data, unsigned int size, audio_data_type_e data_type)
 {
-    #if CONFIG_BK_NETWORK_TRANSFER
-    return ntwk_trans_recv_audio(data, size);
+    #if CONFIG_BK_NETWORK_ENGINE
+    return ntwk_eng_recv_audio(data, size);
     #else
     LOGE("BK Network transfer not enabled\n");
     return BK_FAIL;
@@ -369,7 +369,7 @@ void bk_byte_rtc_main(void)
 
     byte_rtc_option.room = volc_room_info;
 
-    byte_rtc_option.audio_data_type = bk_byte_rtc_audio_codec_type_mapping(ntwk_trans_get_audio_encoder_type());
+    byte_rtc_option.audio_data_type = bk_byte_rtc_audio_codec_type_mapping(ntwk_eng_get_audio_encoder_type());
 
     ret = __byte_rtc_start(&byte_rtc_option);
     if (ret != BK_OK)
