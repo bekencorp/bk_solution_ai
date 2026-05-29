@@ -1,0 +1,18 @@
+menu "robot_lan_net"
+    config BK_ROBOT_LAN_NET
+        bool "Enable BK7259 robot LAN network"
+        default n
+        depends on LWIP
+        depends on BK_NTWK_TRANSFER
+        depends on NTWK_CLIENT_SERVICE_ENABLE
+
+    config BK_ROBOT_LAN_DISCOVERY_PORT
+        int "Robot LAN discovery listen port"
+        default 52110
+        depends on BK_ROBOT_LAN_NET
+
+    config BK_ROBOT_LAN_DISCOVERY_STACK_SIZE
+        int "Robot LAN discovery task stack size"
+        default 4096
+        depends on BK_ROBOT_LAN_NET
+endmenu

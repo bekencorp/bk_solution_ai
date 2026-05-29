@@ -1,0 +1,36 @@
+menu "robot_ctrl_service"
+config BK_ROBOT_CTRL_SERVICE
+    bool "Enable BK7259 robot control service"
+    default n
+    depends on BK_ROBOT_LAN_NET
+
+config BK_ROBOT_CTRL_TIMEOUT_MS
+    int "Robot control command timeout"
+    default 500
+    depends on BK_ROBOT_CTRL_SERVICE
+
+config BK_ROBOT_SESSION_TIMEOUT_MS
+    int "Robot control session timeout"
+    default 5000
+    depends on BK_ROBOT_CTRL_SERVICE
+
+config BK_ROBOT_AP_KEEPALIVE
+    bool "Enable robot AP keepalive state machine"
+    default n
+    depends on BK_ROBOT_CTRL_SERVICE
+
+config BK_ROBOT_AP_KEEPALIVE_IDLE_MS
+    int "Robot AP keepalive idle timeout"
+    default 5000
+    depends on BK_ROBOT_AP_KEEPALIVE
+
+config BK_ROBOT_SESSION_WAKEUP_TIMEOUT_MS
+    int "Robot session wakeup timeout"
+    default 5000
+    depends on BK_ROBOT_CTRL_SERVICE
+
+config BK_ROBOT_AUDIO_BUSY_DISABLE_MOTION
+    bool "Disable motion while audio talk is enabled"
+    default y
+    depends on BK_ROBOT_CTRL_SERVICE
+endmenu

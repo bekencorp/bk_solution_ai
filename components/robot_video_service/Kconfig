@@ -1,0 +1,26 @@
+menu "robot_video_service"
+    config BK_ROBOT_VIDEO_SERVICE
+        bool "Enable BK7259 robot video service"
+        default n
+        depends on BK_VIDEO_ENGINE
+
+    config BK_ROBOT_VIDEO_WIDTH
+        int "Robot video width"
+        default 640
+        depends on BK_ROBOT_VIDEO_SERVICE
+
+    config BK_ROBOT_VIDEO_HEIGHT
+        int "Robot video height"
+        default 480
+        depends on BK_ROBOT_VIDEO_SERVICE
+
+    config BK_ROBOT_VIDEO_FPS
+        int "Robot video fps"
+        default 20
+        depends on BK_ROBOT_VIDEO_SERVICE
+
+    config BK_ROBOT_VIDEO_BITRATE_KBPS
+        int "Robot video bitrate kbps"
+        default 1000
+        depends on BK_ROBOT_VIDEO_SERVICE
+endmenu
