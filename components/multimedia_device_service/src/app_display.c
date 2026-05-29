@@ -140,32 +140,30 @@ int app_mipi_lcd_turn_on(display_board_config_t *config)
 
     os_memset(content, 0, sizeof(display_ctx_t));
 
-    /* Bring up vddio BEFORE creating DSI bus / panel: panel reset + I2C bridge
+    /* Bring up vddio BEFORE · DSI bus / panel: panel reset + I2C bridge
      * write needs 1.8V vddio, otherwise the panel will not respond. */
     app_display_power_enable(true);
 
-    dpu_clk_src_t clk_src = DPU_CLK_SRC_SYSCLK;
+
     AVDK_GOTO_ON_ERROR(bk_display_dsi_bus_new(&content->dis_bus_handle, NULL), err, TAG, "display dsi bus new err\n");
-    AVDK_GOTO_ON_ERROR(bk_display_bus_set_clock_src(content->dis_bus_handle, clk_src), err, TAG, "display bus set clock src err\n");
-    bk_lcd_panel_dev_config_t panel_dev_config = {
+    bk_lcd_panel_config_t panel_config = {
         .reset_pin = config->mipi.pin_reset,
         .reset_active_level = false,
+        .clk_src = DPU_CLK_SRC_SYSCLK,
     };
 
-    AVDK_GOTO_ON_ERROR(bk_lcd_mipi_panel_new(content->dis_bus_handle, &panel_dev_config, config->mipi.panel, &content->panel_handle),
+    AVDK_GOTO_ON_ERROR(bk_lcd_mipi_panel_new(content->dis_bus_handle, &panel_config, config->mipi.panel, &content->panel_handle),
                        err, TAG, "create panel err\n");
 
     bk_lcd_panel_reset(content->panel_handle);
     bk_lcd_panel_init(content->panel_handle);
     bk_display_dpu_config_t lcd_cfg = {
-        .clk_src = clk_src,
         .video.enable = config->dpu_video.enable,
         .video.decompress = config->dpu_video.decompress,
         .video.format = config->dpu_video.format,
-        .timing = config->mipi.panel->timing,
     };
 
-    AVDK_GOTO_ON_ERROR(bk_display_dpu_ctlr_new(&content->dpu_ctlr_handle, &lcd_cfg), err, TAG, "display dpu ctlr new err\n");
+    AVDK_GOTO_ON_ERROR(bk_display_dpu_ctlr_new(&content->dpu_ctlr_handle, content->panel_handle, &lcd_cfg), err, TAG, "display dpu ctlr new err\n");
     AVDK_GOTO_ON_ERROR(bk_display_init(content->dpu_ctlr_handle), err, TAG, "display init err\n");
     AVDK_GOTO_ON_ERROR(bk_display_open(content->dpu_ctlr_handle), err, TAG, "display open err\n");
 
