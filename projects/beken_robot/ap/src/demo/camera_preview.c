@@ -951,8 +951,8 @@ int camera_preview_demo_init(void) { return 0; }
 int camera_preview_demo_start(void)
 {
 #if CONFIG_BK_NETWORK_ENGINE
-    if (ntwk_eng_init() != 0) {
-        LOGE("ntwk_eng_init failed\r\n");
+    if (ntwk_eng_rtc_init() != 0) {
+        LOGE("ntwk_eng_rtc_init failed\r\n");
         return -1;
     }
 #endif
