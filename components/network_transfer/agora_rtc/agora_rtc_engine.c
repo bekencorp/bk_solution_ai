@@ -629,6 +629,59 @@ static void __on_user_offline(connection_id_t conn_id, uint32_t uid, int reason)
     __send_message_2_user(rtc, &msg);
 }
 
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+/* String-uid variants: the SDK still delivers the numeric uid alongside
+ * the user_account, so we keep the upstream message protocol (uint32_t
+ * uid) unchanged and just log the human-readable account for tracing. */
+static void __on_user_joined_with_user_account(connection_id_t conn_id, const user_info_t *user, int elapsed_ms)
+{
+    if (!user)
+    {
+        return;
+    }
+    LOGD("conn_id: %d, uid: %u, user_account: %s, elapsed_ms: %d \n",
+         conn_id, user->uid, user->user_account, elapsed_ms);
+
+    agora_rtc_t *rtc = __get_rtc_instance();
+    rtc->b_user_joined = true;
+    agora_rtc_msg_t msg =
+    {
+        .code     = AGORA_RTC_MSG_USER_JOINED,
+        .data.uid = user->uid
+    };
+    __send_message_2_user(rtc, &msg);
+}
+
+static void __on_user_offline_with_user_account(connection_id_t conn_id, const user_info_t *user, int reason)
+{
+    if (!user)
+    {
+        return;
+    }
+    LOGD("conn_id: %d, uid: %u, user_account: %s, reason: %d \n",
+         conn_id, user->uid, user->user_account, reason);
+
+    agora_rtc_t *rtc = __get_rtc_instance();
+    rtc->b_user_joined = false;
+    agora_rtc_msg_t msg =
+    {
+        .code     = AGORA_RTC_MSG_USER_OFFLINE,
+        .data.uid = user->uid
+    };
+    __send_message_2_user(rtc, &msg);
+}
+
+static void __on_user_info_updated(connection_id_t conn_id, const user_info_t *user)
+{
+    if (!user)
+    {
+        return;
+    }
+    LOGI("conn_id: %d, user_info updated: uid=%u user_account=%s \n",
+         conn_id, user->uid, user->user_account);
+}
+#endif /* CONFIG_AGORA_RTC_USE_STRING_UID */
+
 static void __on_key_frame_gen_req(connection_id_t conn_id, uint32_t uid, video_stream_type_e stream_type)
 {
     LOGD("Key frame request: conn_id=%d, uid=%u, stream_type=%d\n", conn_id, uid, stream_type);
@@ -748,6 +801,11 @@ static void __register_agora_rtc_event_handler(agora_rtc_t *rtc)
     rtc->agora_rtc_event_handler.on_error = __on_error;
     rtc->agora_rtc_event_handler.on_user_joined = __on_user_joined;
     rtc->agora_rtc_event_handler.on_user_offline = __on_user_offline;
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    rtc->agora_rtc_event_handler.on_user_joined_with_user_account = __on_user_joined_with_user_account;
+    rtc->agora_rtc_event_handler.on_user_offline_with_user_account = __on_user_offline_with_user_account;
+    rtc->agora_rtc_event_handler.on_user_info_updated = __on_user_info_updated;
+#endif
     rtc->agora_rtc_event_handler.on_key_frame_gen_req = __on_key_frame_gen_req;
     rtc->agora_rtc_event_handler.on_audio_data = __on_audio_data;
     rtc->agora_rtc_event_handler.on_video_data = __on_video_data;
@@ -773,6 +831,14 @@ static void __deep_copy_items_destroy(agora_rtc_t *rtc)
         psram_free((void *)rtc->agora_rtc_option.p_token);
         rtc->agora_rtc_option.p_token = NULL;
     }
+
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    if (rtc->agora_rtc_option.p_user_account != NULL)
+    {
+        psram_free((void *)rtc->agora_rtc_option.p_user_account);
+        rtc->agora_rtc_option.p_user_account = NULL;
+    }
+#endif
 }
 
 
@@ -810,6 +876,11 @@ static int32_t __agora_init(agora_rtc_config_t *p_config)
     rtc->agora_rtc_event_handler.on_target_bitrate_changed = NULL;
     rtc->agora_rtc_event_handler.on_key_frame_gen_req = NULL;
     rtc->agora_rtc_event_handler.on_user_offline = NULL;
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    rtc->agora_rtc_event_handler.on_user_joined_with_user_account = NULL;
+    rtc->agora_rtc_event_handler.on_user_offline_with_user_account = NULL;
+    rtc->agora_rtc_event_handler.on_user_info_updated = NULL;
+#endif
     rtc->target_bitrate = 0;
     rtc->audio_rx_data_handle = NULL;
     rtc->video_rx_data_handle = NULL;
@@ -873,6 +944,11 @@ static int32_t __agora_init(agora_rtc_config_t *p_config)
     service_opt.log_cfg.log_path = DEFAULT_SDK_LOG_PATH;
     service_opt.log_cfg.log_level = RTC_LOG_WARNING;
     os_memcpy(service_opt.license_value, p_config->license, 33);
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    service_opt.use_string_uid = true;
+#else
+    service_opt.use_string_uid = false;
+#endif
 
     LOGI("Agora RTC SDK area_code: %d\n", service_opt.area_code);
     LOGI("Agora RTC SDK log_disable: %d\n", service_opt.log_cfg.log_disable);
@@ -880,6 +956,7 @@ static int32_t __agora_init(agora_rtc_config_t *p_config)
     LOGI("Agora RTC SDK log_level: %d\n", service_opt.log_cfg.log_level);
     LOGI("Agora RTC SDK license_value: %s\n", service_opt.license_value);
     LOGI("Agora RTC SDK p_appid: %s\n", rtc->agora_rtc_config.p_appid);
+    LOGI("Agora RTC SDK use_string_uid: %d\n", service_opt.use_string_uid);
 
 
     // return BK_OK;
@@ -1033,6 +1110,29 @@ bk_err_t __agora_rtc_start(agora_rtc_option_t *option)
     rtc->agora_rtc_option.audio_config.pcm_sample_rate = option->audio_config.pcm_sample_rate;
     rtc->agora_rtc_option.audio_config.pcm_channel_num = option->audio_config.pcm_channel_num;
 
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    /* Deep-copy the string user account so the caller can free its own
+     * buffer immediately. Required by agora_rtc_join_channel_with_user_account. */
+    if (rtc->agora_rtc_option.p_user_account)
+    {
+        psram_free((void *)rtc->agora_rtc_option.p_user_account);
+        rtc->agora_rtc_option.p_user_account = NULL;
+    }
+    if (!option->p_user_account || option->p_user_account[0] == '\0')
+    {
+        LOGE("p_user_account is required when CONFIG_AGORA_RTC_USE_STRING_UID is enabled\n");
+        goto agora_rtc_start_fail;
+    }
+    rtc->agora_rtc_option.p_user_account = (char *)psram_malloc(os_strlen(option->p_user_account) + 1);
+    if (rtc->agora_rtc_option.p_user_account == NULL)
+    {
+        LOGE("malloc user_account fail, size: %d \n", (os_strlen(option->p_user_account) + 1));
+        goto agora_rtc_start_fail;
+    }
+    os_strcpy((char *)rtc->agora_rtc_option.p_user_account, option->p_user_account);
+    LOGI("Agora RTC SDK user_account: %s \n", rtc->agora_rtc_option.p_user_account);
+#endif
+
     rtc_channel_options_t channel_options = { 0 };
 
     channel_options.auto_subscribe_audio = rtc->agora_rtc_option.auto_subscribe_audio;
@@ -1062,6 +1162,22 @@ bk_err_t __agora_rtc_start(agora_rtc_option_t *option)
         goto agora_rtc_start_fail;
     }
 
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    LOGI("Agora RTC SDK user_account: %s \n", rtc->agora_rtc_option.p_user_account);
+    rval = agora_rtc_join_channel_with_user_account(rtc->conn_id,
+                                                    rtc->agora_rtc_option.p_channel_name,
+                                                    rtc->agora_rtc_option.p_user_account,
+                                                    rtc->agora_rtc_option.p_token,
+                                                    &channel_options);
+    if (rval < 0)
+    {
+        LOGI("join channel %s with user_account %s failed, rval=%d error=%s \n",
+             rtc->agora_rtc_option.p_channel_name ? rtc->agora_rtc_option.p_channel_name : "",
+             rtc->agora_rtc_option.p_user_account ? rtc->agora_rtc_option.p_user_account : "",
+             rval, agora_rtc_err_2_str(rval));
+        goto agora_rtc_start_fail;
+    }
+#else
     LOGI("Agora RTC SDK uid: %d \n", rtc->agora_rtc_option.uid);
     rval = agora_rtc_join_channel(rtc->conn_id, rtc->agora_rtc_option.p_channel_name, rtc->agora_rtc_option.uid, rtc->agora_rtc_option.p_token, &channel_options);
     if (rval < 0)
@@ -1070,6 +1186,7 @@ bk_err_t __agora_rtc_start(agora_rtc_option_t *option)
              rtc->agora_rtc_option.p_channel_name ? rtc->agora_rtc_option.p_channel_name : "", rval, agora_rtc_err_2_str(rval));
         goto agora_rtc_start_fail;
     }
+#endif
 
     LOGI("Joining channel %s ... \n", rtc->agora_rtc_option.p_channel_name);
     return BK_OK;

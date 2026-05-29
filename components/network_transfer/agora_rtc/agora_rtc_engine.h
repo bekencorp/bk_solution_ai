@@ -113,6 +113,13 @@ typedef struct
     char *p_channel_name;
     char *p_token;
     uint32_t uid;
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    /* String user account, used when joining the channel via
+     * agora_rtc_join_channel_with_user_account. When set, this takes
+     * precedence over `uid`. Owned by the caller until __agora_rtc_start
+     * deep-copies it into the internal option block. */
+    char *p_user_account;
+#endif
 
     bool auto_subscribe_audio;
     bool auto_subscribe_video;
@@ -120,6 +127,21 @@ typedef struct
     agora_rtc_audio_config_t audio_config;
 } agora_rtc_option_t;
 
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+#define DEFAULT_AGORA_RTC_OPTION() {                    \
+    .p_channel_name = NULL,                             \
+    .p_token = NULL,                                    \
+    .uid = 0,                                           \
+    .p_user_account = NULL,                             \
+    .auto_subscribe_audio = true,                       \
+    .auto_subscribe_video = false,                      \
+        .audio_config = {                               \
+        .audio_data_type = AUDIO_DATA_TYPE_PCMU,        \
+        .pcm_sample_rate = 8000,                        \
+        .pcm_channel_num = 1,                           \
+    },                                                  \
+}
+#else
 #define DEFAULT_AGORA_RTC_OPTION() {                    \
     .p_channel_name = NULL,                             \
     .p_token = NULL,                                    \
@@ -132,6 +154,7 @@ typedef struct
         .pcm_channel_num = 1,                           \
     },                                                  \
 }
+#endif
 
 
 typedef struct

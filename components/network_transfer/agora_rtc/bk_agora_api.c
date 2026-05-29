@@ -327,6 +327,32 @@ void bk_agora_rtc_main(void)
     os_strcpy((char *)agora_rtc_option.p_channel_name, channel_name);
     agora_rtc_option.audio_config.audio_data_type = CONFIG_AUDIO_CODEC_TYPE;
 
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    /* Local (device) string uid = "remote_<channel>". Channel name itself
+     * is preserved as the RTC room id; only the uid switches from the
+     * legacy 32-bit integer form to a human-readable string. */
+    {
+        size_t ch_len = os_strlen(channel_name);
+        size_t ua_len = ch_len + os_strlen("remote_") + 1;
+        if (agora_rtc_option.p_user_account)
+        {
+            psram_free((char *)agora_rtc_option.p_user_account);
+            agora_rtc_option.p_user_account = NULL;
+        }
+        agora_rtc_option.p_user_account = (char *)psram_malloc(ua_len);
+        if (agora_rtc_option.p_user_account)
+        {
+            os_snprintf((char *)agora_rtc_option.p_user_account, ua_len, "remote_%s", channel_name);
+            LOGI("agora_main local user_account: %s \r\n", agora_rtc_option.p_user_account);
+        }
+        else
+        {
+            LOGE("malloc user_account failed (len=%u)\r\n", (unsigned)ua_len);
+            goto exit;
+        }
+    }
+#endif
+
     if (strlen(token))
     {
         LOGI("agora_main use record token:%s \r\n", token);
@@ -408,7 +434,15 @@ exit:
         psram_free((char *)agora_rtc_option.p_channel_name);
         agora_rtc_option.p_channel_name = NULL;
     }
-    
+
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    if (agora_rtc_option.p_user_account)
+    {
+        psram_free((char *)agora_rtc_option.p_user_account);
+        agora_rtc_option.p_user_account = NULL;
+    }
+#endif
+
     g_connected_flag = false;
     agora_thread_hdl = NULL;
     agora_runing = false;

@@ -243,7 +243,17 @@ int agora_start_agent_from_bk_server(agora_rtc_agent_info_t *option_info, void *
 
     // Add channel
     cJSON_AddStringToObject(root, "channel", device_id);
-    
+
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    /* String-uid flow: same /activate_agent/ endpoint, but flag the request
+     * with "enable_rtm": true. The server side reads this flag to:
+     *   - have the agent join the channel with a string user account
+     *     (paired with the local device's "remote_<channel>" / "agent_<channel>"
+     *      convention defined by the client)
+     *   - enable any RTM-based control channel it needs alongside RTC. */
+    cJSON_AddBoolToObject(root, "enable_rtm", true);
+#endif
+
     cJSON_AddNumberToObject(agent_param, "audio_duration", 20);
 
     #if CONFIG_AE_AUDIO_ENCODER_OPUS
@@ -371,6 +381,13 @@ int agora_upate_agent_from_bk_server(agora_rtc_agent_info_t *option_info, void *
     // Add channel
     cJSON_AddStringToObject(root, "channel", device_id);
 
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    /* String-uid flow: keep the server in string-uid mode across the
+     * model-type switch. Must match the flag used in
+     * agora_start_agent_from_bk_server so the agent re-joins the channel
+     * with the same uid convention. */
+    cJSON_AddBoolToObject(root, "enable_rtm", true);
+#endif
 
     if (update_info && os_strcmp((char *)update_info, "vision") == 0)
     {
