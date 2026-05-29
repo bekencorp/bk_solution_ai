@@ -31,6 +31,15 @@
  */
 static ntwk_trans_ctx_t g_ntwk_trans_ctx = {0};
 
+/* Uplink audio mute flag. Set by ntwk_trans_set_uplink_audio_muted() from any
+ * task (UI / camera_preview workers) and read by the audio engine task that
+ * pushes encoded frames into ntwk_trans_send_audio(). volatile is enough here
+ * -- a single-byte flag flip is racy at worst by one frame, which is fine.
+ *
+ * Downlink (ntwk_trans_recv_audio) is intentionally NOT gated by this flag:
+ * the agent's voice still needs to reach the speaker. */
+static volatile bool s_uplink_audio_muted = false;
+
 int ntwk_trans_update(void *user_data, void *update_info)
 {
     int ret = 0;
@@ -225,6 +234,14 @@ int ntwk_trans_send_audio(const uint8_t *data, size_t size, audio_enc_type_t aud
         return -3;
     }
 
+    /* Uplink muted (e.g. while camera_preview is recognizing a JPEG): drop
+     * the frame quietly and pretend we sent it. The audio engine pipeline
+     * keeps running so unmuting later resumes instantly, and the downlink
+     * recv path is untouched -- agent voice still reaches the speaker. */
+    if (s_uplink_audio_muted) {
+        return (int)size;
+    }
+
     // 调用音频发送回调函数
     if (g_ntwk_trans_ctx.audio_tx_cb) {
         ret = g_ntwk_trans_ctx.audio_tx_cb((uint8_t *)data, size, audio_type);
@@ -296,6 +313,35 @@ extern bool g_connected_flag;
 bool ntwk_trans_is_agent_connected(void)
 {
     return g_ntwk_trans_ctx.initialized && g_connected_flag;
+}
+
+void ntwk_trans_set_uplink_audio_muted(bool muted)
+{
+    if (s_uplink_audio_muted == muted) {
+        return;
+    }
+    s_uplink_audio_muted = muted;
+    LOGI("uplink audio %s\n", muted ? "muted" : "unmuted");
+}
+
+bool ntwk_trans_uplink_audio_is_muted(void)
+{
+    return s_uplink_audio_muted;
+}
+
+int ntwk_trans_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
+                                     const char *query)
+{
+#if CONFIG_AGORA_IOT_SDK && CONFIG_AGORA_RTC_USE_STRING_UID
+    return (BK_OK == bk_agora_rtc_send_image_with_query(jpeg, jpeg_len, query))
+               ? 0 : -1;
+#else
+    (void)jpeg;
+    (void)jpeg_len;
+    (void)query;
+    LOGW("send_image_with_query: no RTM-capable RTC backend in this build\n");
+    return -1;
+#endif
 }
 
 /**

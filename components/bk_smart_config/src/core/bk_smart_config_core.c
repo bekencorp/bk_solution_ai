@@ -757,10 +757,22 @@ void bk_sconf_sync_flash_handler(void)
     }
 }
 
+/* Encoding of bk_sconf_cli_mode_switch_handler's beken_thread_arg_t:
+ *   0 -> text mode
+ *   1 -> vision mode (also brings up video_engine for uplink H.264)
+ *   2 -> vision mode without video_engine (camera owned by another module
+ *        e.g. camera_preview; see bk_sconf_enter_vision_mode_no_video) */
+#define SCONF_MODE_ARG_TEXT             0
+#define SCONF_MODE_ARG_VISION           1
+#define SCONF_MODE_ARG_VISION_NO_VIDEO  2
+
 static void bk_sconf_cli_mode_switch_handler(beken_thread_arg_t arg)
 {
     char device_id[128] = {0};
-    int to_vision = (arg != NULL);
+    int mode_arg = (int)(intptr_t)arg;
+    int to_vision = (mode_arg == SCONF_MODE_ARG_VISION ||
+                     mode_arg == SCONF_MODE_ARG_VISION_NO_VIDEO);
+    int with_video = (mode_arg == SCONF_MODE_ARG_VISION);
     int ret;
     bool rtc_was_running = false;
 
@@ -772,13 +784,18 @@ static void bk_sconf_cli_mode_switch_handler(beken_thread_arg_t arg)
 
     if (to_vision) {
 #if CONFIG_BK_VIDEO_ENGINE
-        if (!video_engine_is_running()) {
+        if (with_video && !video_engine_is_running()) {
             ret = video_engine_init();
             if (ret != BK_OK) {
                 LOGE("sconf vision: video_engine_init failed ret=%d\r\n", ret);
                 goto done;
             }
+        } else if (!with_video) {
+            LOGI("sconf vision (no_video): skip video_engine_init "
+                 "(camera owned by another module)\r\n");
         }
+#else
+        (void)with_video;
 #endif
         ret = bk_sconf_start_rtc_for_model(device_id, "vision", &rtc_was_running);
         if (ret != BK_OK) {
@@ -790,10 +807,12 @@ static void bk_sconf_cli_mode_switch_handler(beken_thread_arg_t arg)
             if (ret != BK_OK) {
                 LOGW("sconf vision: agent update failed ret=%d\r\n", ret);
             } else {
-                LOGI("sconf vision: OK\r\n");
+                LOGI("sconf vision%s: OK\r\n",
+                     with_video ? "" : " (no_video)");
             }
         } else {
-            LOGI("sconf vision: started directly\r\n");
+            LOGI("sconf vision%s: started directly\r\n",
+                 with_video ? "" : " (no_video)");
         }
     } else {
         /* CLI sconf text: stop UVC/pipeline before Agora/HTTP to avoid URB OOM and stream_stop fault */
@@ -829,7 +848,7 @@ done:
     rtos_delete_thread(NULL);
 }
 
-static int bk_sconf_begin_cli_mode_switch(int to_vision)
+static int bk_sconf_begin_cli_mode_switch(int mode_arg)
 {
     int ret;
 
@@ -843,14 +862,14 @@ static int bk_sconf_begin_cli_mode_switch(int to_vision)
                                    "sconf_mode",
                                    (beken_thread_function_t)bk_sconf_cli_mode_switch_handler,
                                    4096,
-                                   to_vision ? (beken_thread_arg_t)(void *)1 : (beken_thread_arg_t)0);
+                                   (beken_thread_arg_t)(intptr_t)mode_arg);
 #else
     ret = rtos_create_thread(&s_sconf_cli_mode_thread_handle,
                              CONFIG_IR_MODE_SWITCH_TASK_PRIORITY,
                              "sconf_mode",
                              (beken_thread_function_t)bk_sconf_cli_mode_switch_handler,
                              4096,
-                             to_vision ? (beken_thread_arg_t)(void *)1 : (beken_thread_arg_t)0);
+                             (beken_thread_arg_t)(intptr_t)mode_arg);
 #endif
     if (ret != kNoErr) {
         LOGE("sconf mode thread fail: %d\r\n", ret);
@@ -863,12 +882,17 @@ static int bk_sconf_begin_cli_mode_switch(int to_vision)
 
 int bk_sconf_enter_text_mode(void)
 {
-    return bk_sconf_begin_cli_mode_switch(0);
+    return bk_sconf_begin_cli_mode_switch(SCONF_MODE_ARG_TEXT);
 }
 
 int bk_sconf_enter_vision_mode(void)
 {
-    return bk_sconf_begin_cli_mode_switch(1);
+    return bk_sconf_begin_cli_mode_switch(SCONF_MODE_ARG_VISION);
+}
+
+int bk_sconf_enter_vision_mode_no_video(void)
+{
+    return bk_sconf_begin_cli_mode_switch(SCONF_MODE_ARG_VISION_NO_VIDEO);
 }
 
 int bk_sconf_exit_ai_mode(int from_vision)

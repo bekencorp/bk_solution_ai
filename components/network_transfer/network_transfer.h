@@ -171,6 +171,60 @@ int ntwk_trans_recv_audio(const uint8_t *data, size_t size);
  */
 bool ntwk_trans_is_agent_connected(void);
 
+/**
+ * @brief Mute or unmute the uplink audio path to the agent / LLM.
+ *
+ * When muted, ntwk_trans_send_audio() drops every encoded frame on the floor
+ * BEFORE calling the backend audio_tx callback, returning success to the
+ * caller so the audio engine pipeline stays running.
+ *
+ * Use case (e.g. camera_preview's photo-recognition flow): the device still
+ * wants the agent online to receive a freshly captured JPEG over RTM, but
+ * does NOT want the user's voice to be transcribed in the same turn -- that
+ * would race with the image and confuse the multimodal LLM. Muting the
+ * uplink keeps the downlink agent voice working as usual.
+ *
+ * Idempotent. Default state is "not muted".
+ *
+ * @param muted  true to drop uplink audio; false to resume sending.
+ */
+void ntwk_trans_set_uplink_audio_muted(bool muted);
+
+/**
+ * @brief Current uplink audio mute state (see ntwk_trans_set_uplink_audio_muted).
+ */
+bool ntwk_trans_uplink_audio_is_muted(void);
+
+/**
+ * @brief Backend-agnostic shim: upload a JPEG to the active AI agent and
+ *        trigger an LLM image-recognition turn in one call.
+ *
+ * Dispatches to the currently-selected RTC backend's
+ * "send_image_with_query" implementation, with all the agora/volc
+ * specific headers + types kept behind this component boundary. Use it
+ * from app-level modules (e.g. camera_preview) that should not need to
+ * pull in agora SDK headers (those live in a component-private include
+ * path that's not exported app-wide).
+ *
+ * Currently only the Agora backend with CONFIG_AGORA_RTC_USE_STRING_UID
+ * actually implements the RTM image-upload + user.transcription pair;
+ * other backends return -1 so the caller can fail gracefully.
+ *
+ * See bk_agora_rtc_send_image_with_query() for the per-backend contract
+ * (size limits, RTM login pre-req, default prompt).
+ *
+ * @param[in] jpeg      Raw JPEG bytes (NOT base64-encoded).
+ * @param[in] jpeg_len  Length in bytes; backend may impose an upper bound
+ *                      (Agora: <= 22 KB once base64-encoded into RTM).
+ * @param[in] query     UTF-8 prompt fed to the LLM together with the
+ *                      image; pass NULL to use the backend default.
+ *
+ * @return 0 on success; <0 on failure (no backend support, RTC/RTM not
+ *         joined, oversized image, or SDK submit error).
+ */
+int ntwk_trans_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
+                                     const char *query);
+
 #ifdef __cplusplus
 }
 #endif

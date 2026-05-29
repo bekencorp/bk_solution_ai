@@ -59,6 +59,33 @@ int bk_sconf_start_rtc(void);
 int bk_sconf_stop_rtc(void);
 int bk_sconf_enter_text_mode(void);
 int bk_sconf_enter_vision_mode(void);
+
+/**
+ * @brief Enter vision-recognition AI mode WITHOUT bringing up video_engine.
+ *
+ * Use this from contexts that already own the MIPI camera through a
+ * different path (most importantly camera_preview, which calls
+ * media_camera_open() for the local LCD preview + photo snapshot). The
+ * regular bk_sconf_enter_vision_mode() also runs video_engine_init() to
+ * stream H.264 frames over RTC; doing that while another module already
+ * holds the camera fails with "camera already opened".
+ *
+ * What this still does:
+ *   - bk_sconf_start_rtc_for_model(device_id, "vision", ...) so the
+ *     ConvoAI agent is brought up in the vision-capable LLM model.
+ *   - bk_sconf_upate_agent_info(device_id, "vision") if RTC was already
+ *     running (e.g. text-mode chat -> vision switch).
+ *
+ * What this skips (vs the full bk_sconf_enter_vision_mode):
+ *   - video_engine_init() / camera pipeline opening for uplink streaming.
+ *
+ * Pair with bk_sconf_exit_ai_mode_async(0) on exit. The from_vision=0
+ * argument keeps video_engine_deinit() from running there too, which is
+ * the correct behavior since we never started the engine.
+ *
+ * @return BK_OK on success or coalesced re-entry; BK_FAIL otherwise.
+ */
+int bk_sconf_enter_vision_mode_no_video(void);
 int bk_sconf_exit_ai_mode(int from_vision);
 
 /**

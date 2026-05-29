@@ -248,8 +248,9 @@ int agora_start_agent_from_bk_server(agora_rtc_agent_info_t *option_info, void *
     /* String-uid flow: same /activate_agent/ endpoint, but flag the request
      * with "enable_rtm": true. The server side reads this flag to:
      *   - have the agent join the channel with a string user account
-     *     (paired with the local device's "remote_<channel>" / "agent_<channel>"
-     *      convention defined by the client)
+     *     (paired with the local device's "r_<channel>" / "a_<channel>"
+     *      convention defined by the client; short prefixes keep both
+     *      sides under the 64-byte RTM uid ceiling)
      *   - enable any RTM-based control channel it needs alongside RTC. */
     cJSON_AddBoolToObject(root, "enable_rtm", true);
 #endif

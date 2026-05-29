@@ -60,6 +60,49 @@ const char *bk_agora_get_agent_state_str(void);
  */
 bool bk_agora_is_agent_active(void);
 
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+/**
+ * @brief One-shot: upload a JPEG to the agent and immediately trigger an
+ *        LLM image-recognition turn.
+ *
+ * This is the camera_preview "take photo -> describe" convenience wrapper.
+ * Internally it:
+ *   1. Builds the peer rtm uid as "a_<channel>" (the agent side mirrors
+ *      "r_<channel>" used by the local device when joining RTC).
+ *   2. Sends the JPEG inline through RTM customType="image.upload" in its
+ *      base64 form -- subject to the BK_AGORA_RTM_IMG_RAW_MAX_LEN (22 KB)
+ *      ceiling enforced by bk_agora_rtm_send_image_base64().
+ *   3. Pushes a user.transcription right after so convoai runs an LLM
+ *      turn on the freshly staged image without waiting for the user to
+ *      speak. If @p query is NULL/empty, a built-in Chinese default
+ *      ("describe the image contents") is used.
+ *
+ * Both RTM submits go out synchronously on the caller thread, but the
+ * actual delivery is acknowledged asynchronously via the on_rtm_send_
+ * data_result callback (logged at INFO level).
+ *
+ * Prerequisites: RTC must already be joined and RTM logged in (i.e. one
+ * of bk_agora_start / `agora_rtc start` was issued and succeeded). When
+ * the channel name is empty or RTM is not yet login, this returns
+ * BK_FAIL without retry.
+ *
+ * @param[in] jpeg      Pointer to raw JPEG bytes (NOT base64).
+ * @param[in] jpeg_len  Size of jpeg in bytes. MUST be in
+ *                      (0, BK_AGORA_RTM_IMG_RAW_MAX_LEN]; oversize
+ *                      images are rejected and the caller should fall
+ *                      back to bk_agora_rtm_send_image_url() instead.
+ * @param[in] query     Optional UTF-8 prompt fed to the LLM together
+ *                      with the image. Pass NULL to use the default.
+ *
+ * @return BK_OK if BOTH submits succeeded; BK_FAIL otherwise. The text
+ *         step is best-effort: a text failure after a successful image
+ *         submit still returns BK_FAIL but the image is already staged
+ *         on the agent side.
+ */
+bk_err_t bk_agora_rtc_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
+                                            const char *query);
+#endif /* CONFIG_AGORA_RTC_USE_STRING_UID */
+
 #ifdef __cplusplus
 }
 #endif

@@ -17,6 +17,7 @@ list(APPEND srcs
 	agora_rtc/bk_agora_api.c
 	agora_rtc/agora_rtc_engine.c
 	agora_rtc/agora_agent_engine.c
+	agora_rtc/bk_agora_rtm.c
     agora_rtc/agent_utils/AgoraWebClientUtils.c
 )
 endif()

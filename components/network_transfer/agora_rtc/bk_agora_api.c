@@ -18,6 +18,7 @@
 #include "bk_rtos_debug.h"
 #include "agora_config.h"
 #include "bk_agora_api.h"
+#include "bk_agora_rtm.h"
 #include "agora_agent_engine.h"
 #include <modules/wifi.h>
 #include "modules/wifi_types.h"
@@ -29,6 +30,9 @@
 #include "app_event.h"
 #endif
 #include "cli.h"
+#if CONFIG_FATFS
+#include "ff.h"
+#endif
 
 #define TAG "agora_main"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -328,12 +332,16 @@ void bk_agora_rtc_main(void)
     agora_rtc_option.audio_config.audio_data_type = CONFIG_AUDIO_CODEC_TYPE;
 
 #if CONFIG_AGORA_RTC_USE_STRING_UID
-    /* Local (device) string uid = "remote_<channel>". Channel name itself
-     * is preserved as the RTC room id; only the uid switches from the
-     * legacy 32-bit integer form to a human-readable string. */
+    /* Local (device) string uid = "r_<channel>". Short "r_" / "a_" prefixes
+     * keep the final uid under the 64-byte ceiling enforced by
+     * agora_rtc_login_rtm(), even when the backend hands us a long
+     * channel name. Channel name itself is preserved as the RTC room id;
+     * only the uid switches from the legacy 32-bit integer form to a
+     * human-readable string. The agent side is expected to mirror this
+     * with "a_<channel>". */
     {
         size_t ch_len = os_strlen(channel_name);
-        size_t ua_len = ch_len + os_strlen("remote_") + 1;
+        size_t ua_len = ch_len + os_strlen("r_") + 1;
         if (agora_rtc_option.p_user_account)
         {
             psram_free((char *)agora_rtc_option.p_user_account);
@@ -342,7 +350,7 @@ void bk_agora_rtc_main(void)
         agora_rtc_option.p_user_account = (char *)psram_malloc(ua_len);
         if (agora_rtc_option.p_user_account)
         {
-            os_snprintf((char *)agora_rtc_option.p_user_account, ua_len, "remote_%s", channel_name);
+            os_snprintf((char *)agora_rtc_option.p_user_account, ua_len, "r_%s", channel_name);
             LOGI("agora_main local user_account: %s \r\n", agora_rtc_option.p_user_account);
         }
         else
@@ -402,6 +410,18 @@ void bk_agora_rtc_main(void)
     LOGI("-----Agora RTC join channel success-----\n");
     /* Main loop */
 
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    /* RTM rides on the same App ID. Use the local string user_account as
+     * RTM uid; pass the configured RTC token if non-empty (the SDK
+     * treats NULL as "no token auth"). RTM login is best-effort: failure
+     * only disables image.upload, media still works. */
+    if (BK_OK != bk_agora_rtm_start(agora_rtc_option.p_user_account,
+                                    (os_strlen(token) > 0) ? token : NULL))
+    {
+        LOGW("bk_agora_rtm_start failed; image.upload disabled\n");
+    }
+#endif
+
     ret = __agora_rtc_register_audio_rx_handle((agora_rtc_audio_rx_data_handle)bk_agora_user_audio_rx_data_handle);
     if (ret != BK_OK)
     {
@@ -416,6 +436,12 @@ void bk_agora_rtc_main(void)
 
 exit:
     __agora_rtc_register_audio_rx_handle(NULL);
+
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+    /* Logout RTM before tearing down RTC so the SDK has a clean session
+     * close. Safe even if start failed (no-op when not logged in). */
+    bk_agora_rtm_stop();
+#endif
 
     /* Stop Agora RTC */
     __agora_rtc_stop();
@@ -646,9 +672,80 @@ int bk_agora_update_agent(void *device_id, void *update_info)
 
 
 #define AGORA_RTC_CMD_CNT   (sizeof(s_agora_rtc_commands) / sizeof(struct cli_command))
+
+#define DEFAULT_TEST_IMAGE_URL    "https://docs.bekencorp.com/doctest/giraffe.jpg"
+
+/* Default text auto-sent right after an image-upload to nudge the LLM
+ * into a vision-recognition turn. The convoai backend takes this as if
+ * the user just spoke it (customType=user.transcription).
+ *
+ * Encoded as explicit UTF-8 hex escapes so the .rodata literal carries
+ * the exact byte sequence regardless of the compiler's source-charset
+ * interpretation; an earlier raw "描述图片内容" literal got mangled
+ * through an implicit UTF-8<->GBK round-trip somewhere in the build
+ * toolchain and arrived at the serial log as garbled CJK. The bytes
+ * below are: 描 (E6 8F 8F) 述 (E8 BF B0) 图 (E5 9B BE) 片 (E7 89 87)
+ * 内 (E5 86 85) 容 (E5 AE B9). */
+#define DEFAULT_IMAGE_QUERY_TEXT  "\xe6\x8f\x8f\xe8\xbf\xb0\xe5\x9b\xbe\xe7\x89\x87\xe5\x86\x85\xe5\xae\xb9"
+
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+bk_err_t bk_agora_rtc_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
+                                            const char *query)
+{
+    char peer_uid[AGORA_RTC_USER_ACCOUNT_MAX_LEN] = {0};
+    const char *q = (query && query[0] != '\0') ? query : DEFAULT_IMAGE_QUERY_TEXT;
+    bk_err_t ret;
+
+    if (!jpeg || jpeg_len == 0) {
+        LOGE("send_image_with_query: jpeg buffer required\r\n");
+        return BK_FAIL;
+    }
+    if (os_strlen(channel_name) == 0) {
+        LOGE("send_image_with_query: channel not set, RTC not joined?\r\n");
+        return BK_FAIL;
+    }
+    if (!bk_agora_rtm_is_login()) {
+        LOGE("send_image_with_query: RTM not login, image upload disabled\r\n");
+        return BK_FAIL;
+    }
+
+    /* Local uid joined RTC as "r_<channel>"; the convoai agent side
+     * mirrors that with "a_<channel>" -- same short prefixes used by
+     * the `agora_rtc test send_image*` CLI paths. Keep this in sync if
+     * the prefix is ever changed (search for "r_" / "a_" pair). */
+    os_snprintf(peer_uid, sizeof(peer_uid), "a_%s", channel_name);
+
+    LOGI("send_image_with_query peer=%s jpeg=%u query=\"%s\"\r\n",
+         peer_uid, (unsigned)jpeg_len, q);
+
+    ret = bk_agora_rtm_send_image_base64(peer_uid, jpeg, jpeg_len);
+    if (ret != BK_OK) {
+        LOGE("send_image_with_query: image submit failed, query skipped\r\n");
+        return BK_FAIL;
+    }
+
+    /* Image alone does not trigger an LLM turn on the convoai side; the
+     * follow-up user.transcription is what makes the agent reply about
+     * the freshly staged image. Best-effort: if this fails the image is
+     * still on the agent's staging queue and a future user turn will
+     * pick it up. */
+    if (BK_OK != bk_agora_rtm_send_user_text(peer_uid, q)) {
+        LOGE("send_image_with_query: follow-up query text failed\r\n");
+        return BK_FAIL;
+    }
+    return BK_OK;
+}
+#endif /* CONFIG_AGORA_RTC_USE_STRING_UID */
+
+/* Default file path on the auto-mounted SD-NAND volume for
+ * `agora_rtc send_image_b64` when the caller omits <path>. Matches the
+ * filenames written by camera_preview_take_photo() on each session. */
+#define DEFAULT_TEST_IMAGE_B64_PATH  "1:/photos/0001/photo.jpg"
+
 static void bk_agora_rtc_cli_help(void)
 {
-    LOGI("agora_rtc {start|stop|start_agora|stop_agora|start_agent|stop_agent|agent_state}\n");
+    LOGI("agora_rtc {start|stop|start_agora|stop_agora|start_agent|stop_agent|agent_state|"
+         "send_image [url] [query]|send_image_b64 [path] [query]|send_text <text>}\n");
 }
 
 static void bk_agora_rtc_test_cmd(char *pcWriteBuffer, int xWriteBufferLen, int argc, char **argv)
@@ -703,6 +800,150 @@ static void bk_agora_rtc_test_cmd(char *pcWriteBuffer, int xWriteBufferLen, int 
     else if (os_strcmp(argv[1], "agent_state") == 0)
     {
         LOGI("AI agent state: %s\r\n", bk_agora_get_agent_state_str());
+    }
+    else if (os_strcmp(argv[1], "send_image") == 0)
+    {
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+        const char *url   = (argc >= 3) ? argv[2] : DEFAULT_TEST_IMAGE_URL;
+        const char *query = (argc >= 4) ? argv[3] : DEFAULT_IMAGE_QUERY_TEXT;
+        char peer_uid[AGORA_RTC_USER_ACCOUNT_MAX_LEN] = {0};
+
+        if (os_strlen(channel_name) == 0)
+        {
+            LOGE("send_image: channel not set, run 'agora_rtc start' first\r\n");
+            return;
+        }
+        os_snprintf(peer_uid, sizeof(peer_uid), "a_%s", channel_name);
+        LOGI("send image url=%s to peer=%s\r\n", url, peer_uid);
+        if (BK_OK != bk_agora_rtm_send_image_url(peer_uid, url))
+        {
+            LOGE("send_image failed\r\n");
+            return;
+        }
+
+        /* Image just staged into agent context is not enough to trigger
+         * the LLM -- convoai only runs a turn when a user-side input
+         * arrives. Auto-send a "user.transcription" right after so the
+         * LLM does an image-recognition turn without the user needing
+         * to speak. */
+        LOGI("send query text=\"%s\" to peer=%s\r\n", query, peer_uid);
+        if (BK_OK != bk_agora_rtm_send_user_text(peer_uid, query))
+        {
+            LOGE("send_image: follow-up query text failed\r\n");
+        }
+#else
+        LOGE("send_image requires CONFIG_AGORA_RTC_USE_STRING_UID=y\r\n");
+#endif
+    }
+    else if (os_strcmp(argv[1], "send_image_b64") == 0)
+    {
+#if CONFIG_AGORA_RTC_USE_STRING_UID && CONFIG_FATFS
+        const char *path  = (argc >= 3) ? argv[2] : DEFAULT_TEST_IMAGE_B64_PATH;
+        const char *query = (argc >= 4) ? argv[3] : NULL;
+        FIL *fp = NULL;
+        uint8_t *buf = NULL;
+        FSIZE_t f_sz = 0;
+        UINT br = 0;
+        FRESULT fr;
+
+        /* CLI side only does file IO + size sanity check; peer_uid build,
+         * RTM login check and the actual two-step send are delegated to
+         * bk_agora_rtc_send_image_with_query() so this stays in sync with
+         * the camera_preview path used in production. */
+
+        /* FATFS FIL is ~580 B; keep it off-stack so we don't blow the
+         * shell task. */
+        fp = (FIL *)os_malloc(sizeof(FIL));
+        if (!fp)
+        {
+            LOGE("send_image_b64: FIL malloc fail\r\n");
+            return;
+        }
+        os_memset(fp, 0, sizeof(FIL));
+
+        fr = f_open(fp, path, FA_READ);
+        if (fr != FR_OK)
+        {
+            LOGE("send_image_b64: f_open(%s) fr=%d\r\n", path, fr);
+            goto __b64_exit;
+        }
+        f_sz = f_size(fp);
+        if (f_sz == 0)
+        {
+            LOGE("send_image_b64: %s is empty\r\n", path);
+            (void)f_close(fp);
+            goto __b64_exit;
+        }
+        /* Reject oversize images BEFORE allocating to fail fast. The
+         * RTM-level check inside bk_agora_rtm_send_image_base64 will
+         * catch it again as a safety net. */
+        if ((size_t)f_sz > BK_AGORA_RTM_IMG_RAW_MAX_LEN)
+        {
+            LOGE("send_image_b64: %s is %u bytes (> %u limit), use 'send_image' URL flow instead\r\n",
+                 path, (unsigned)f_sz, (unsigned)BK_AGORA_RTM_IMG_RAW_MAX_LEN);
+            (void)f_close(fp);
+            goto __b64_exit;
+        }
+
+        buf = (uint8_t *)psram_malloc((size_t)f_sz);
+        if (!buf)
+        {
+            LOGE("send_image_b64: psram_malloc(%u) OOM\r\n", (unsigned)f_sz);
+            (void)f_close(fp);
+            goto __b64_exit;
+        }
+        fr = f_read(fp, buf, (UINT)f_sz, &br);
+        (void)f_close(fp);
+        if (fr != FR_OK || br != (UINT)f_sz)
+        {
+            LOGE("send_image_b64: f_read fr=%d br=%u/%u\r\n",
+                 fr, (unsigned)br, (unsigned)f_sz);
+            goto __b64_exit;
+        }
+
+        LOGI("send image (b64) path=%s size=%u\r\n", path, (unsigned)br);
+        if (BK_OK != bk_agora_rtc_send_image_with_query(buf, (size_t)br, query))
+        {
+            LOGE("send_image_b64 failed\r\n");
+        }
+
+__b64_exit:
+        if (buf)
+        {
+            psram_free(buf);
+        }
+        if (fp)
+        {
+            os_free(fp);
+        }
+#else
+        LOGE("send_image_b64 requires CONFIG_AGORA_RTC_USE_STRING_UID=y && CONFIG_FATFS=y\r\n");
+#endif
+    }
+    else if (os_strcmp(argv[1], "send_text") == 0)
+    {
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+        char peer_uid[AGORA_RTC_USER_ACCOUNT_MAX_LEN] = {0};
+
+        if (argc < 3 || argv[2] == NULL || argv[2][0] == '\0')
+        {
+            LOGE("send_text: missing <text>\r\n");
+            goto cmd_fail;
+        }
+        if (os_strlen(channel_name) == 0)
+        {
+            LOGE("send_text: channel not set, run 'agora_rtc start' first\r\n");
+            return;
+        }
+        os_snprintf(peer_uid, sizeof(peer_uid), "a_%s", channel_name);
+        LOGI("send text=\"%s\" to peer=%s\r\n", argv[2], peer_uid);
+        if (BK_OK != bk_agora_rtm_send_user_text(peer_uid, argv[2]))
+        {
+            LOGE("send_text failed\r\n");
+        }
+#else
+        LOGE("send_text requires CONFIG_AGORA_RTC_USE_STRING_UID=y\r\n");
+#endif
     }
     else
     {
