@@ -19,6 +19,9 @@
 #include <components/log.h>
 #include "cJSON.h"
 #include "base_64.h"
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+#include "bk_agora_rtm.h"
+#endif
 #if CONFIG_APP_EVT
 #include "app_event.h"
 #include "audio_engine.h"
@@ -216,6 +219,49 @@ static void __agora_rtc_dispatch_decoded_msg(agora_rtc_t *rtc, const char *json_
     {
         /* Reserved for future user-message routing (subtitles, etc.). */
         LOGD("agent msg: message.user (ignored)\n");
+    }
+    else if (os_strcmp(object->valuestring, "message.info") == 0)
+    {
+        /* ConvoAI emits message.info / module=context whenever a new
+         * piece of context (image, file, ...) has actually been ingested
+         * into the LLM working memory. For the image-upload flow that is
+         * the authoritative "the picture is now visible to the model"
+         * signal -- which is what gates the follow-up trigger text in
+         * bk_agora_rtm.c. The "message" field is itself a JSON string
+         * (e.g. {"uuid":"img_xxxxxxxx","resource_type":"picture",...}). */
+        cJSON *module = cJSON_GetObjectItem(root, "module");
+        cJSON *inner_msg = cJSON_GetObjectItem(root, "message");
+        if (!module || !cJSON_IsString(module) ||
+            os_strcmp(module->valuestring, "context") != 0 ||
+            !inner_msg || !cJSON_IsString(inner_msg))
+        {
+            LOGD("agent msg: message.info (no context payload)\n");
+            goto cleanup;
+        }
+
+        cJSON *inner = cJSON_Parse(inner_msg->valuestring);
+        if (!inner)
+        {
+            LOGW("agent msg: message.info inner not JSON: %s\n", inner_msg->valuestring);
+            goto cleanup;
+        }
+
+        cJSON *res_type = cJSON_GetObjectItem(inner, "resource_type");
+        cJSON *uuid     = cJSON_GetObjectItem(inner, "uuid");
+        if (res_type && cJSON_IsString(res_type) &&
+            os_strcmp(res_type->valuestring, "picture") == 0 &&
+            uuid && cJSON_IsString(uuid))
+        {
+            LOGI("agent msg: image ingested uuid=%s\n", uuid->valuestring);
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+            bk_agora_rtm_on_image_uploaded(uuid->valuestring);
+#endif
+        }
+        else
+        {
+            LOGD("agent msg: message.info ctx (non-picture or no uuid)\n");
+        }
+        cJSON_Delete(inner);
     }
     else
     {

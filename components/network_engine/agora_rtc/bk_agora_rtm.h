@@ -137,6 +137,29 @@ bk_err_t bk_agora_rtm_send_image_base64_with_query(const char *peer_uid,
  */
 bk_err_t bk_agora_rtm_send_user_text(const char *peer_uid, const char *text);
 
+/**
+ * Notify the RTM layer that a previously sent image has actually been
+ * ingested by the ConvoAI server (i.e. it is now part of the LLM
+ * context). This is called from the RTC data-stream parser when a
+ * frame of the form
+ *
+ *   { "object": "message.info",
+ *     "module": "context",
+ *     "message": "{\"uuid\":\"<img_uuid>\",
+ *                  \"resource_type\":\"picture\", ...}" }
+ *
+ * is decoded. Why this matters: the RTM "send data ack" only confirms
+ * channel delivery, NOT server-side image ingestion. For both the
+ * base64 and URL upload paths we want the follow-up "describe this
+ * image" text to fire ONLY after the server confirms the image is
+ * available, so the LLM never sees the trigger sentence before the
+ * picture.
+ *
+ * No-op if uuid is unknown (no pending query attached, or the RTM
+ * delivery already timed out).
+ */
+void bk_agora_rtm_on_image_uploaded(const char *uuid);
+
 #endif /* CONFIG_AGORA_RTC_USE_STRING_UID */
 
 #ifdef __cplusplus

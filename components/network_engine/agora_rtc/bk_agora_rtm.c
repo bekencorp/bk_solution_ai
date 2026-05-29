@@ -41,9 +41,14 @@
 
 #define RTM_PENDING_IMAGE_QUERY_MAX     4
 
+/* Maximum length of the image uuid we generate (img_<8-hex>\0 = 13).
+ * Bump for safety; ConvoAI echos it back verbatim in message.info. */
+#define RTM_IMAGE_UUID_MAX_LEN          40
+
 typedef struct {
     bool used;
     uint32_t msg_id;
+    char uuid[RTM_IMAGE_UUID_MAX_LEN];
     char *peer_uid;
     char *query_text;
 } rtm_pending_image_query_t;
@@ -140,6 +145,7 @@ static void __clear_pending_image_queries(void)
 }
 
 static bk_err_t __add_pending_image_query(uint32_t msg_id,
+                                          const char *uuid,
                                           const char *peer_uid,
                                           const char *query_text)
 {
@@ -148,6 +154,11 @@ static bk_err_t __add_pending_image_query(uint32_t msg_id,
     if (!query_text || query_text[0] == '\0')
     {
         return BK_OK;
+    }
+    if (!uuid || uuid[0] == '\0')
+    {
+        LOGE("pending image query: uuid required\n");
+        return BK_FAIL;
     }
 
     for (size_t i = 0; i < RTM_PENDING_IMAGE_QUERY_MAX; i++)
@@ -160,7 +171,7 @@ static bk_err_t __add_pending_image_query(uint32_t msg_id,
     }
     if (!slot)
     {
-        LOGE("pending image query full, msg_id=%u\n", msg_id);
+        LOGE("pending image query full, msg_id=%u uuid=%s\n", msg_id, uuid);
         return BK_FAIL;
     }
 
@@ -175,7 +186,9 @@ static bk_err_t __add_pending_image_query(uint32_t msg_id,
 
     slot->used = true;
     slot->msg_id = msg_id;
-    LOGI("pending image query add msg_id=%u peer=%s\n", msg_id, peer_uid);
+    os_strncpy(slot->uuid, uuid, sizeof(slot->uuid) - 1);
+    slot->uuid[sizeof(slot->uuid) - 1] = '\0';
+    LOGI("pending image query add msg_id=%u uuid=%s peer=%s\n", msg_id, slot->uuid, peer_uid);
     return BK_OK;
 }
 
@@ -192,6 +205,23 @@ static rtm_pending_image_query_t *__find_pending_image_query(uint32_t msg_id)
     return NULL;
 }
 
+static rtm_pending_image_query_t *__find_pending_image_query_by_uuid(const char *uuid)
+{
+    if (!uuid || uuid[0] == '\0')
+    {
+        return NULL;
+    }
+    for (size_t i = 0; i < RTM_PENDING_IMAGE_QUERY_MAX; i++)
+    {
+        if (s_pending_image_queries[i].used &&
+            os_strcmp(s_pending_image_queries[i].uuid, uuid) == 0)
+        {
+            return &s_pending_image_queries[i];
+        }
+    }
+    return NULL;
+}
+
 static void __on_rtm_send_data_res(const char *rtm_uid, uint32_t msg_id, rtm_msg_state_e state)
 {
     LOGI("rtm tx ack peer=%s msg_id=%u state=%s\n",
@@ -203,34 +233,74 @@ static void __on_rtm_send_data_res(const char *rtm_uid, uint32_t msg_id, rtm_msg
         return;
     }
 
-    if (state == RTM_MSG_STATE_RECEIVED)
+    /* IMPORTANT: an RTM ACK with state=RECEIVED only means the RTM
+     * channel delivered the bytes to the ConvoAI server, NOT that the
+     * server has actually ingested the image into the LLM context.
+     *
+     * The authoritative "image is now usable as context" signal is the
+     * data-stream frame:
+     *     { "object":"message.info", "module":"context",
+     *       "message": "{\"uuid\":\"img_xxx\",\"resource_type\":\"picture\",...}" }
+     *
+     * Order of arrival for these two events depends on the upload path:
+     *   - base64 path: server processes inline payload immediately, so
+     *     message.info arrives BEFORE the RTM ACK.
+     *   - URL path:    server still has to fetch the image, so the RTM
+     *     ACK arrives first and message.info follows ~hundreds of ms
+     *     later.
+     *
+     * So on RECEIVED we keep the pending entry alive and wait for the
+     * uuid-keyed dispatch in bk_agora_rtm_on_image_uploaded(). We only
+     * tear it down here when the RTM channel itself has given up
+     * (UNREACHABLE / TIMEOUT) -- in that case the server never saw the
+     * image and message.info will never arrive. */
+    if (state == RTM_MSG_STATE_UNREACHABLE || state == RTM_MSG_STATE_TIMEOUT)
     {
-        char *peer_uid = pending->peer_uid;
-        char *query_text = pending->query_text;
-
-        pending->peer_uid = NULL;
-        pending->query_text = NULL;
+        LOGE("image msg_id=%u uuid=%s rtm delivery %s, drop pending query\n",
+             msg_id, pending->uuid, __rtm_state_str(state));
         __free_pending_image_query(pending);
-
-        LOGI("image msg_id=%u received, send query text to peer=%s\n",
-             msg_id, peer_uid ? peer_uid : "");
-        if (BK_OK != bk_agora_rtm_send_user_text(peer_uid, query_text))
-        {
-            LOGE("image msg_id=%u follow-up query text failed\n", msg_id);
-        }
-        if (peer_uid)
-        {
-            os_free(peer_uid);
-        }
-        if (query_text)
-        {
-            os_free(query_text);
-        }
     }
-    else if (state == RTM_MSG_STATE_UNREACHABLE || state == RTM_MSG_STATE_TIMEOUT)
+}
+
+void bk_agora_rtm_on_image_uploaded(const char *uuid)
+{
+    if (!uuid || uuid[0] == '\0')
     {
-        LOGE("image msg_id=%u not received, drop pending query\n", msg_id);
-        __free_pending_image_query(pending);
+        return;
+    }
+
+    rtm_pending_image_query_t *pending = __find_pending_image_query_by_uuid(uuid);
+    if (!pending)
+    {
+        /* Either no follow-up query was attached, or RTM delivery already
+         * timed out and we tore the entry down. Nothing to do. */
+        LOGD("image uploaded uuid=%s, no pending query\n", uuid);
+        return;
+    }
+
+    char *peer_uid = pending->peer_uid;
+    char *query_text = pending->query_text;
+    uint32_t msg_id = pending->msg_id;
+
+    /* Detach the heap buffers before freeing the slot so we can keep
+     * using them after the slot is reusable by a concurrent uploader. */
+    pending->peer_uid = NULL;
+    pending->query_text = NULL;
+    __free_pending_image_query(pending);
+
+    LOGI("image uploaded uuid=%s msg_id=%u, send query text to peer=%s\n",
+         uuid, msg_id, peer_uid ? peer_uid : "");
+    if (BK_OK != bk_agora_rtm_send_user_text(peer_uid, query_text))
+    {
+        LOGE("image uuid=%s follow-up query text failed\n", uuid);
+    }
+    if (peer_uid)
+    {
+        os_free(peer_uid);
+    }
+    if (query_text)
+    {
+        os_free(query_text);
     }
 }
 
@@ -354,7 +424,7 @@ static bk_err_t __send_image_url(const char *peer_uid,
 
     s_rtm_msg_id++;
     msg_id = s_rtm_msg_id;
-    if (BK_OK != __add_pending_image_query(msg_id, peer_uid, query_after_ack))
+    if (BK_OK != __add_pending_image_query(msg_id, uuid_buf, peer_uid, query_after_ack))
     {
         goto __exit;
     }
@@ -508,7 +578,7 @@ static bk_err_t __send_image_base64(const char *peer_uid,
 
     s_rtm_msg_id++;
     msg_id = s_rtm_msg_id;
-    if (BK_OK != __add_pending_image_query(msg_id, peer_uid, query_after_ack))
+    if (BK_OK != __add_pending_image_query(msg_id, uuid_buf, peer_uid, query_after_ack))
     {
         goto __exit;
     }
