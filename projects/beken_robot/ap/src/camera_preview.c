@@ -26,6 +26,16 @@
 
 #include "board_usb_switch.h"
 
+/* Vision-mode hooks: when the preview is active, we want the ConvoAI
+ * agent online (so the captured JPEG can be RTM-uploaded) but the user's
+ * voice MUST NOT be sent up -- otherwise the LLM mixes mic-noise with
+ * the photo and the recognition turn gets derailed. The pair of muted-
+ * mic + agent-on + JPEG upload all goes through network_transfer.h so
+ * camera_preview does not have to pull in any RTC-backend specific
+ * headers (which live in a component-private include path). */
+#include "bk_smart_config.h"
+#include "network_transfer.h"
+
 /* -----------------------------------------------------------------------
  * Debug-only: persist each captured JPEG to the on-board SD-NAND.
  *
@@ -63,27 +73,64 @@
 extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_360x390;
 #define PREVIEW_MIPI_PANEL (&lcd_device_jd9855_mipi_360x390)
 
-/* Sensor mode must match gc2053_format_array (csi_gc2053.c). SP 1280x720 needs
- * sensor 1280x720@20fps (720p supports 30/25/20, not 15). MP still 400x368. */
-#define PREVIEW_SENSOR_W    1280
-#define PREVIEW_SENSOR_H    720
-#define PREVIEW_SENSOR_FPS  20
+/* Sensor mode must match gc2053_format_array (csi_gc2053.c). MP still 400x368.
+ *
+ * GC2053 supported sensor formats (csi_gc2053.c:1020):
+ *     1280x720  @ 30 / 25 / 20 fps
+ *     1920x1080 @ 30 / 25 / 20 / 15 fps
+ *     640x480   @ 30 fps          <-- ONLY 30 fps at this resolution
+ *     1088x1088 @ 15 fps
+ *
+ * The driver does an exact (w, h, fps) match against this table; there is
+ * NO automatic fallback. Mismatching the FPS (e.g. picking 25 for 640x480)
+ * fails sensor init with "not found matching sensor format" and the whole
+ * preview start aborts at media_camera_open. Keep this comment + table in
+ * sync if the sensor driver gains new modes.
+ *
+ * Current choice: 640x480 @ 30 fps -- gives a smaller SP NV12 (450 KB vs
+ * 1.32 MB for 720p) and a much smaller JPEG, which is what the RTM image-
+ * upload path actually wants (BK_AGORA_RTM_IMG_RAW_MAX_LEN = 22 KB cap). */
+#define PREVIEW_SENSOR_W    640
+#define PREVIEW_SENSOR_H    480
+#define PREVIEW_SENSOR_FPS  30
 #define PREVIEW_ISP_W       400
 #define PREVIEW_ISP_H       368
 /* 270 deg rotate: GC2053 mount vs jd9855 scan (same as palm_detection). */
 #define PREVIEW_GPU_ROTATE  270
 
-/* SP 1280x720 NV12 (1:1 with sensor). NV12 from UNCODED slab (~4 MB total
- * with SP rings + photo copy); PSRAM_HEAP (920 KB) cannot hold 720p NV12. */
-#define PREVIEW_SP_W           1280
-#define PREVIEW_SP_H           720
+/* SP 640x480 NV12 (1:1 with sensor). NV12 from the UNCODED slab (16 MB
+ * pool at 0x60000000); never goes anywhere near PSRAM_HEAP (920 KB). */
+#define PREVIEW_SP_W           640
+#define PREVIEW_SP_H           480
 #define PREVIEW_SP_NV12_BYTES  ((uint32_t)PREVIEW_SP_W * PREVIEW_SP_H * 3 / 2)
 
 /* SP read timeout: cam_thread may sit in 1s delay on MP flexa chnl before
  * serving SP; first read can take ~1s. Display freeze is still fast via GPU. */
 #define PREVIEW_SP_READ_TIMEOUT_MS  1500
 
-/* JPEG: quality 0..10 (5 balanced). Output in PSRAM_HEAP, cap 512 KB. */
+/* JPEG: quality 0..10 (5 balanced).
+ *
+ * Output now lives in the same UNCODED PSRAM slab (16 MB pool at
+ * 0x60000000) that holds the NV12 input, NOT in the 920 KB system
+ * PSRAM_HEAP. Two reasons:
+ *
+ *   1) Contention: when vision-mode is up (camera_preview entry hooks
+ *      bk_sconf_enter_vision_mode_no_video), the Agora RTSA SDK + RTM
+ *      pin ~600-700 KB of long-lived state in PSRAM_HEAP. A 512 KB
+ *      psram_malloc here then deterministically fails. Moving the JPEG
+ *      to UNCODED removes the dependency: PSRAM_HEAP capacity can be
+ *      anything reasonable and the JPEG slot is always available.
+ *
+ *   2) Cache coherency: the HW JPEG encoder writes the bitstream via
+ *      DMA. UNCODED PSRAM is non-cacheable so the post-encode CPU
+ *      readers (SD-NAND save, RTM base64) see the final bytes without
+ *      needing a manual cache invalidate. Same pattern as the NV12
+ *      input buffer and the multimedia/jpeg_encode_example reference.
+ *
+ * Cap is sized for the worst-case 1280x720 JPEG at quality 5 (typical
+ * range ~50-200 KB, but a high-detail scene can reach the cap). The
+ * 16 MB UNCODED slab can comfortably hold this plus the 1.32 MB NV12
+ * input that's already there. */
 #define PREVIEW_JPEG_QUALITY    5
 #define PREVIEW_JPEG_CAP_BYTES  (512 * 1024)
 
@@ -206,6 +253,28 @@ static void camera_preview_start_task(void *arg)
     if (media_camera_sp_open(PREVIEW_SP_W, PREVIEW_SP_H) != AVDK_ERR_OK) {
         LOGW("media_camera_sp_open(%dx%d) failed; photo capture disabled\n",
              PREVIEW_SP_W, PREVIEW_SP_H);
+    }
+
+    /* Camera + GPU + panel are up. Bring up the vision-recognition LLM
+     * NOW so by the time the user actually presses the shutter the
+     * agent is already joined and the RTM channel is logged in (these
+     * each take ~hundreds of ms to settle on a clean start). Two things
+     * we explicitly want here:
+     *   * "no_video" variant -- we already own the MIPI camera through
+     *     media_camera_open() above, so video_engine_init() must NOT
+     *     try to open it again (that fails with "already opened").
+     *   * Mute the uplink audio path -- the LLM is listening on this
+     *     channel; mic input here would mix with the about-to-be-sent
+     *     JPEG and confuse the multimodal turn. Downlink (agent voice)
+     *     keeps working, so any reply still reaches the speaker.
+     * Failure here is non-fatal: the preview itself still works, only
+     * the "describe this photo" feature gets disabled. */
+    ntwk_trans_set_uplink_audio_muted(true);
+    if (bk_sconf_enter_vision_mode_no_video() != BK_OK) {
+        LOGW("camera_preview: bk_sconf_enter_vision_mode_no_video failed; "
+             "photo recognition disabled\n");
+    } else {
+        LOGI("camera_preview: vision LLM start dispatched, uplink mic muted\n");
     }
 
     s_preview_state = PREVIEW_STATE_RUNNING;
@@ -552,7 +621,13 @@ int camera_preview_sdnand_debug_init(void)
     return cam_prev_sdnand_mount();
 }
 
-/* NV12: bk_frame_buffer_free; JPEG: os_free */
+/* Both NV12 and JPEG now live in the same MEM_SLAB_HEAP_UNCODED slab,
+ * so a single bk_frame_buffer_free path frees them. The old per-pool
+ * mix (NV12 -> bk_frame_buffer_free, JPEG -> os_free) was needed back
+ * when the JPEG output came out of the system PSRAM_HEAP via
+ * psram_malloc; that ran into hard OOM once vision-mode RTC was also
+ * pinning ~700 KB of PSRAM_HEAP at the same time, so the JPEG output
+ * was moved to UNCODED -- see PREVIEW_JPEG_CAP_BYTES rationale. */
 static void camera_preview_release_photo(void)
 {
     void *nv12 = s_photo_buf;
@@ -567,7 +642,7 @@ static void camera_preview_release_photo(void)
         bk_frame_buffer_free(nv12);
     }
     if (jpeg != NULL) {
-        os_free(jpeg);
+        bk_frame_buffer_free(jpeg);
     }
 }
 
@@ -602,9 +677,15 @@ static void camera_preview_photo_task(void *arg)
         goto out;
     }
 
-    void *jpeg_buf = psram_malloc(PREVIEW_JPEG_CAP_BYTES);
+    /* Allocate from MEM_SLAB_HEAP_UNCODED (16 MB), NOT psram_malloc
+     * (920 KB PSRAM_HEAP). See PREVIEW_JPEG_CAP_BYTES doc-block above
+     * for why: vision-mode RTC already pins ~700 KB of PSRAM_HEAP and
+     * the JPEG cap (512 KB) cannot coexist with it. */
+    void *jpeg_buf = bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED,
+                                            PREVIEW_JPEG_CAP_BYTES);
     if (jpeg_buf == NULL) {
-        LOGE("photo_task: psram_malloc(%u) for jpeg failed; keep NV12 only\n",
+        LOGE("photo_task: bk_frame_buffer_malloc(UNCODED, %u) for jpeg failed; "
+             "keep NV12 only\n",
              (unsigned)PREVIEW_JPEG_CAP_BYTES);
     } else {
         uint32_t jpeg_len = 0;
@@ -618,14 +699,14 @@ static void camera_preview_photo_task(void *arg)
         if (jret != AVDK_ERR_OK || jpeg_len == 0) {
             LOGE("photo_task: jpeg encode failed: %d len=%u\n",
                  (int)jret, (unsigned)jpeg_len);
-            os_free(jpeg_buf);
+            bk_frame_buffer_free(jpeg_buf);
             jpeg_buf = NULL;
         } else {
             if (s_preview_state != PREVIEW_STATE_FROZEN) {
                 LOGI("photo_task: state changed during jpeg encode, drop\n");
                 bk_frame_buffer_free(buf);
                 buf = NULL;
-                os_free(jpeg_buf);
+                bk_frame_buffer_free(jpeg_buf);
                 jpeg_buf = NULL;
                 goto out;
             }
@@ -651,6 +732,29 @@ static void camera_preview_photo_task(void *arg)
      * happens. Failure here does not invalidate the in-RAM JPEG. */
     if (s_photo_jpeg != NULL && s_photo_jpeg_size > 0) {
         (void)cam_prev_sdnand_save_jpeg(s_photo_jpeg, s_photo_jpeg_size);
+    }
+
+    /* Submit the freshly encoded JPEG to the vision-recognition LLM
+     * (image.upload + user.transcription pair). The agent was started
+     * back in camera_preview_start_task; if it's still warming up the
+     * wrapper short-circuits with -1 + a log line and the photo stays
+     * usable for the local FROZEN view + SD-NAND save above.
+     *
+     * Size guard: the underlying RTM path (Agora backend) rejects JPEGs
+     * larger than 22 KB (base64 ceiling). PREVIEW_JPEG_QUALITY targets
+     * ~quality 5 which usually lands well below that for the 1280x720
+     * SP frame, but a high-detail scene can blow the budget so we let
+     * the backend check up-front and just log on failure. */
+    if (s_photo_jpeg != NULL && s_photo_jpeg_size > 0) {
+        LOGI("photo_task: dispatch JPEG (%u bytes) to vision LLM\n",
+             (unsigned)s_photo_jpeg_size);
+        if (0 != ntwk_trans_send_image_with_query(
+                     (const uint8_t *)s_photo_jpeg,
+                     (size_t)s_photo_jpeg_size,
+                     NULL /* use backend default 描述图片内容 prompt */)) {
+            LOGW("photo_task: ntwk_trans_send_image_with_query failed; "
+                 "agent may not be ready yet or JPEG > 22KB\n");
+        }
     }
 
 out:
@@ -786,6 +890,17 @@ static void camera_preview_stop_task(void *arg)
 
     camera_preview_wait_photo_worker(PREVIEW_PHOTO_WAIT_MS);
 
+    /* Tear the vision-recognition LLM down BEFORE we close the camera
+     * pipeline. The async exit is fire-and-forget (~hundreds of ms in
+     * worker thread); we don't block on it because the LVGL teardown
+     * below is the critical path that determines how long the user
+     * sees a frozen frame. from_vision=0 matches the no_video enter
+     * (no video_engine_deinit needed). The mic unmute is done first
+     * and unconditionally so even if bk_sconf_exit fails we don't
+     * leave the audio engine permanently muted. */
+    ntwk_trans_set_uplink_audio_muted(false);
+    (void)bk_sconf_exit_ai_mode_async(0);
+
     (void)media_gpu_drop_snapshot();
 
     camera_preview_release_photo();
@@ -833,6 +948,12 @@ int camera_preview_stop(void)
     if (ret != BK_OK) {
         LOGE("rtos_core1_create_thread(stop) failed: %d, sync rollback on caller stack\n",
              (int)ret);
+        /* Mirror stop_task: drop the vision LLM and unmute the uplink
+         * before the synchronous teardown below, so we don't leave the
+         * agent / mic state dangling if the worker thread failed to
+         * spawn. */
+        ntwk_trans_set_uplink_audio_muted(false);
+        (void)bk_sconf_exit_ai_mode_async(0);
         camera_preview_wait_photo_worker(PREVIEW_PHOTO_WAIT_MS);
         (void)media_gpu_drop_snapshot();
         camera_preview_release_photo();
