@@ -257,7 +257,7 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     /* page_3_button_9: camera preview (manual slot 145,171; merge if Designer regen). */
     bk_ui->page_3_button_9 = lv_btn_create(bk_ui->page_3);
     bk_ui->page_3_button_9_label = lv_label_create(bk_ui->page_3_button_9);
-    lv_label_set_text(bk_ui->page_3_button_9_label, "摄像头预览");
+    lv_label_set_text(bk_ui->page_3_button_9_label, "AI相机");
     lv_label_set_long_mode(bk_ui->page_3_button_9_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_9_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_x(bk_ui->page_3_button_9, 145);
