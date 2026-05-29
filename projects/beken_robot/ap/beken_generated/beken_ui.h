@@ -78,9 +78,9 @@ typedef struct
     lv_obj_t *page_3_button_12;
     lv_obj_t *page_3_button_12_label;
     /* NOTE: page_3_button_4 is reused as the U-disk (USB MSC) entry
-     * (label "U盘"). The earlier dedicated page_3_button_udisk struct
+     * (label "U-disk"). The earlier dedicated page_3_button_udisk struct
      * member / centered 4th-row layout was dropped -- the original
-     * "人脸跟踪" slot now drives board_usb_switch_to_usb(). See
+     * "face tracking" slot now drives board_usb_switch_to_usb(). See
      * page_3_init.c for the menu/action mapping. */
     /* Page: 3 objects */
     lv_obj_t *page_4;

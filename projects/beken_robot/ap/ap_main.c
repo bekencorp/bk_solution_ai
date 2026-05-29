@@ -16,10 +16,8 @@
 #include "beken_ui.h"
 #include "ui_nav_router.h"
 #include "custom_func.h"
-#ifdef ROBOT_TEST
-#include "page_5_api.h"
-#include "page_5_eyes.h"
-#endif
+#include "demo/demo_registry.h"
+#include "page_hooks.h"
 #include <common/avdk_pixel_types.h>
 #include <components/bk_display.h>
 #endif
@@ -75,7 +73,6 @@
 
 #if CONFIG_LVGL
 #include "wifi_status_ui.h"
-#include "ai_debug_cli.h"
 #endif
 
 #if CONFIG_LED_BLINK
@@ -152,13 +149,27 @@ static bk_err_t bk_robot_lvgl_init(bk_display_ctlr_handle_t dpu_handle)
 
     lv_vendor_disp_lock();
     ui_nav_router_init();
+    lv_vendor_disp_unlock();
+
+    /* NOTE: do NOT call beken_ui_init() here. beken_ui_init() creates
+     * page_1 and fires its on_page_init hook, which must be registered
+     * first. We defer it to bk_robot_lvgl_load_first_page() (called
+     * later in main() after bk_pages_init_all_hooks() + wifi_status_ui_init()). */
+
+    LOGI("LVGL ready on %dx%d MIPI (first page pending)\n",
+         LVGL_DISP_WIDTH, LVGL_DISP_HEIGHT);
+    return BK_OK;
+}
+
+static void bk_robot_lvgl_load_first_page(void)
+{
+    lv_vendor_disp_lock();
     beken_ui_init();
     lv_vendor_disp_unlock();
 
     lv_vendor_start();
 
-    LOGI("LVGL started on %dx%d MIPI\n", LVGL_DISP_WIDTH, LVGL_DISP_HEIGHT);
-    return BK_OK;
+    LOGI("LVGL started, page_1 loaded\n");
 }
 
 bk_err_t bk_robot_lvgl_resume_display(void)
@@ -181,22 +192,6 @@ bk_err_t bk_robot_lvgl_resume_display(void)
     LOGI("bk_robot_lvgl_resume_display: dpu handle refreshed %p\n", new_handle);
 
     return BK_OK;
-}
-#endif
-
-#if CONFIG_APP_EVT
-static void bk_robot_asr_phrase_evt_cb(app_evt_msg_t *msg, void *user_data)
-{
-    (void)user_data;
-    if (msg == NULL) {
-        return;
-    }
-
-    if (msg->event == APP_EVT_ASR_NIHAOBOTONG) {
-        ui_asr_demo_notify_nihaobotong();
-    } else if (msg->event == APP_EVT_ASR_ZAIJIANBOTONG) {
-        ui_asr_demo_notify_zaijianbotong();
-    }
 }
 #endif
 
@@ -353,17 +348,25 @@ int main(void)
     
     #if CONFIG_APP_EVT
         app_event_init();
-        (void)app_event_register_handler(APP_EVT_ASR_NIHAOBOTONG,
-                                         bk_robot_asr_phrase_evt_cb,
-                                         NULL);
-        (void)app_event_register_handler(APP_EVT_ASR_ZAIJIANBOTONG,
-                                         bk_robot_asr_phrase_evt_cb,
-                                         NULL);
     #endif
 
     #if CONFIG_LVGL
         wifi_status_ui_init();
-        ai_debug_cli_init();
+        /* Order matters:
+         *   1) wifi_status_ui_init() installs the WiFi icon page_top
+         *      init hook first, so it always runs ahead of the menu
+         *      hook (which would otherwise overwrite the icon state).
+         *   2) bk_pages_init_all_hooks() registers all per-page UI
+         *      callbacks defined under beken_generated/page_<feature>/.
+         *   3) bk_robot_lvgl_load_first_page() materializes page_1
+         *      (splash) AFTER hooks are in place, so the splash hook
+         *      actually fires and its nav_ops gets registered.
+         *   4) bk_demos_init_all() wires the LVGL-free demo backends
+         *      (CLI registration, app_event subscriptions, etc.). */
+        bk_pages_init_all_hooks();
+        bk_robot_lvgl_load_first_page();
+        ui_nav_router_cli_init();
+        (void)bk_demos_init_all();
     #endif
 
         (void)board_usb_switch_init();
@@ -403,15 +406,9 @@ int main(void)
         bk_key_service_init();
     #endif
 
-    #ifdef ROBOT_TEST
-        /* 注册 page_5 调试 CLI（命令名：arrow），方便串口手动调
-         * 整声源定位箭头角度。详见 include/page_5_api.h */
-        (void)page_5_cli_init();
-
-        /* 注册 page_5 中心双眼 + 笑嘴调试 CLI（命令名：eyes，子命
-         * 令 blink/gaze/show）。详见 include/page_5_eyes.h */
-        (void)page_5_eyes_cli_init();
-    #endif
+    /* The page_5 `arrow` / `eyes` debug CLIs are registered on demand
+     * by sound_localization_init() / page_doa_init_hooks(); ap_main
+     * no longer registers them directly. */
 
     #if CONFIG_BAT_MONITOR
         extern void battery_monitor_init(void);

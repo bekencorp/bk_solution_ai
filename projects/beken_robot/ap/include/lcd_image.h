@@ -21,7 +21,8 @@ extern "C" {
 #endif
 
 
-/* 360x390 BK7259 splash: 横屏390x360 → -90° → +180° 竖屏缓冲, RGB565 LE. Regenerate: python3 bk7259_smp_solution/tools/gen_bk7259_splash_rgb565_array.py */
+/* 360x390 BK7259 splash: landscape 390x360 -> -90 deg -> +180 deg portrait buffer, RGB565 LE.
+ * Regenerate: python3 bk7259_smp_solution/tools/gen_bk7259_splash_rgb565_array.py */
 #define LCD_IMAGE_BK7259_SPLASH_RGB565_WIDTH   (360)
 #define LCD_IMAGE_BK7259_SPLASH_RGB565_HEIGHT  (390)
 #define LCD_IMAGE_BK7259_SPLASH_RGB565_BYTES   ((360) * (390) * 2)
