@@ -9,8 +9,8 @@
 #ifdef ROBOT_TEST
 
 #include "bk_smart_config.h"
-#if CONFIG_BK_NETWORK_TRANSFER
-#include "network_transfer.h"
+#if CONFIG_BK_NETWORK_ENGINE
+#include "network_engine.h"
 #endif
 #include <components/log.h>
 
@@ -20,9 +20,9 @@
 
 int ai_chat_start_service(void)
 {
-#if CONFIG_BK_NETWORK_TRANSFER
-    if (ntwk_trans_init() != 0) {
-        LOGW("ntwk_trans_init failed\r\n");
+#if CONFIG_BK_NETWORK_ENGINE
+    if (ntwk_eng_init() != 0) {
+        LOGW("ntwk_eng_init failed\r\n");
         return -1;
     }
 #endif

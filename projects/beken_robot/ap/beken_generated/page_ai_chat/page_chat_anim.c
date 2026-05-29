@@ -44,8 +44,8 @@
 #endif
 
 #if defined(__has_include)
-#  if __has_include("network_transfer.h")
-#    include "network_transfer.h"
+#  if __has_include("network_engine.h")
+#    include "network_engine.h"
 #    define HAVE_NTWK_TRANS 1
 #  endif
 #endif
@@ -866,7 +866,7 @@ void page_chat_anim_attach(lv_obj_t *parent, page_chat_anim_mode_t mode)
 #if HAVE_NTWK_TRANS
     /* If we re-attach after a transient page swap and the agent is already
      * connected, skip the CONNECTING animation. */
-    if (ntwk_trans_is_agent_connected()) {
+    if (ntwk_eng_is_agent_connected()) {
         apply_state_locked(PAGE_CHAT_STATE_IDLE);
     }
 #endif

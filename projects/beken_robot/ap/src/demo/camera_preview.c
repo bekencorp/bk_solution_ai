@@ -38,12 +38,12 @@
  * agent online (so the captured JPEG can be RTM-uploaded) but the user's
  * voice MUST NOT be sent up -- otherwise the LLM mixes mic-noise with
  * the photo and the recognition turn gets derailed. The pair of muted-
- * mic + agent-on + JPEG upload all goes through network_transfer.h so
+ * mic + agent-on + JPEG upload all goes through network_engine.h so
  * camera_preview does not have to pull in any RTC-backend specific
  * headers (which live in a component-private include path). */
 #include "bk_smart_config.h"
-#if CONFIG_BK_NETWORK_TRANSFER
-#include "network_transfer.h"
+#if CONFIG_BK_NETWORK_ENGINE
+#include "network_engine.h"
 #endif
 
 /* -----------------------------------------------------------------------
@@ -279,7 +279,7 @@ static void camera_preview_start_task(void *arg)
      *     keeps working, so any reply still reaches the speaker.
      * Failure here is non-fatal: the preview itself still works, only
      * the "describe this photo" feature gets disabled. */
-    ntwk_trans_set_uplink_audio_muted(true);
+    ntwk_eng_set_uplink_audio_muted(true);
     if (bk_sconf_enter_vision_mode_no_video() != BK_OK) {
         LOGW("camera_preview: bk_sconf_enter_vision_mode_no_video failed; "
              "photo recognition disabled\n");
@@ -758,11 +758,11 @@ static void camera_preview_photo_task(void *arg)
     if (s_photo_jpeg != NULL && s_photo_jpeg_size > 0) {
         LOGI("photo_task: dispatch JPEG (%u bytes) to vision LLM\n",
              (unsigned)s_photo_jpeg_size);
-        if (0 != ntwk_trans_send_image_with_query(
+        if (0 != ntwk_eng_send_image_with_query(
                      (const uint8_t *)s_photo_jpeg,
                      (size_t)s_photo_jpeg_size,
                      NULL /* use the backend's default "describe this image" prompt */)) {
-            LOGW("photo_task: ntwk_trans_send_image_with_query failed; "
+            LOGW("photo_task: ntwk_eng_send_image_with_query failed; "
                  "agent may not be ready yet or JPEG > 22KB\n");
         }
     }
@@ -908,7 +908,7 @@ static void camera_preview_stop_task(void *arg)
      * (no video_engine_deinit needed). The mic unmute is done first
      * and unconditionally so even if bk_sconf_exit fails we don't
      * leave the audio engine permanently muted. */
-    ntwk_trans_set_uplink_audio_muted(false);
+    ntwk_eng_set_uplink_audio_muted(false);
     (void)bk_sconf_exit_ai_mode_async(0);
 
     (void)media_gpu_drop_snapshot();
@@ -950,9 +950,9 @@ int camera_preview_demo_init(void) { return 0; }
 
 int camera_preview_demo_start(void)
 {
-#if CONFIG_BK_NETWORK_TRANSFER
-    if (ntwk_trans_init() != 0) {
-        LOGE("ntwk_trans_init failed\r\n");
+#if CONFIG_BK_NETWORK_ENGINE
+    if (ntwk_eng_init() != 0) {
+        LOGE("ntwk_eng_init failed\r\n");
         return -1;
     }
 #endif
@@ -997,7 +997,7 @@ int camera_preview_stop(void)
          * before the synchronous teardown below, so we don't leave the
          * agent / mic state dangling if the worker thread failed to
          * spawn. */
-        ntwk_trans_set_uplink_audio_muted(false);
+        ntwk_eng_set_uplink_audio_muted(false);
         (void)bk_sconf_exit_ai_mode_async(0);
         camera_preview_wait_photo_worker(PREVIEW_PHOTO_WAIT_MS);
         (void)media_gpu_drop_snapshot();
