@@ -23,10 +23,6 @@
 #endif
 #include "driver/drv_tp.h"
 
-#if CONFIG_BK_NETWORK_TRANSFER
-#include "network_transfer.h"
-#endif
-
 #if CONFIG_BK_AUDIO_ENGINE
 #include "audio_engine.h"
 #endif
@@ -380,10 +376,6 @@ int main(void)
          * regression that drove this decision. Toggle off in defconfig
          * (CONFIG_CAM_PREVIEW_SDNAND_DEBUG=0) for production builds. */
         (void)camera_preview_sdnand_debug_init();
-
-    #if CONFIG_BK_NETWORK_TRANSFER
-        ntwk_trans_init();
-    #endif
 
     #if CONFIG_BK_SMART_CONFIG
         bk_sconf_init();

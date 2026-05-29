@@ -42,7 +42,9 @@
  * camera_preview does not have to pull in any RTC-backend specific
  * headers (which live in a component-private include path). */
 #include "bk_smart_config.h"
+#if CONFIG_BK_NETWORK_TRANSFER
 #include "network_transfer.h"
+#endif
 
 /* -----------------------------------------------------------------------
  * Debug-only: persist each captured JPEG to the on-board SD-NAND.
@@ -948,6 +950,12 @@ int camera_preview_demo_init(void) { return 0; }
 
 int camera_preview_demo_start(void)
 {
+#if CONFIG_BK_NETWORK_TRANSFER
+    if (ntwk_trans_init() != 0) {
+        LOGE("ntwk_trans_init failed\r\n");
+        return -1;
+    }
+#endif
     if (camera_preview_start() != 0) {
         LOGE("camera_preview_start trigger failed\r\n");
         return -1;
