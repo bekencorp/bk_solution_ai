@@ -33,7 +33,7 @@ bool palm_detection_is_active(void);
  *   - an exit task from the previous session is still tearing things down.
  *
  * Used by the page_3 "palm tracking" handler to debounce double-presses
- * and to avoid calling lv_vendor_stop() when start would just no-op.
+ * before it dispatches the async start worker.
  */
 bool palm_detection_can_start(void);
 

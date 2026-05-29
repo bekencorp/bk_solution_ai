@@ -41,6 +41,7 @@ extern "C" {
 #include "lv_vendor.h"
 #include "beken_ui.h"
 #include "event_runtime.h"
+#include "driver/drv_tp.h"
 
 bk_err_t bk_robot_lvgl_resume_display(void);
 }
@@ -111,6 +112,37 @@ static volatile bool s_palm_started = false;
 
 #if CONFIG_LVGL
 static beken_thread_t s_palm_exit_thread = NULL;
+#if CONFIG_TP
+#define PALM_TP_HOR_SIZE  360
+#define PALM_TP_VER_SIZE  390
+static bool s_tp_closed_for_palm = false;
+#endif
+#endif
+
+#if CONFIG_LVGL && CONFIG_TP
+static void palm_tp_close(void)
+{
+    int tp_ret = drv_tp_close();
+    if (tp_ret == BK_OK) {
+        s_tp_closed_for_palm = true;
+    } else {
+        bk_printf("palm_tp_close: drv_tp_close failed (%d)\n", tp_ret);
+    }
+}
+
+static void palm_tp_open(void)
+{
+    if (!s_tp_closed_for_palm) {
+        return;
+    }
+
+    int tp_ret = drv_tp_open(PALM_TP_HOR_SIZE, PALM_TP_VER_SIZE, TP_MIRROR_NONE);
+    if (tp_ret == BK_OK) {
+        s_tp_closed_for_palm = false;
+    } else {
+        bk_printf("palm_tp_open: drv_tp_open failed (%d)\n", tp_ret);
+    }
+}
 #endif
 
 static void detection_box_cb(Box *boxes, int count)
@@ -242,6 +274,13 @@ static void palm_detection_start_task(void *arg)
     bk_aimi_servo_config_t servo_cfg_h;
     bk_aimi_servo_config_t servo_cfg_v;
 
+#if CONFIG_LVGL
+    lv_vendor_stop();
+#if CONFIG_TP
+    palm_tp_close();
+#endif
+#endif
+
     plam_detection_config();
 
     /* Bring up both servos and park them at the neutral 90 degrees.
@@ -366,6 +405,26 @@ fail:
     if (display_config) {
         display_config->dpu_video.enable = false;
     }
+
+#if CONFIG_LVGL
+    if (display_open_attempted) {
+        if (bk_robot_lvgl_resume_display() != BK_OK) {
+            bk_printf("palm_detection_start_task: resume display failed\n");
+        }
+    }
+#if CONFIG_TP
+    palm_tp_open();
+#endif
+    lv_vendor_start();
+    lv_vendor_disp_lock();
+    {
+        lv_obj_t *active = lv_screen_active();
+        if (active != NULL) {
+            lv_obj_invalidate(active);
+        }
+    }
+    lv_vendor_disp_unlock();
+#endif
 
     s_palm_started = false;
     s_palm_start_thread = NULL;
@@ -507,6 +566,9 @@ static void palm_detection_exit_task(void *arg)
         goto done;
     }
 
+#if CONFIG_TP
+    palm_tp_open();
+#endif
     lv_vendor_start();
 
     lv_vendor_disp_lock();
@@ -578,10 +640,13 @@ extern "C" int palm_tracking_start(void)
         bk_printf("palm_tracking_start: busy (start/exit in progress), ignore\n");
         return -1;
     }
-#if CONFIG_LVGL
-    lv_vendor_stop();
-#endif
-    return palm_detection_start();
+
+    if (palm_detection_start() != 0) {
+        bk_printf("palm_detection_start trigger failed\r\n");
+        return -1;
+    }
+
+    return 0;
 }
 
 extern "C" int palm_tracking_stop(void)
