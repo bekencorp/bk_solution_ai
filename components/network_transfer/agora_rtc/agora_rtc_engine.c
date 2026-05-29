@@ -742,19 +742,6 @@ static void __on_stream_message(connection_id_t conn_id, uint32_t uid, int strea
     __agora_rtc_msg_process_submit(data, length);
 }
 
-static void __on_rdt_msg(connection_id_t conn_id, uint32_t uid,
-                         rdt_stream_type_e type, const void *msg, size_t len)
-{
-    /* RDT frames carry the per-turn agent state stream and arrive multiple
-     * times per second during a long reply. Keep the dump at DEBUG level so
-     * release logs are not flooded; the actual state transitions are still
-     * logged once each by __agora_rtc_notify_agent_state. */
-    int n = (len < 256u) ? (int)len : 256;
-    LOGD("on_rdt_msg conn=%u uid=%u type=%d len=%u text='%.*s'\n",
-         (unsigned)conn_id, (unsigned)uid, (int)type, (unsigned)len,
-         n, msg ? (const char *)msg : "");
-}
-
 static void __register_agora_rtc_event_handler(agora_rtc_t *rtc)
 {
     rtc->agora_rtc_event_handler.on_join_channel_success = __on_join_channel_success;
@@ -771,7 +758,6 @@ static void __register_agora_rtc_event_handler(agora_rtc_t *rtc)
     rtc->agora_rtc_event_handler.on_user_mute_video = __on_user_mute_video;
     /* Phase C: hook agent signaling. */
     rtc->agora_rtc_event_handler.on_stream_message = __on_stream_message;
-    rtc->agora_rtc_event_handler.on_rdt_msg = __on_rdt_msg;
 }
 
 static void __deep_copy_items_destroy(agora_rtc_t *rtc)
