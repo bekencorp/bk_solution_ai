@@ -1,0 +1,37 @@
+// Copyright 2020-2025 Beken
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#pragma once
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+#if CONFIG_SPE
+#define GPIO_0_DEFAULT_MAP {GPIO_0,  GPIO_SECOND_FUNC_ENABLE, GPIO_DEV_I2C1_SCL, GPIO_IO_DISABLE, GPIO_PULL_UP_EN, GPIO_INT_DISABLE, GPIO_INT_TYPE_LOW_LEVEL, GPIO_LOW_POWER_DISCARD_IO_STATUS, GPIO_DRIVER_CAPACITY_3, GPIO_INIT_ENABLE},
+#define GPIO_1_DEFAULT_MAP {GPIO_1,  GPIO_SECOND_FUNC_ENABLE, GPIO_DEV_I2C1_SDA, GPIO_IO_DISABLE, GPIO_PULL_UP_EN, GPIO_INT_DISABLE, GPIO_INT_TYPE_LOW_LEVEL, GPIO_LOW_POWER_DISCARD_IO_STATUS, GPIO_DRIVER_CAPACITY_3, GPIO_INIT_ENABLE},
+#else
+#define GPIO_0_DEFAULT_MAP
+#define GPIO_1_DEFAULT_MAP
+#endif
+
+#define GPIO_DEFAULT_DEV_CONFIG  \
+{\
+	GPIO_0_DEFAULT_MAP \
+	GPIO_1_DEFAULT_MAP \
+	{GPIO_20, GPIO_SECOND_FUNC_ENABLE, GPIO_DEV_I2C0_SCL, GPIO_IO_DISABLE, GPIO_PULL_UP_EN, GPIO_INT_DISABLE, GPIO_INT_TYPE_LOW_LEVEL, GPIO_LOW_POWER_DISCARD_IO_STATUS, GPIO_DRIVER_CAPACITY_0, GPIO_INIT_ENABLE},\
+	{GPIO_21, GPIO_SECOND_FUNC_ENABLE, GPIO_DEV_I2C0_SDA, GPIO_IO_DISABLE, GPIO_PULL_UP_EN, GPIO_INT_DISABLE, GPIO_INT_TYPE_LOW_LEVEL, GPIO_LOW_POWER_DISCARD_IO_STATUS, GPIO_DRIVER_CAPACITY_0, GPIO_INIT_ENABLE},\
+}
