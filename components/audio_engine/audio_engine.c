@@ -502,24 +502,6 @@ void bk_audio_engine_asr_result_handle(void *p1, void *p2)
 #endif
 }
 
-#if CONFIG_BEKEN_KWS
-
-int bk_tflite_asr_init(void)
-{
-	bk_kws_init(NULL);
-	return 1;
-}
-
-int bk_tflite_asr_recog(void *read_buf, uint32_t read_size, void *p1, void *p2)
-{
-	int16_t result = 0;
-	bk_tflite_ASR_Recog((short*)read_buf, read_size, p1, p2, &result);
-	//LOGD("%s , %d\n", g_audio_engine_asr_text, result);
-	return result;
-}
-
-#endif
-
 #endif
 
 /**
@@ -1037,7 +1019,7 @@ int audio_engine_asr_start(void)
         aud_asr_cfg.max_read_size  = 960;
 #elif CONFIG_BEKEN_KWS
         aud_asr_cfg.aud_asr_init   = bk_tflite_asr_init;
-        aud_asr_cfg.aud_asr_deinit = NULL;
+        aud_asr_cfg.aud_asr_deinit = bk_tflite_asr_deinit;
         aud_asr_cfg.aud_asr_recog  = bk_tflite_asr_recog;
         aud_asr_cfg.max_read_size  = 1280;
         aud_asr_cfg.task_stack     = 25 * 1024;
