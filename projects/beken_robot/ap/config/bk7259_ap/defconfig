@@ -3,6 +3,7 @@
 # This file contains only differences compared to board defconfig.
 #
 # CONFIG_ALL_CODE_IN_PSRAM is not set
+CONFIG_AGORA_RTC_USE_STRING_UID=y
 CONFIG_ADC_KEY=y
 CONFIG_ADC_KEY2_GPIO=28
 CONFIG_ADC_KEY2_ADC_CHAN=4
