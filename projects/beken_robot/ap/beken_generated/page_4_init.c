@@ -47,6 +47,9 @@ static lv_obj_t *page_4_menu_btn(bk_lv_ui_t *ui, int idx)
     }
 }
 
+/* Focus is shown by recoloring, not LV_STATE_DISABLED. See page_2 for
+ * the rationale: disabled widgets do not receive PRESSED/CLICKED, which
+ * would break the per-button TP click adapter below. */
 static void page_4_apply_menu_focus(bk_lv_ui_t *ui)
 {
     if (ui == NULL) {
@@ -57,11 +60,10 @@ static void page_4_apply_menu_focus(bk_lv_ui_t *ui)
         if (b == NULL) {
             continue;
         }
-        if (i == s_page4_menu_idx) {
-            lv_obj_add_state(b, LV_STATE_DISABLED);
-        } else {
-            lv_obj_remove_state(b, LV_STATE_DISABLED);
-        }
+        lv_obj_remove_state(b, LV_STATE_DISABLED);
+        uint32_t color = (i == s_page4_menu_idx) ? 0xc0c0c0 : 0x2d75b9;
+        lv_obj_set_style_bg_color(b, lv_color_hex(color),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
     }
 }
 
@@ -136,6 +138,34 @@ const ui_page_nav_ops_t page_4_nav_ops = {
     .on_screen_next = on_screen_next,
     .on_confirm_long = on_confirm_long,
 };
+
+/* TP click adapter: tap a menu button = "select + confirm" (short press
+ * semantics). Long-press behaviour stays bound to the physical key. */
+static void page_4_button_click_cb(lv_event_t *e)
+{
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (idx < 0 || idx >= PAGE4_MENU_COUNT) {
+        return;
+    }
+    s_page4_menu_idx = idx;
+    page_4_apply_menu_focus(&bk_lv_tool_ui);
+    on_screen_next(&bk_lv_tool_ui);
+}
+
+static void page_4_register_button_clicks(bk_lv_ui_t *ui)
+{
+    if (ui == NULL) {
+        return;
+    }
+    for (int i = 0; i < PAGE4_MENU_COUNT; i++) {
+        lv_obj_t *b = page_4_menu_btn(ui, i);
+        if (b == NULL) {
+            continue;
+        }
+        lv_obj_add_event_cb(b, page_4_button_click_cb, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)i);
+    }
+}
 
 #endif
 
@@ -251,6 +281,7 @@ void init_page_page_4(bk_lv_ui_t *bk_ui)
             #ifdef ROBOT_TEST
                 s_page4_menu_idx = 0;
                 page_4_apply_menu_focus(bk_ui);
+                page_4_register_button_clicks(bk_ui);
                 (void)ui_nav_register_screen(bk_ui->page_4, &page_4_nav_ops);
             #endif
     

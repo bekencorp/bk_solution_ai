@@ -55,6 +55,19 @@ const ui_page_nav_ops_t page_1_nav_ops = {
     .on_screen_next = on_screen_next,
 };
 
+/*
+ * TP click adapter: page_1 is the welcome screen (BK7259 logo + title)
+ * and has no real buttons. A tap anywhere on the screen behaves like the
+ * physical confirm key — advance to the main menu. We attach the click
+ * listener directly to the page root: it is normally not clickable,
+ * which would let the indev fall through, so we explicitly opt it in.
+ */
+static void page_1_screen_click_cb(lv_event_t *e)
+{
+    (void)e;
+    on_screen_next(&bk_lv_tool_ui);
+}
+
 #endif
 
 /*
@@ -138,10 +151,14 @@ void init_page_page_1(bk_lv_ui_t *bk_ui)
 
     // custom code implementation
         #if ROBOT_TEST
-        
+
+        /* Make the welcome screen tap-to-continue: enable clicking on
+         * the root and forward the click to on_screen_next(). */
+        lv_obj_add_flag(bk_ui->page_1, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(bk_ui->page_1, page_1_screen_click_cb,
+                            LV_EVENT_CLICKED, NULL);
         (void)ui_nav_register_screen(bk_ui->page_1, &page_1_nav_ops);
-        
-        
+
         #endif
     
     lv_obj_update_layout(bk_ui->page_1);

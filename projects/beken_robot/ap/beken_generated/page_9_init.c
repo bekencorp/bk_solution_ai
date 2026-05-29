@@ -44,6 +44,8 @@ static lv_obj_t *page_9_menu_btn(bk_lv_ui_t *ui, int idx)
     }
 }
 
+/* Focus via recoloring instead of LV_STATE_DISABLED; see page_2 for why
+ * this matters for TP click delivery. */
 static void page_9_apply_menu_focus(bk_lv_ui_t *ui)
 {
     if (ui == NULL) {
@@ -55,11 +57,10 @@ static void page_9_apply_menu_focus(bk_lv_ui_t *ui)
         if (btn == NULL) {
             continue;
         }
-        if (i == s_page9_menu_idx) {
-            lv_obj_add_state(btn, LV_STATE_DISABLED);
-        } else {
-            lv_obj_remove_state(btn, LV_STATE_DISABLED);
-        }
+        lv_obj_remove_state(btn, LV_STATE_DISABLED);
+        uint32_t color = (i == s_page9_menu_idx) ? 0xc0c0c0 : 0x2d75b9;
+        lv_obj_set_style_bg_color(btn, lv_color_hex(color),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
     }
 }
 
@@ -137,6 +138,33 @@ const ui_page_nav_ops_t page_9_nav_ops = {
     .on_screen_prev = on_screen_prev,
     .on_screen_next = on_screen_next,
 };
+
+/* TP click adapter: tap play/stop/next = "select + confirm". */
+static void page_9_button_click_cb(lv_event_t *e)
+{
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (idx < 0 || idx >= PAGE9_MENU_COUNT) {
+        return;
+    }
+    s_page9_menu_idx = idx;
+    page_9_apply_menu_focus(&bk_lv_tool_ui);
+    on_screen_next(&bk_lv_tool_ui);
+}
+
+static void page_9_register_button_clicks(bk_lv_ui_t *ui)
+{
+    if (ui == NULL) {
+        return;
+    }
+    for (int i = 0; i < PAGE9_MENU_COUNT; i++) {
+        lv_obj_t *b = page_9_menu_btn(ui, i);
+        if (b == NULL) {
+            continue;
+        }
+        lv_obj_add_event_cb(b, page_9_button_click_cb, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)i);
+    }
+}
 #endif
 
 void init_page_page_9(bk_lv_ui_t *bk_ui)
@@ -205,6 +233,7 @@ void init_page_page_9(bk_lv_ui_t *bk_ui)
     s_page9_menu_idx = 0;
     page_9_apply_menu_focus(bk_ui);
     page_9_refresh_text(bk_ui);
+    page_9_register_button_clicks(bk_ui);
     (void)ui_nav_register_screen(bk_ui->page_9, &page_9_nav_ops);
 #endif
 

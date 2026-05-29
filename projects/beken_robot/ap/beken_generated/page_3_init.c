@@ -73,6 +73,17 @@ static lv_obj_t *page_3_menu_btn(bk_lv_ui_t *ui, int idx)
     }
 }
 
+/*
+ * Highlight the currently focused button.
+ *
+ * We intentionally do NOT use LV_STATE_DISABLED for focus anymore: the
+ * LVGL pointer indev silently drops PRESSED/CLICKED on disabled widgets,
+ * which would make TP taps on the already-focused button a no-op. With
+ * the per-button click callbacks below, we want every visible button to
+ * remain enabled and respond to taps, so focus is shown by a background
+ * recolor instead. 0xc0c0c0 matches the Designer LV_STATE_DISABLED grey
+ * the previous build used, keeping the look identical.
+ */
 static void page_3_apply_menu_focus(bk_lv_ui_t *ui)
 {
     if (ui == NULL) {
@@ -83,11 +94,10 @@ static void page_3_apply_menu_focus(bk_lv_ui_t *ui)
         if (b == NULL) {
             continue;
         }
-        if (i == s_page3_menu_idx) {
-            lv_obj_add_state(b, LV_STATE_DISABLED);
-        } else {
-            lv_obj_remove_state(b, LV_STATE_DISABLED);
-        }
+        lv_obj_remove_state(b, LV_STATE_DISABLED);
+        uint32_t color = (i == s_page3_menu_idx) ? 0xc0c0c0 : 0x2d75b9;
+        lv_obj_set_style_bg_color(b, lv_color_hex(color),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
     }
 }
 
@@ -255,6 +265,43 @@ const ui_page_nav_ops_t page_3_nav_ops = {
     .on_screen_prev = on_screen_prev,
     .on_screen_next = on_screen_next,
 };
+
+/*
+ * TP click adapter: tapping a menu button = "select this idx + confirm".
+ * Runs on the LVGL task with the vendor display mutex already held, so
+ * we call the page-local helpers directly. We also honor the same
+ * camera-preview guard on_screen_next() uses: while the preview is
+ * active, menu re-entry is blocked, but focus tracking still updates so
+ * the user sees the highlight follow their finger when they come back.
+ */
+static void page_3_button_click_cb(lv_event_t *e)
+{
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (idx < 0 || idx >= PAGE3_MENU_COUNT) {
+        return;
+    }
+    if (camera_preview_is_active()) {
+        return;
+    }
+    s_page3_menu_idx = idx;
+    page_3_apply_menu_focus(&bk_lv_tool_ui);
+    on_screen_next(&bk_lv_tool_ui);
+}
+
+static void page_3_register_button_clicks(bk_lv_ui_t *ui)
+{
+    if (ui == NULL) {
+        return;
+    }
+    for (int i = 0; i < PAGE3_MENU_COUNT; i++) {
+        lv_obj_t *b = page_3_menu_btn(ui, i);
+        if (b == NULL) {
+            continue;
+        }
+        lv_obj_add_event_cb(b, page_3_button_click_cb, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)i);
+    }
+}
 
 #endif
 
@@ -551,6 +598,7 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
         #ifdef ROBOT_TEST
             s_page3_menu_idx = 0;
             page_3_apply_menu_focus(bk_ui);
+            page_3_register_button_clicks(bk_ui);
             (void)ui_nav_register_screen(bk_ui->page_3, &page_3_nav_ops);
         #endif
     

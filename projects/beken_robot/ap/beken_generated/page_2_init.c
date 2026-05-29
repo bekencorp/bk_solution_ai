@@ -52,6 +52,18 @@ static lv_obj_t *page_2_menu_btn(bk_lv_ui_t *ui, int idx)
     }
 }
 
+/*
+ * Highlight the currently focused button.
+ *
+ * Note: we intentionally do NOT use LV_STATE_DISABLED here. LVGL pointer
+ * indev silently drops PRESSED/CLICKED events for disabled widgets, so a
+ * touch on the already-focused (disabled) button would be ignored. Since
+ * we now want a touch on any visible button to behave like the physical
+ * confirm key, we keep all buttons fully enabled and recolor them to
+ * indicate focus instead. The grey 0xc0c0c0 used here matches the
+ * Designer-generated LV_STATE_DISABLED background, so the look is the
+ * same as before but TP clicks always go through.
+ */
 static void page_2_apply_menu_focus(bk_lv_ui_t *ui)
 {
     if (ui == NULL) {
@@ -62,11 +74,10 @@ static void page_2_apply_menu_focus(bk_lv_ui_t *ui)
         if (b == NULL) {
             continue;
         }
-        if (i == s_page2_menu_idx) {
-            lv_obj_add_state(b, LV_STATE_DISABLED);
-        } else {
-            lv_obj_remove_state(b, LV_STATE_DISABLED);
-        }
+        lv_obj_remove_state(b, LV_STATE_DISABLED);
+        uint32_t color = (i == s_page2_menu_idx) ? 0xc0c0c0 : 0x2d75b9;
+        lv_obj_set_style_bg_color(b, lv_color_hex(color),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
     }
 }
 
@@ -128,6 +139,39 @@ const ui_page_nav_ops_t page_2_nav_ops = {
     .on_screen_prev = on_screen_prev,
     .on_screen_next = on_screen_next,
 };
+
+/*
+ * TP click adapter: a tap on a menu button is equivalent to "move focus
+ * to this button + press confirm". We run inside the LVGL task while the
+ * vendor display mutex is already held, so call the page-local helpers
+ * directly instead of going through ui_nav_dispatch_event() (which would
+ * try to re-acquire the same non-recursive mutex).
+ */
+static void page_2_button_click_cb(lv_event_t *e)
+{
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (idx < 0 || idx >= PAGE2_MENU_COUNT) {
+        return;
+    }
+    s_page2_menu_idx = idx;
+    page_2_apply_menu_focus(&bk_lv_tool_ui);
+    on_screen_next(&bk_lv_tool_ui);
+}
+
+static void page_2_register_button_clicks(bk_lv_ui_t *ui)
+{
+    if (ui == NULL) {
+        return;
+    }
+    for (int i = 0; i < PAGE2_MENU_COUNT; i++) {
+        lv_obj_t *b = page_2_menu_btn(ui, i);
+        if (b == NULL) {
+            continue;
+        }
+        lv_obj_add_event_cb(b, page_2_button_click_cb, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)i);
+    }
+}
 
 #endif
 
@@ -310,8 +354,17 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
     // custom code implementation
         // custom code implementation
             #if ROBOT_TEST
+                /* Strip the initial DISABLED state Designer sets on
+                 * page_2_button_3: with the new focus model we never
+                 * disable any menu button (see page_2_apply_menu_focus),
+                 * and a sticky DISABLED would still swallow TP clicks. */
+                if (bk_ui->page_2_button_3 != NULL) {
+                    lv_obj_remove_state(bk_ui->page_2_button_3,
+                                        LV_STATE_DISABLED);
+                }
                 s_page2_menu_idx = 0;
                 page_2_apply_menu_focus(bk_ui);
+                page_2_register_button_clicks(bk_ui);
                 (void)ui_nav_register_screen(bk_ui->page_2, &page_2_nav_ops);
             #endif
     
