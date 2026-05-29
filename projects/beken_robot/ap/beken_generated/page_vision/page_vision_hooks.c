@@ -11,6 +11,7 @@
 #include "event_runtime.h"
 #include "page_hooks.h"
 #include "page_chat_anim.h"
+#include "page_vision_preview.h"
 #include "demo/vision.h"
 
 #ifdef ROBOT_TEST
@@ -28,6 +29,7 @@ static void on_screen_prev(bk_lv_ui_t *ui)
         return;
     }
     LOGI("Vision recognition back -> page_3\r\n");
+    page_vision_preview_detach();
     /* Heavy teardown (Agora destroy + video_engine_deinit + MIPI camera
      * close) runs on a worker so the LVGL lock held by ui_nav_dispatch
      * is not blocked for ~250 ms - 1 s. */
@@ -50,6 +52,7 @@ static const ui_page_nav_ops_t page_7_nav_ops = {
 static void page_vision_on_init(bk_lv_ui_t *ui)
 {
     page_chat_anim_attach(ui->page_7, PAGE_CHAT_ANIM_MODE_VISION);
+    page_vision_preview_attach(ui->page_7);
     (void)ui_nav_register_screen(ui->page_7, &page_7_nav_ops);
     if (vision_start_service() != 0) {
         LOGW("Vision mode start failed\r\n");
@@ -61,6 +64,7 @@ static void page_vision_on_init(bk_lv_ui_t *ui)
 static void page_vision_on_destroy(bk_lv_ui_t *ui)
 {
     ui_nav_unregister_screen(ui->page_7);
+    page_vision_preview_detach();
     page_chat_anim_detach();
 }
 
