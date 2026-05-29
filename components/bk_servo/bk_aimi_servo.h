@@ -1,28 +1,22 @@
 /**
  * @file bk_aimi_servo.h
- * @brief Servo PWM driver + incremental palm-tracking controller.
+ * @brief Handle-based servo PWM driver.
  *
- * This component is HW-agnostic: it does NOT pin down any specific PWM
- * channel or GPIO pin. The caller decides both via the function arguments.
+ * This module is intentionally minimal: it programs a PWM channel and
+ * remembers the latest commanded angle in the returned opaque handle.
+ * It does NOT contain any palm-tracking math; that lives in
+ * bk_aimi_palm_tracker.h and is composed by the application layer on
+ * top of one handle per physical motor.
  *
- * Two layers are exposed here:
+ * Pan-tilt usage: call bk_aimi_servo_init() once for the horizontal
+ * motor and once for the vertical motor, then drive each independently
+ * via bk_aimi_servo_set_angle().
  *
- *   1. Low-level PWM driver:
- *        bk_aimi_servo_init(chan, gpio)         -- bring up PWM channel +
- *                                                  remap pin + initial angle
- *        bk_aimi_servo_set_angle(chan, angle)   -- snap servo to an absolute
- *                                                  angle on the given channel
- *
- *   2. High-level palm-tracking controller (used by detection callbacks):
- *        bk_aimi_palm_track_servo(chan, cx, cy, img_w, img_h)
- *      Computes a per-frame angle delta from the palm's offset relative to the
- *      image center and applies it on top of the last servo angle so the
- *      servo continuously follows the palm.
- *
- * NOTE on PWM-to-GPIO mapping: this component assumes the BK SDK convention
- * where PWM channel N is mux-ed onto an alternate function named
- * `GPIO_DEV_PWM<N>`. The supplied `chan` is therefore used both to drive the
- * PWM IP and to compute the GPIO alternate function for `gpio`.
+ * NOTE on PWM-to-GPIO mapping: this component assumes the BK SDK
+ * convention where PWM channel N is mux-ed onto an alternate function
+ * named `GPIO_DEV_PWM<N>`. The supplied `chan` is therefore used both
+ * to drive the PWM IP and to compute the GPIO alternate function for
+ * `gpio`.
  */
 
 #pragma once
@@ -54,81 +48,62 @@ extern "C" {
 #define SERVO_MIN_ANGLE       0
 #define SERVO_MAX_ANGLE       180
 
-/* ===================== Palm-tracking tuning knobs ===================== */
-/* Gain that turns the normalized palm offset (in [-0.5, +0.5]) into a
- * per-frame angle offset. Larger -> turns more aggressively. */
-#ifndef SERVO_TRACK_GAIN
-#define SERVO_TRACK_GAIN      20.0f
-#endif
-
-/* Hard cap on |offset| each frame, to keep motion smooth. */
-#ifndef SERVO_TRACK_MAX_STEP
-#define SERVO_TRACK_MAX_STEP  5
-#endif
-
-/* Dead band on normalized palm offset; below this the palm is considered
- * already centered and the servo holds its previous angle. */
-#ifndef SERVO_TRACK_DEADBAND
-#define SERVO_TRACK_DEADBAND  0.06f
-#endif
-
-/* Direction sign mapping "palm offset" -> "servo angle delta".
- *   +1 : palm-on-right (norm > 0) increases the servo angle.
- *   -1 : palm-on-right decreases the servo angle (flip if servo turns the
- *        wrong way physically). */
-#ifndef SERVO_TRACK_DIR
-#define SERVO_TRACK_DIR       (+1)
-#endif
-
-/* Pick which model axis represents the palm's "left/right" relative to the
- * camera. With a typical pipeline (camera -> NN model -> GPU rotates for
- * display), the camera-horizontal direction is model X (cx).
- *   1 : use cy  (model Y)
- *   0 : use cx  (model X)  <-- default for this hardware */
-#ifndef SERVO_TRACK_USE_CY
-#define SERVO_TRACK_USE_CY    0
-#endif
-
 /* ===================== Public API ===================== */
 
 /**
- * @brief Bring up a servo on the given PWM channel and GPIO pin.
+ * @brief Opaque handle representing one initialised servo channel.
  *
- * @param chan  PWM channel to drive (e.g. PWM_ID_0).
- * @param gpio  GPIO pin to physically output the PWM signal on. The component
- *              re-routes this pin to alternate function `GPIO_DEV_PWM<chan>`.
+ * Carries the PWM channel, GPIO pin, and the latest commanded angle so
+ * incremental motion (e.g. by the palm tracker) can do
+ * `next = last + delta` without any global state. Treat as opaque; the
+ * struct layout is internal to bk_aimi_servo.c.
  */
-void bk_aimi_servo_init(pwm_chan_t chan, gpio_id_t gpio);
+typedef struct bk_aimi_servo_handle_s *bk_aimi_servo_handle_t;
 
 /**
- * @brief Snap the servo on @p chan to an absolute angle.
+ * @brief Per-instance configuration for bk_aimi_servo_init().
  *
- * @param chan   PWM channel previously brought up by bk_aimi_servo_init().
- * @param angle  Target angle in degrees, will be clamped to [0, 180].
+ * `initial_angle` is both the initial PWM duty cycle programmed on the
+ * line AND the starting value of the handle's internal angle state.
+ * Setting it to SERVO_CENTER_ANGLE (90) avoids the "jump to 0 then to
+ * 90 on first track" double-move that a hardcoded 0 would cause.
  */
-void bk_aimi_servo_set_angle(pwm_chan_t chan, uint32_t angle);
+typedef struct {
+    pwm_chan_t chan;          /**< PWM channel to drive (e.g. PWM_ID_0). */
+    gpio_id_t  gpio;          /**< GPIO pin to output the PWM signal on. */
+    uint32_t   initial_angle; /**< Starting angle in degrees, [0, 180]. */
+} bk_aimi_servo_config_t;
 
 /**
- * @brief Incremental palm-tracking servo controller.
+ * @brief Bring up a servo channel and return a handle owning it.
  *
- *   1. Compute the palm's signed offset from the image center
- *      (norm in [-0.5, +0.5]; negative = left/up, positive = right/down).
- *   2. Convert it into a small per-frame angle offset.
- *   3. Add the offset on top of the last servo angle and update the servo.
- *
- * Effect: the servo follows the palm. Palm on the left -> servo rotates
- * left; palm on the right -> servo rotates right.
- *
- * @param chan           PWM channel driving the servo.
- * @param palm_center_x  Palm center X in model coordinates (e.g. 256x256).
- * @param palm_center_y  Palm center Y in model coordinates.
- * @param img_w          Model image width  (e.g. model->getWidth()).
- * @param img_h          Model image height (e.g. model->getHeight()).
+ * @param cfg   Configuration (channel, GPIO, initial angle). Must be non-NULL.
+ * @return      A valid handle on success, or NULL on allocation / config error.
+ *              Caller releases it with bk_aimi_servo_deinit().
  */
-void bk_aimi_palm_track_servo(pwm_chan_t chan,
-                              float palm_center_x, float palm_center_y,
-                              uint16_t img_w, uint16_t img_h);
+bk_aimi_servo_handle_t bk_aimi_servo_init(const bk_aimi_servo_config_t *cfg);
 
+/**
+ * @brief Stop the servo's PWM output and free the handle.
+ *
+ * Safe to call with @p handle == NULL.
+ */
+void bk_aimi_servo_deinit(bk_aimi_servo_handle_t handle);
+
+/**
+ * @brief Snap the servo to an absolute angle and remember it inside @p handle.
+ *
+ * @param handle  Handle previously returned by bk_aimi_servo_init().
+ * @param angle   Target angle in degrees, will be clamped to [0, 180].
+ */
+void bk_aimi_servo_set_angle(bk_aimi_servo_handle_t handle, uint32_t angle);
+
+/**
+ * @brief Read the last angle commanded via init() / set_angle().
+ *
+ * @return Last commanded angle in degrees, or 0 if @p handle is NULL.
+ */
+uint32_t bk_aimi_servo_get_angle(bk_aimi_servo_handle_t handle);
 
 #ifdef __cplusplus
 }

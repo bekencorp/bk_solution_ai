@@ -1,17 +1,25 @@
 /**
  * @file bk_aimi_servo.c
- * @brief Servo PWM driver + incremental palm-tracking controller.
+ * @brief Handle-based servo PWM driver.
  *
- * See bk_aimi_servo.h for the public API and the tuning knobs (SERVO_TRACK_*).
+ * See bk_aimi_servo.h for the public API. This file is HW-agnostic: the
+ * PWM channel and GPIO pin are passed in by the caller via
+ * bk_aimi_servo_config_t and never hard-coded here. All per-instance
+ * state (channel, gpio, current angle) lives in the handle struct, so
+ * multiple servos (e.g. one for pan and one for tilt) can run side by
+ * side without sharing globals.
  *
- * This file is HW-agnostic: the PWM channel and GPIO pin are passed in by
- * the caller and never hard-coded here.
+ * The "palm position -> new angle" math lives in a separate module
+ * (bk_aimi_palm_tracker.{h,c}). This file is intentionally restricted
+ * to driving the PWM line, so it can be reused by any motion-control
+ * logic, not just palm tracking.
  */
 
 #include <common/bk_include.h>
-#include <math.h>
+#include <os/mem.h>
 #include "gpio_driver.h"
 #include <driver/gpio.h>
+#include <driver/pwm.h>
 #include "bk_aimi_servo.h"
 
 #define TAG "servo"
@@ -20,8 +28,21 @@
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 
+/* ===================== Internal handle layout ===================== */
+/* Opaque to callers; defined in the .c so we can grow it freely without
+ * forcing recompiles of every translation unit that #include's the header. */
+struct bk_aimi_servo_handle_s {
+	pwm_chan_t chan;
+	gpio_id_t  gpio;
+	uint32_t   angle; /**< Last commanded angle (also "current physical
+	                   *   angle" for the purposes of incremental tracking). */
+};
+
+/* ===================== Helpers ===================== */
 /* BK SDK convention: PWM channel N is reached by configuring the GPIO
- * alternate function `GPIO_DEV_PWM<N>` (PWM0 / PWM1 / ...). */
+ * alternate function `GPIO_DEV_PWM<N>`. The values GPIO_DEV_PWM0..PWM11
+ * are sequential in the BK hal_gpio_types.h enum, so channel N maps to
+ * PWM0 + N with simple arithmetic. */
 static inline gpio_dev_t servo_chan_to_gpio_dev(pwm_chan_t chan)
 {
 	return (gpio_dev_t)((uint32_t)GPIO_DEV_PWM0 + (uint32_t)chan);
@@ -29,9 +50,9 @@ static inline gpio_dev_t servo_chan_to_gpio_dev(pwm_chan_t chan)
 
 static uint32_t servo_angle_to_duty(uint32_t angle)
 {
-	if (angle > 180)
-		angle = 180;
-	return SERVO_PULSE_MIN + angle * (SERVO_PULSE_MAX - SERVO_PULSE_MIN) / 180;
+	if (angle > SERVO_MAX_ANGLE)
+		angle = SERVO_MAX_ANGLE;
+	return SERVO_PULSE_MIN + angle * (SERVO_PULSE_MAX - SERVO_PULSE_MIN) / SERVO_MAX_ANGLE;
 }
 
 static void servo_remap_gpio(pwm_chan_t chan, gpio_id_t gpio)
@@ -41,90 +62,95 @@ static void servo_remap_gpio(pwm_chan_t chan, gpio_id_t gpio)
 	gpio_dev_map(gpio, dev);
 	bk_gpio_pull_up(gpio);
 	bk_printf("[servo] GPIO remapped: chan=%d -> GPIO_%d (dev=%d)\r\n",
-			  chan, gpio, dev);
+	          chan, gpio, dev);
 }
 
-void bk_aimi_servo_init(pwm_chan_t chan, gpio_id_t gpio)
-{
-	pwm_init_config_t init_cfg = {0};
-
-	bk_printf("[servo] init, chan=%d, gpio=%d\r\n", chan, gpio);
-
-	BK_LOG_ON_ERR(bk_pwm_driver_init());
-
-	init_cfg.period_cycle = SERVO_PERIOD_CYCLE;
-	init_cfg.duty_cycle = servo_angle_to_duty(0);
-	init_cfg.psc = SERVO_PSC;
-	BK_LOG_ON_ERR(bk_pwm_init(chan, &init_cfg));
-
-	servo_remap_gpio(chan, gpio);
-
-	BK_LOG_ON_ERR(bk_pwm_start(chan));
-}
-
-void bk_aimi_servo_set_angle(pwm_chan_t chan, uint32_t angle)
+/* Push the angle stored in @p h onto the PWM line. No state mutation. */
+static void servo_drive_pwm(struct bk_aimi_servo_handle_s *h)
 {
 	pwm_period_duty_config_t duty_cfg = {0};
 	duty_cfg.period_cycle = SERVO_PERIOD_CYCLE;
-	duty_cfg.psc = SERVO_PSC;
-	duty_cfg.duty_cycle = servo_angle_to_duty(angle);
-	BK_LOG_ON_ERR(bk_pwm_set_period_duty(chan, &duty_cfg));
+	duty_cfg.psc          = SERVO_PSC;
+	duty_cfg.duty_cycle   = servo_angle_to_duty(h->angle);
+	BK_LOG_ON_ERR(bk_pwm_set_period_duty(h->chan, &duty_cfg));
 }
 
-/* ===================== Palm-tracking controller ===================== */
-/* Last-set servo angle. Treated as "current physical angle" so each frame
- * applies an offset on top of it. Initialised to the neutral position.
- *
- * NOTE: a single state is kept for the (current) single-channel use case.
- * If multiple servo channels need to be tracked in parallel one day,
- * promote this to an array indexed by `chan`. */
-static uint32_t s_servo_angle = SERVO_CENTER_ANGLE;
+/* ===================== Public API ===================== */
 
-void bk_aimi_palm_track_servo(pwm_chan_t chan,
-                              float palm_center_x, float palm_center_y,
-                              uint16_t img_w, uint16_t img_h)
+bk_aimi_servo_handle_t bk_aimi_servo_init(const bk_aimi_servo_config_t *cfg)
 {
-#if SERVO_TRACK_USE_CY
-	const char *axis = "cy";
-	float pos = palm_center_y;
-	float dim = (float)img_h;
-#else
-	const char *axis = "cx";
-	float pos = palm_center_x;
-	float dim = (float)img_w;
-#endif
-	if (dim <= 0.0f) return;
-
-	int prev = (int)s_servo_angle;
-
-	/* Step 1: signed normalized offset from center.
-	 *   norm < 0 : palm is on the LEFT  side of the center.
-	 *   norm > 0 : palm is on the RIGHT side of the center. */
-	float norm = (pos - dim * 0.5f) / dim;
-
-	/* Dead band: palm close enough to center -> hold last angle. */
-	if (fabsf(norm) < SERVO_TRACK_DEADBAND) {
-		bk_printf("[track] axis=%s pos=%.1f/%u norm=%+.3f deadband, hold=%d\n",
-		          axis, pos, (unsigned)dim, norm, prev);
-		return;
+	if (cfg == NULL) {
+		LOGE("init: cfg is NULL\n");
+		return NULL;
 	}
 
-	/* Step 2: convert offset to a signed per-frame angle delta and clamp. */
-	int offset = (int)lroundf((float)SERVO_TRACK_DIR * norm * SERVO_TRACK_GAIN);
-	if (offset >  SERVO_TRACK_MAX_STEP) offset =  SERVO_TRACK_MAX_STEP;
-	if (offset < -SERVO_TRACK_MAX_STEP) offset = -SERVO_TRACK_MAX_STEP;
+	uint32_t angle = cfg->initial_angle;
+	if (angle > SERVO_MAX_ANGLE)
+		angle = SERVO_MAX_ANGLE;
 
-	/* Step 3: apply on top of the *last* angle, clamp to mechanical limits. */
-	int next = prev + offset;
-	if (next < SERVO_MIN_ANGLE) next = SERVO_MIN_ANGLE;
-	if (next > SERVO_MAX_ANGLE) next = SERVO_MAX_ANGLE;
+	struct bk_aimi_servo_handle_s *h =
+	    (struct bk_aimi_servo_handle_s *)os_malloc(sizeof(*h));
+	if (h == NULL) {
+		LOGE("init: out of memory\n");
+		return NULL;
+	}
+	h->chan  = cfg->chan;
+	h->gpio  = cfg->gpio;
+	h->angle = angle;
 
-	bk_printf("[track] axis=%s pos=%.1f/%u norm=%+.3f offset=%+d  %d -> %d%s\n",
-	          axis, pos, (unsigned)dim, norm, offset, prev, next,
-	          (next == prev) ? " (saturated)" : "");
+	bk_printf("[servo] init, chan=%d, gpio=%d, initial_angle=%u\r\n",
+	          (int)h->chan, (int)h->gpio, (unsigned)h->angle);
 
-	if ((uint32_t)next == s_servo_angle) return;
+	BK_LOG_ON_ERR(bk_pwm_driver_init());
 
-	s_servo_angle = (uint32_t)next;
-	bk_aimi_servo_set_angle(chan, s_servo_angle);
+	/* Program the PWM with the *initial* angle, not a hardcoded 0, so the
+	 * first physical position matches what the caller asked for and the
+	 * handle->angle state stays consistent with the wire. */
+	pwm_init_config_t init_cfg = {0};
+	init_cfg.period_cycle = SERVO_PERIOD_CYCLE;
+	init_cfg.duty_cycle   = servo_angle_to_duty(h->angle);
+	init_cfg.psc          = SERVO_PSC;
+	BK_LOG_ON_ERR(bk_pwm_init(h->chan, &init_cfg));
+
+	servo_remap_gpio(h->chan, h->gpio);
+
+	BK_LOG_ON_ERR(bk_pwm_start(h->chan));
+
+	return (bk_aimi_servo_handle_t)h;
+}
+
+void bk_aimi_servo_deinit(bk_aimi_servo_handle_t handle)
+{
+	struct bk_aimi_servo_handle_s *h = (struct bk_aimi_servo_handle_s *)handle;
+	if (h == NULL)
+		return;
+
+	bk_printf("[servo] deinit, chan=%d, gpio=%d\r\n", (int)h->chan, (int)h->gpio);
+	BK_LOG_ON_ERR(bk_pwm_stop(h->chan));
+	BK_LOG_ON_ERR(bk_pwm_deinit(h->chan));
+	/* Leave the GPIO pin in its current mux/pull state. The board can
+	 * decide whether to re-purpose the pin afterwards; we don't know what
+	 * is safe by default. */
+	os_free(h);
+}
+
+void bk_aimi_servo_set_angle(bk_aimi_servo_handle_t handle, uint32_t angle)
+{
+	struct bk_aimi_servo_handle_s *h = (struct bk_aimi_servo_handle_s *)handle;
+	if (h == NULL)
+		return;
+
+	if (angle > SERVO_MAX_ANGLE)
+		angle = SERVO_MAX_ANGLE;
+
+	h->angle = angle;
+	servo_drive_pwm(h);
+}
+
+uint32_t bk_aimi_servo_get_angle(bk_aimi_servo_handle_t handle)
+{
+	struct bk_aimi_servo_handle_s *h = (struct bk_aimi_servo_handle_s *)handle;
+	if (h == NULL)
+		return 0;
+	return h->angle;
 }

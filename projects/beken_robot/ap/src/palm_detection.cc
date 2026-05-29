@@ -24,18 +24,41 @@ extern "C" {
 #include "PalmDetectionModel.h"
 #include "box.h"
 #include "bk_aimi_servo.h"
+#include "bk_aimi_palm_tracker.h"
 
 static AvdkVideoReatorOSD *video_reator = NULL;
 static PalmDetectionModel *model = NULL;
 
-/* Hardware binding for the palm-tracking servo on this board.
- * The bk_servo component is now HW-agnostic; the PWM channel and the GPIO
- * pin are chosen here at the application layer. */
+/* Hardware binding for the palm-tracking servos on this board.
+ * The bk_servo component is HW-agnostic: PWM channel and GPIO pin are
+ * picked here at the application layer and passed in via config structs. */
 #define PALM_SERVO_PWM_CHAN_H   PWM_ID_0
 #define PALM_SERVO_GPIO_ID_H    GPIO_69
 
 #define PALM_SERVO_PWM_CHAN_V   PWM_ID_1
 #define PALM_SERVO_GPIO_ID_V    GPIO_60
+
+/* One handle per physical motor; tracking now drives both axes. */
+static bk_aimi_servo_handle_t s_servo_h = NULL;
+static bk_aimi_servo_handle_t s_servo_v = NULL;
+
+/* Per-axis tracker tuning. Two structs (not one with a "use_y" toggle) so
+ * H and V can be tuned independently -- in practice the vertical motor
+ * often needs a different `dir` (mounting orientation) and a smaller
+ * gain because vertical motion is less natural to the viewer. */
+static bk_aimi_palm_tracker_axis_cfg_t s_tracker_cfg_h;
+static bk_aimi_palm_tracker_axis_cfg_t s_tracker_cfg_v;
+
+static void palm_tracker_axis_cfg_init(bk_aimi_palm_tracker_axis_cfg_t *cfg,
+                                       int dir)
+{
+    cfg->gain      = BK_AIMI_PALM_TRACKER_DEFAULT_GAIN;
+    cfg->max_step  = BK_AIMI_PALM_TRACKER_DEFAULT_MAX_STEP;
+    cfg->deadband  = BK_AIMI_PALM_TRACKER_DEFAULT_DEADBAND;
+    cfg->dir       = dir;
+    cfg->min_angle = SERVO_MIN_ANGLE;
+    cfg->max_angle = SERVO_MAX_ANGLE;
+}
 
 /* The whole start-up path (sensor probe, ISP init, C++ object construction,
  * thread creation, ...) is heavy and deep. It must NOT run on a tiny stack
@@ -87,11 +110,29 @@ static void detection_box_cb(Box *boxes, int count)
      * src = model input size (256x256), dst = display canvas size (1088x1088). */
     box_detection_path_build(boxes, count, count, 0, model->getWidth(), model->getHeight(), 400, 368);
 
-    /* Drive servo from the chosen box's center: top-left (x,y) + half size. */
-    bk_aimi_palm_track_servo(PALM_SERVO_PWM_CHAN_H,
-                             boxes[target].x + boxes[target].w * 0.5f,
-                             boxes[target].y + boxes[target].h * 0.5f,
-                             model->getWidth(), model->getHeight());
+    /* Drive both servos from the chosen box's center. Each axis runs the
+     * same stateless tracker step with its own cfg, then commits the new
+     * angle (if any) via the servo PWM API. Keeping the math out of the
+     * servo driver lets us reuse the driver for non-tracking motion and
+     * test the tracker logic standalone. */
+    float palm_cx = boxes[target].x + boxes[target].w * 0.5f;
+    float palm_cy = boxes[target].y + boxes[target].h * 0.5f;
+    float img_w   = (float)model->getWidth();
+    float img_h   = (float)model->getHeight();
+
+    uint32_t next_h;
+    if (bk_aimi_palm_tracker_step(&s_tracker_cfg_h, palm_cx, img_w,
+                                  bk_aimi_servo_get_angle(s_servo_h),
+                                  &next_h, "H")) {
+        bk_aimi_servo_set_angle(s_servo_h, next_h);
+    }
+
+    uint32_t next_v;
+    if (bk_aimi_palm_tracker_step(&s_tracker_cfg_v, palm_cy, img_h,
+                                  bk_aimi_servo_get_angle(s_servo_v),
+                                  &next_v, "V")) {
+        bk_aimi_servo_set_angle(s_servo_v, next_v);
+    }
 }
 
 void plam_detection_config(void)
@@ -159,8 +200,36 @@ static void palm_detection_start_task(void *arg)
 
     plam_detection_config();
 
-    bk_aimi_servo_init(PALM_SERVO_PWM_CHAN_H, PALM_SERVO_GPIO_ID_H);
-    bk_aimi_servo_set_angle(PALM_SERVO_PWM_CHAN_H, SERVO_CENTER_ANGLE);
+    /* Bring up both servos and park them at the neutral 90 degrees.
+     * `initial_angle` does two jobs in one call: programs the PWM duty
+     * AND primes handle->angle, so the first track frame computes its
+     * delta against the real physical position (no startup jump). */
+    bk_aimi_servo_config_t servo_cfg_h;
+    servo_cfg_h.chan          = PALM_SERVO_PWM_CHAN_H;
+    servo_cfg_h.gpio          = PALM_SERVO_GPIO_ID_H;
+    servo_cfg_h.initial_angle = SERVO_CENTER_ANGLE;
+    s_servo_h = bk_aimi_servo_init(&servo_cfg_h);
+    if (s_servo_h == NULL) {
+        bk_printf("palm_detection_start_task: H servo init failed\n");
+    }
+
+    bk_aimi_servo_config_t servo_cfg_v;
+    servo_cfg_v.chan          = PALM_SERVO_PWM_CHAN_V;
+    servo_cfg_v.gpio          = PALM_SERVO_GPIO_ID_V;
+    servo_cfg_v.initial_angle = SERVO_CENTER_ANGLE;
+    s_servo_v = bk_aimi_servo_init(&servo_cfg_v);
+    if (s_servo_v == NULL) {
+        bk_printf("palm_detection_start_task: V servo init failed\n");
+    }
+
+    /* Per-axis tracker cfg. Note dir: palm-on-right (norm > 0) should
+     * make the camera swing right, which on this rig means *increasing*
+     * the H angle, so dir_h = +1. Palm-down (norm > 0 on cy) should make
+     * the camera tilt down, but the V motor on this rig is mounted such
+     * that *decreasing* the angle tilts down, so dir_v = -1. Flip these
+     * if your mechanical assembly is mirrored. */
+    palm_tracker_axis_cfg_init(&s_tracker_cfg_h, +1);
+    palm_tracker_axis_cfg_init(&s_tracker_cfg_v, -1);
 
     model = new PalmDetectionModel();
     model->setBoxDetectionCallback(detection_box_cb);
