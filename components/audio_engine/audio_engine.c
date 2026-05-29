@@ -1157,6 +1157,7 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
     onboard_mic_cfg.adc_cfg.aec_en = cfg->aec_enable;
     onboard_mic_cfg.dmic_cfg.dmic_clk_gpio  = GPIO_50;
     onboard_mic_cfg.dmic_cfg.dmic_data_gpio = GPIO_49;
+    onboard_mic_cfg.dmic_en = 1;
 #endif
 
     voice_cfg->mic_cfg.onboard_mic_cfg = onboard_mic_cfg;
