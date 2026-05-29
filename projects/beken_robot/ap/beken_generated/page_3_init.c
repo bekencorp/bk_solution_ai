@@ -30,23 +30,42 @@
 #define TAG "page3"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 
-#define PAGE3_MENU_COUNT 7
+#define PAGE3_MENU_COUNT 8
 
 static int s_page3_menu_idx;
 
+/* Focus / navigation order is the visual reading order (top -> bottom,
+ * left -> right), NOT the underlying page_3_button_N declaration order.
+ * The LVGL designer assigned button_N names by creation history, so the
+ * indices below intentionally don't match N.
+ *
+ * Current layout on page_3 (button N inside each cell):
+ *
+ *     col1 (x=14)      col2 (x=131)     col3 (x=244)
+ *  y=93   btn_1            btn_2           btn_3
+ *         AI对话          视觉识别        命令词识别
+ *  y=153  btn_7            btn_5           btn_6
+ *         音乐播放         音量设置        声源定位
+ *  y=212  btn_8           (empty)          btn_4
+ *         手掌跟随                         人脸跟踪
+ *
+ * If a button is moved on screen, update both this table AND the
+ * matching case in on_screen_next() so the action stays in sync.
+ */
 static lv_obj_t *page_3_menu_btn(bk_lv_ui_t *ui, int idx)
 {
     if (ui == NULL) {
         return NULL;
     }
     switch (idx) {
-    case 0: return ui->page_3_button_1;
-    case 1: return ui->page_3_button_2;
-    case 2: return ui->page_3_button_3;
-    case 3: return ui->page_3_button_4;
-    case 4: return ui->page_3_button_5;
-    case 5: return ui->page_3_button_6;
-    case 6: return ui->page_3_button_7;
+    case 0: return ui->page_3_button_1;  /* AI对话      */
+    case 1: return ui->page_3_button_2;  /* 视觉识别    */
+    case 2: return ui->page_3_button_3;  /* 命令词识别  */
+    case 3: return ui->page_3_button_7;  /* 音乐播放    */
+    case 4: return ui->page_3_button_5;  /* 音量设置    */
+    case 5: return ui->page_3_button_6;  /* 声源定位    */
+    case 6: return ui->page_3_button_8;  /* 手掌跟随    */
+    case 7: return ui->page_3_button_4;  /* 人脸跟踪    */
     default: return NULL;
     }
 }
@@ -103,20 +122,22 @@ static void on_screen_next(bk_lv_ui_t *ui)
         return;
     }
     LOGI("page3 enter idx=%d\r\n", s_page3_menu_idx);
+    /* Case indices follow the visual top->bottom, left->right order from
+     * page_3_menu_btn() above. Keep both tables in sync. */
     switch (s_page3_menu_idx) {
-    case 0:
+    case 0: /* btn_1: AI对话 */
         LOGI("AI chat -> page_6\r\n");
         navigate_to_screen((lv_obj_t **)&ui->page_6,
                            LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                            init_page_page_6);
         break;
-    case 1:
+    case 1: /* btn_2: 视觉识别 */
         LOGI("Vision recognition -> page_7\r\n");
         navigate_to_screen((lv_obj_t **)&ui->page_7,
                            LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                            init_page_page_7);
         break;
-    case 2:
+    case 2: /* btn_3: 命令词识别 */
         LOGI("Speech recognition -> page_8\r\n");
 #if (CONFIG_ASR_SERVICE)
         if (AUDIO_ENGINE_SUCCESS == audio_engine_asr_start()) {
@@ -137,18 +158,19 @@ static void on_screen_next(bk_lv_ui_t *ui)
                            init_page_page_8);
 #endif
         break;
-    case 3:
-        LOGI("Face tracking\r\n");
-        lv_vendor_stop();
-        palm_detection_start();
+    case 3: /* btn_7: 音乐播放 */
+        LOGI("Music -> page_9\r\n");
+        navigate_to_screen((lv_obj_t **)&ui->page_9,
+                           LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
+                           init_page_page_9);
         break;
-    case 4:
+    case 4: /* btn_5: 音量设置 */
         LOGI("Volume settings -> page_10\r\n");
         navigate_to_screen((lv_obj_t **)&ui->page_10,
                            LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                            init_page_page_10);
         break;
-    case 5:
+    case 5: /* btn_6: 声源定位 */
         LOGI("Sound source localization -> page_5\r\n");
 #if (CONFIG_ASR_SERVICE)
         if (AUDIO_ENGINE_SUCCESS == audio_engine_asr_start()) {
@@ -169,11 +191,18 @@ static void on_screen_next(bk_lv_ui_t *ui)
                            init_page_page_5);
 #endif
         break;
-    case 6:
-        LOGI("Music -> page_9\r\n");
-        navigate_to_screen((lv_obj_t **)&ui->page_9,
-                           LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
-                           init_page_page_9);
+    case 6: /* btn_8: 手掌跟随 */
+        LOGI("Palm tracking\r\n");
+        lv_vendor_stop();
+        palm_detection_start();
+        break;
+    case 7: /* btn_4: 人脸跟踪 */
+        /* Face tracking is a separate demo from palm tracking.
+         * The face-tracking pipeline is not yet implemented here; do not
+         * fall through to palm_detection_start() so the user doesn't get
+         * the wrong behaviour when they pick this button.
+         * TODO: hook up real face tracking here when available. */
+        LOGI("Face tracking (not implemented yet)\r\n");
         break;
     default:
         break;
@@ -301,8 +330,8 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_3_button_4_label, "人脸跟踪");
     lv_label_set_long_mode(bk_ui->page_3_button_4_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_4_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_3_button_4, 16);
-    lv_obj_set_y(bk_ui->page_3_button_4, 153);
+    lv_obj_set_x(bk_ui->page_3_button_4, 244);
+    lv_obj_set_y(bk_ui->page_3_button_4, 212);
     lv_obj_set_width(bk_ui->page_3_button_4, 100);
     lv_obj_set_height(bk_ui->page_3_button_4, 40);
     lv_obj_set_style_bg_color(bk_ui->page_3_button_4, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -391,8 +420,8 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_3_button_7_label, "音乐播放");
     lv_label_set_long_mode(bk_ui->page_3_button_7_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_7_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_3_button_7, 131);
-    lv_obj_set_y(bk_ui->page_3_button_7, 212);
+    lv_obj_set_x(bk_ui->page_3_button_7, 14);
+    lv_obj_set_y(bk_ui->page_3_button_7, 153);
     lv_obj_set_width(bk_ui->page_3_button_7, 100);
     lv_obj_set_height(bk_ui->page_3_button_7, 40);
     lv_obj_set_style_bg_color(bk_ui->page_3_button_7, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -415,6 +444,36 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_shadow_offset_x(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_offset_y(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_spread(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    bk_ui->page_3_button_8 = lv_btn_create(bk_ui->page_3);
+    bk_ui->page_3_button_8_label = lv_label_create(bk_ui->page_3_button_8);
+    lv_label_set_text(bk_ui->page_3_button_8_label, "手掌跟随");
+    lv_label_set_long_mode(bk_ui->page_3_button_8_label, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_align(bk_ui->page_3_button_8_label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_x(bk_ui->page_3_button_8, 14);
+    lv_obj_set_y(bk_ui->page_3_button_8, 212);
+    lv_obj_set_width(bk_ui->page_3_button_8, 100);
+    lv_obj_set_height(bk_ui->page_3_button_8, 40);
+    lv_obj_set_style_bg_color(bk_ui->page_3_button_8, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(bk_ui->page_3_button_8, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_dir(bk_ui->page_3_button_8, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(bk_ui->page_3_button_8, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(bk_ui->page_3_button_8, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(bk_ui->page_3_button_8, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_side(bk_ui->page_3_button_8, LV_BORDER_SIDE_FULL, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(bk_ui->page_3_button_8, 5, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_clip_corner(bk_ui->page_3_button_8, false, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(bk_ui->page_3_button_8, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(bk_ui->page_3_button_8, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(bk_ui->page_3_button_8, &lv_font_ali_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(bk_ui->page_3_button_8, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_letter_space(bk_ui->page_3_button_8, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_color(bk_ui->page_3_button_8, lv_color_hex(0x1e7fcf), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(bk_ui->page_3_button_8, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(bk_ui->page_3_button_8, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_x(bk_ui->page_3_button_8, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_y(bk_ui->page_3_button_8, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_spread(bk_ui->page_3_button_8, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
 
     // custom code implementation
