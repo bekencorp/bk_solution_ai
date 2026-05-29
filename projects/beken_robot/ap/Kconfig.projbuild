@@ -15,4 +15,73 @@ menu "BEKEN GENIE demo Configuration"
             When enabled, the build defines ROBOT_TEST=1 so that #if ROBOT_TEST blocks
             in page_N_init.c (navigation hooks, ui_nav_register_screen, etc.) are compiled.
             Disable only if you need a build without that custom code.
+
+    menu "Board: SD-NAND / USB Switch"
+        config BOARD_SD_NAND_ENABLE
+            bool "Enable on-board SD-NAND (U14 MKDV4GCL-ABB on SDIO1)"
+            default n
+            help
+                BK7259 Robot V1 AI kit ships an on-board SD-NAND wired to
+                SDIO controller 1 (P14~P19 = CLK/CMD/DAT0~DAT3). The chip
+                is powered by NAND_VDD, which is gated by GPIO_53 on the
+                main board. When this option is enabled, ap_main.c will
+                pull NAND_VDD power gate high at boot and the SDIO driver
+                will target controller 1.
+
+                Make sure CONFIG_SDCARD / CONFIG_FATFS / CONFIG_FATFS_SDCARD
+                and CONFIG_SDIO_USE_GROUP1 are also enabled when using this
+                feature.
+
+        config BOARD_SD_NAND_POWER_GPIO
+            int "GPIO that gates NAND_VDD (SD-NAND power)"
+            depends on BOARD_SD_NAND_ENABLE
+            range 0 71
+            default 53
+            help
+                GPIO index that controls the NAND_VDD power switch.
+                On BK7259 Robot V1 AI kit, P53 gates NAND_VDD: pull
+                high to power the SD-NAND chip on, low to power off.
+
+        config BOARD_USB_SWITCH_ENABLE
+            bool "Enable on-board USB-Switch CLI (P54 selects CH340 vs BK7259 USB)"
+            default n
+            help
+                The Robot V1 board shares one Type-C connector between
+                the CH340 USB-to-UART bridge (used as log/flash port) and
+                BK7259's full-speed USB. A pair of FSW3157A 1:2 muxes is
+                steered by GPIO SW_SEL (P54): low = CH340 (UART, default
+                for log+download), high = BK7259 USB (e.g. USB MSC to
+                copy assets to SD-NAND from a PC).
+
+                When this option is enabled, ap_main.c drives SW_SEL low
+                at boot and registers the `usbsw` CLI command to flip
+                the mux to BK7259 USB on demand.
+
+        config BOARD_USB_SWITCH_GPIO
+            int "GPIO connected to SW_SEL of FSW3157A USB switch"
+            depends on BOARD_USB_SWITCH_ENABLE
+            range 0 71
+            default 54
+            help
+                GPIO index that drives the SEL pin of U1/U4 (FSW3157A)
+                USB switches on the Robot V1 board. Default P54.
+
+        config BOARD_USB_SWITCH_USB_LEVEL
+            int "GPIO level that routes Type-C to BK7259 USB (0 or 1)"
+            depends on BOARD_USB_SWITCH_ENABLE
+            range 0 1
+            default 1
+            help
+                Per the FSW3157A truth table on Robot V1 schematic
+                (Page 2, "USB Switch"): SEL=0 routes Type-C to channel 1
+                (CH340/UART), SEL=1 routes it to channel 2 (BK7259 USB).
+                Keep this at 1 unless the board has the mux pin swapped.
+
+        # NOTE: SD-NAND is validated via the SDK's built-in `fatfstest`
+        # CLI (ap/components/bk_cli/cli_fatfs.c, gated by CONFIG_FATFS).
+        # CONFIG_SDCARD + CONFIG_FATFS + CONFIG_SDIO_USE_GROUP1 in this
+        # project's defconfig is enough -- no project-local CLI needed.
+        # See docs/sdio_on_bk7259.md §7.7 for why the SDK's legacy
+        # CONFIG_SDIO_HOST / cli_sdio_host.c path can't be used on BK7259.
+    endmenu
 endmenu

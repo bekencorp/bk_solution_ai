@@ -8,6 +8,7 @@ set(srcs
     src/page_5_eyes.c
     src/page_chat_anim.c
     src/ai_debug_cli.c
+    src/board_usb_switch.c
     beken_generated/page_6_init.c
     beken_generated/page_7_init.c
     beken_generated/page_10_init.c

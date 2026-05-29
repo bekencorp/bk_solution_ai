@@ -58,6 +58,8 @@
 
 #include "bk_factory_config.h"
 
+#include "board_usb_switch.h"
+
 #if CONFIG_LVGL
 #include "wifi_status_ui.h"
 #include "ai_debug_cli.h"
@@ -305,6 +307,9 @@ int main(void)
         wifi_status_ui_init();
         ai_debug_cli_init();
     #endif
+
+        (void)board_usb_switch_init();
+
     #if CONFIG_BK_NETWORK_TRANSFER
         ntwk_trans_init();
     #endif
