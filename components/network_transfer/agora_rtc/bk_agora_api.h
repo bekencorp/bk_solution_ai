@@ -62,8 +62,9 @@ bool bk_agora_is_agent_active(void);
 
 #if CONFIG_AGORA_RTC_USE_STRING_UID
 /**
- * @brief One-shot: hand a JPEG to the agent and immediately trigger an
- *        LLM image-recognition turn, auto-picking the best transport.
+ * @brief One-shot: hand a JPEG to the agent and trigger an LLM
+ *        image-recognition turn after the image RTM ack is received,
+ *        auto-picking the best transport.
  *
  * This is the camera_preview "take photo -> describe" convenience wrapper.
  * Internally it:
@@ -72,22 +73,20 @@ bool bk_agora_is_agent_active(void);
  *   2. Submits the JPEG to ConvoAI through RTM customType="image.upload"
  *      using one of two paths, chosen automatically by @p jpeg_len:
  *        - jpeg_len <= BK_AGORA_RTM_IMG_RAW_MAX_LEN (~22 KB):
- *          inline base64 via bk_agora_rtm_send_image_base64() -- a
- *          single self-contained RTM message, no extra network round
- *          trip.
+ *          inline base64 via bk_agora_rtm_send_image_base64_with_query().
  *        - jpeg_len >  BK_AGORA_RTM_IMG_RAW_MAX_LEN:
  *          first POST the JPEG to the shared Beken image-upload HTTPS
  *          server via bk_image_upload_jpeg() (multipart/form-data),
  *          then push only the returned URL through RTM via
- *          bk_agora_rtm_send_image_url(). Bypasses the 22 KB RTM cap.
- *   3. Pushes a user.transcription right after so convoai runs an LLM
- *      turn on the freshly staged image without waiting for the user to
- *      speak. If @p query is NULL/empty, a built-in Chinese default
- *      ("describe the image contents") is used.
+ *          bk_agora_rtm_send_image_url_with_query(). Bypasses the
+ *          22 KB RTM cap.
+ *   3. Records @p query as a pending user.transcription and sends it
+ *      only after the image RTM ack reports RECEIVED. If @p query is
+ *      NULL/empty, a built-in Chinese default ("describe the image
+ *      contents") is used.
  *
- * Both RTM submits go out synchronously on the caller thread, but the
- * actual delivery is acknowledged asynchronously via the on_rtm_send_
- * data_result callback (logged at INFO level).
+ * Image submit goes out synchronously on the caller thread. The follow-up
+ * user text is sent asynchronously from the RTM send-result callback.
  *
  * Prerequisites: RTC must already be joined and RTM logged in (i.e. one
  * of bk_agora_start / `agora_rtc start` was issued and succeeded). When
@@ -102,10 +101,8 @@ bool bk_agora_is_agent_active(void);
  * @param[in] query     Optional UTF-8 prompt fed to the LLM together
  *                      with the image. Pass NULL to use the default.
  *
- * @return BK_OK if image submit AND follow-up text both succeeded;
- *         BK_FAIL otherwise. The text step is best-effort: a text
- *         failure after a successful image submit still returns BK_FAIL
- *         but the image is already staged on the agent side.
+ * @return BK_OK if image submit succeeded and the follow-up text was
+ *         queued for ack-triggered delivery; BK_FAIL otherwise.
  */
 bk_err_t bk_agora_rtc_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
                                             const char *query);

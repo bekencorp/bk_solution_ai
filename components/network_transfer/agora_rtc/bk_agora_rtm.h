@@ -61,6 +61,14 @@ bool bk_agora_rtm_is_login(void);
 bk_err_t bk_agora_rtm_send_image_url(const char *peer_uid, const char *image_url);
 
 /**
+ * Send an image URL and trigger a user text only after the image message
+ * delivery ack reports RTM_MSG_STATE_RECEIVED.
+ */
+bk_err_t bk_agora_rtm_send_image_url_with_query(const char *peer_uid,
+                                                const char *image_url,
+                                                const char *query_text);
+
+/**
  * Maximum raw JPEG size accepted by bk_agora_rtm_send_image_base64().
  *
  * The Agora RTSA RTM channel caps a single payload at 32 KB, and the
@@ -96,6 +104,15 @@ bk_err_t bk_agora_rtm_send_image_base64(const char *peer_uid,
                                         const uint8_t *jpeg, size_t jpeg_len);
 
 /**
+ * Send an inline JPEG and trigger a user text only after the image message
+ * delivery ack reports RTM_MSG_STATE_RECEIVED.
+ */
+bk_err_t bk_agora_rtm_send_image_base64_with_query(const char *peer_uid,
+                                                   const uint8_t *jpeg,
+                                                   size_t jpeg_len,
+                                                   const char *query_text);
+
+/**
  * Send a user-side text message to the ConvoAI agent through RTM with
  * custom type "user.transcription". The convoai server treats the text
  * as if it were the user's freshly transcribed ASR output and feeds it
@@ -107,9 +124,8 @@ bk_err_t bk_agora_rtm_send_image_base64(const char *peer_uid,
  *
  *   { "priority": "INTERRUPT", "interruptable": true, "message": "<text>" }
  *
- * Typical use: pair it right after bk_agora_rtm_send_image_url() to
- * trigger a vision-capable LLM to describe / reason about the freshly
- * uploaded image (no microphone speech required).
+ * Typical use: use bk_agora_rtm_send_image_url_with_query() so the
+ * trigger text is sent after the image-upload ack reports RECEIVED.
  *
  * @param[in] peer_uid Peer RTM uid string, e.g. "a_<channel>".
  * @param[in] text     UTF-8 text. Will be put into "message" verbatim;

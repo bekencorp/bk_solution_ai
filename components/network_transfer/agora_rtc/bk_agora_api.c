@@ -676,9 +676,9 @@ int bk_agora_update_agent(void *device_id, void *update_info)
 
 #define DEFAULT_TEST_IMAGE_URL    "https://docs.bekencorp.com/doctest/giraffe.jpg"
 
-/* Default text auto-sent right after an image-upload to nudge the LLM
- * into a vision-recognition turn. The convoai backend takes this as if
- * the user just spoke it (customType=user.transcription).
+/* Default text sent after the image-upload RTM ack reports RECEIVED to
+ * nudge the LLM into a vision-recognition turn. The convoai backend
+ * takes this as if the user just spoke it (customType=user.transcription).
  *
  * Encoded as explicit UTF-8 hex escapes so the .rodata literal carries
  * the exact byte sequence regardless of the compiler's source-charset
@@ -746,24 +746,14 @@ bk_err_t bk_agora_rtc_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len
             return BK_FAIL;
         }
 
-        ret = bk_agora_rtm_send_image_url(peer_uid, image_url);
+        ret = bk_agora_rtm_send_image_url_with_query(peer_uid, image_url, q);
     }
     else
     {
-        ret = bk_agora_rtm_send_image_base64(peer_uid, jpeg, jpeg_len);
+        ret = bk_agora_rtm_send_image_base64_with_query(peer_uid, jpeg, jpeg_len, q);
     }
     if (ret != BK_OK) {
-        LOGE("send_image_with_query: image submit failed, query skipped\r\n");
-        return BK_FAIL;
-    }
-
-    /* Image alone does not trigger an LLM turn on the convoai side; the
-     * follow-up user.transcription is what makes the agent reply about
-     * the freshly staged image. Best-effort: if this fails the image is
-     * still on the agent's staging queue and a future user turn will
-     * pick it up. */
-    if (BK_OK != bk_agora_rtm_send_user_text(peer_uid, q)) {
-        LOGE("send_image_with_query: follow-up query text failed\r\n");
+        LOGE("send_image_with_query: image submit failed\r\n");
         return BK_FAIL;
     }
     return BK_OK;
@@ -775,10 +765,168 @@ bk_err_t bk_agora_rtc_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len
  * filenames written by camera_preview_take_photo() on each session. */
 #define DEFAULT_TEST_IMAGE_B64_PATH  "1:/photos/0001/photo.jpg"
 
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+#define IMAGE_LOOP_INTERVAL_MS  15000
+
+typedef struct {
+    const char *name;
+    const char *url;
+} agora_image_url_item_t;
+
+static const agora_image_url_item_t s_image_url_items[] = {
+    {"bottle",   "https://apics.aclsemi.com/images/20260526/7084f5cd213a43768f1410f2cd8a196b.jpg"},
+    {"computer", "https://apics.aclsemi.com/images/20260526/da36244fdb654a78ad3d96f4b1b0d3a2.jpg"},
+    {"cup",      "https://apics.aclsemi.com/images/20260526/cf3d65071c6646e2b53335f6bad31f3e.jpg"},
+    {"keyboard", "https://apics.aclsemi.com/images/20260526/436bac44111d4ce7bbcf729608a0e74d.jpg"},
+};
+#define IMAGE_URL_ITEM_COUNT  (sizeof(s_image_url_items) / sizeof(s_image_url_items[0]))
+
+static beken_thread_t  s_image_loop_thread = NULL;
+static volatile bool   s_image_loop_running = false;
+static beken_semaphore_t s_image_loop_sem = NULL;
+
+static void bk_agora_image_loop_wait_ms(uint32_t ms)
+{
+    uint32_t steps = ms / 100;
+
+    if (ms % 100)
+    {
+        steps++;
+    }
+    while (steps-- > 0 && s_image_loop_running)
+    {
+        rtos_delay_milliseconds(100);
+    }
+}
+
+static const char *bk_agora_get_image_url_by_name(const char *name)
+{
+    for (size_t i = 0; i < IMAGE_URL_ITEM_COUNT; i++)
+    {
+        if (os_strcmp(name, s_image_url_items[i].name) == 0)
+        {
+            return s_image_url_items[i].url;
+        }
+    }
+
+    return NULL;
+}
+
+static bk_err_t bk_agora_send_image_url_to_agent(const char *cmd_name, const char *url)
+{
+    char peer_uid[AGORA_RTC_USER_ACCOUNT_MAX_LEN] = {0};
+
+    if (os_strlen(channel_name) == 0)
+    {
+        LOGE("%s: channel not set, run 'agora_rtc start' first\r\n", cmd_name);
+        return BK_FAIL;
+    }
+
+    os_snprintf(peer_uid, sizeof(peer_uid), "a_%s", channel_name);
+    LOGI("%s: send image url=%s to peer=%s\r\n", cmd_name, url, peer_uid);
+    if (BK_OK != bk_agora_rtm_send_image_url_with_query(peer_uid, url, DEFAULT_IMAGE_QUERY_TEXT))
+    {
+        LOGE("%s: send_image_url failed\r\n", cmd_name);
+        return BK_FAIL;
+    }
+
+    return BK_OK;
+}
+
+static void bk_agora_image_loop_thread(void *arg)
+{
+    unsigned int idx = 0;
+
+    (void)arg;
+
+    while (s_image_loop_running)
+    {
+        const agora_image_url_item_t *item = &s_image_url_items[idx % IMAGE_URL_ITEM_COUNT];
+
+        LOGI("send_image_loop: name=%s idx=%u\r\n", item->name, idx);
+        if (BK_OK != bk_agora_send_image_url_to_agent("send_image_loop", item->url))
+        {
+            LOGE("send_image_loop: send %s failed\r\n", item->name);
+        }
+
+        idx++;
+        bk_agora_image_loop_wait_ms(IMAGE_LOOP_INTERVAL_MS);
+    }
+
+    s_image_loop_thread = NULL;
+    rtos_set_semaphore(&s_image_loop_sem);
+    rtos_delete_thread(NULL);
+}
+
+static bk_err_t bk_agora_image_loop_start(void)
+{
+    bk_err_t ret;
+
+    if (s_image_loop_thread != NULL || s_image_loop_running)
+    {
+        LOGW("send_image_loop already running\r\n");
+        return BK_FAIL;
+    }
+    if (os_strlen(channel_name) == 0)
+    {
+        LOGE("send_image_loop: channel not set, run 'agora_rtc start' first\r\n");
+        return BK_FAIL;
+    }
+
+    ret = rtos_init_semaphore_ex(&s_image_loop_sem, 1, 0);
+    if (ret != BK_OK)
+    {
+        LOGE("send_image_loop: init sem fail\r\n");
+        return BK_FAIL;
+    }
+
+    s_image_loop_running = true;
+    ret = rtos_create_thread(&s_image_loop_thread,
+                             4,
+                             "img_loop",
+                             (beken_thread_function_t)bk_agora_image_loop_thread,
+                             4 * 1024,
+                             NULL);
+    if (ret != BK_OK)
+    {
+        LOGE("send_image_loop: create thread fail\r\n");
+        s_image_loop_running = false;
+        rtos_deinit_semaphore(&s_image_loop_sem);
+        s_image_loop_sem = NULL;
+        return BK_FAIL;
+    }
+
+    LOGI("send_image_loop started, interval=%ums urls=%u\r\n",
+         (unsigned)IMAGE_LOOP_INTERVAL_MS, (unsigned)IMAGE_URL_ITEM_COUNT);
+    return BK_OK;
+}
+
+static bk_err_t bk_agora_image_loop_stop(void)
+{
+    if (!s_image_loop_running && s_image_loop_thread == NULL)
+    {
+        LOGI("send_image_loop not running\r\n");
+        return BK_OK;
+    }
+
+    s_image_loop_running = false;
+    if (s_image_loop_sem)
+    {
+        rtos_get_semaphore(&s_image_loop_sem, BEKEN_WAIT_FOREVER);
+        rtos_deinit_semaphore(&s_image_loop_sem);
+        s_image_loop_sem = NULL;
+    }
+
+    LOGI("send_image_loop stopped\r\n");
+    return BK_OK;
+}
+#endif /* CONFIG_AGORA_RTC_USE_STRING_UID */
+
 static void bk_agora_rtc_cli_help(void)
 {
     LOGI("agora_rtc {start|stop|start_agora|stop_agora|start_agent|stop_agent|agent_state|"
-         "send_image [url] [query]|send_image_b64 [path] [query]|send_text <text>}\n");
+         "send_image [url] [query]|send_image_url <cup|bottle|computer|keyboard>|"
+         "send_image_b64 [path] [query]|send_text <text>|send_image_loop {start|stop}}\n");
 }
 
 static void bk_agora_rtc_test_cmd(char *pcWriteBuffer, int xWriteBufferLen, int argc, char **argv)
@@ -848,24 +996,36 @@ static void bk_agora_rtc_test_cmd(char *pcWriteBuffer, int xWriteBufferLen, int 
         }
         os_snprintf(peer_uid, sizeof(peer_uid), "a_%s", channel_name);
         LOGI("send image url=%s to peer=%s\r\n", url, peer_uid);
-        if (BK_OK != bk_agora_rtm_send_image_url(peer_uid, url))
+        if (BK_OK != bk_agora_rtm_send_image_url_with_query(peer_uid, url, query))
         {
             LOGE("send_image failed\r\n");
             return;
         }
-
-        /* Image just staged into agent context is not enough to trigger
-         * the LLM -- convoai only runs a turn when a user-side input
-         * arrives. Auto-send a "user.transcription" right after so the
-         * LLM does an image-recognition turn without the user needing
-         * to speak. */
-        LOGI("send query text=\"%s\" to peer=%s\r\n", query, peer_uid);
-        if (BK_OK != bk_agora_rtm_send_user_text(peer_uid, query))
-        {
-            LOGE("send_image: follow-up query text failed\r\n");
-        }
 #else
         LOGE("send_image requires CONFIG_AGORA_RTC_USE_STRING_UID=y\r\n");
+#endif
+    }
+    else if (os_strcmp(argv[1], "send_image_url") == 0)
+    {
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+        const char *url = NULL;
+
+        if (argc < 3 || argv[2] == NULL || argv[2][0] == '\0')
+        {
+            LOGE("send_image_url: missing <cup|bottle|computer|keyboard>\r\n");
+            goto cmd_fail;
+        }
+
+        url = bk_agora_get_image_url_by_name(argv[2]);
+        if (url == NULL)
+        {
+            LOGE("send_image_url: unknown image name=%s\r\n", argv[2]);
+            goto cmd_fail;
+        }
+
+        (void)bk_agora_send_image_url_to_agent("send_image_url", url);
+#else
+        LOGE("send_image_url requires CONFIG_AGORA_RTC_USE_STRING_UID=y\r\n");
 #endif
     }
     else if (os_strcmp(argv[1], "send_image_b64") == 0)
@@ -969,6 +1129,25 @@ __b64_exit:
         }
 #else
         LOGE("send_text requires CONFIG_AGORA_RTC_USE_STRING_UID=y\r\n");
+#endif
+    }
+    else if (os_strcmp(argv[1], "send_image_loop") == 0)
+    {
+#if CONFIG_AGORA_RTC_USE_STRING_UID
+        if (argc >= 3 && os_strcmp(argv[2], "stop") == 0)
+        {
+            bk_agora_image_loop_stop();
+        }
+        else if (argc < 3 || os_strcmp(argv[2], "start") == 0)
+        {
+            bk_agora_image_loop_start();
+        }
+        else
+        {
+            goto cmd_fail;
+        }
+#else
+        LOGE("send_image_loop requires CONFIG_AGORA_RTC_USE_STRING_UID=y\r\n");
 #endif
     }
     else

@@ -39,8 +39,18 @@
 /* Hard limit imposed by the SDK on a single RTM payload. */
 #define RTM_MSG_MAX_LEN                 (31 * 1024)
 
+#define RTM_PENDING_IMAGE_QUERY_MAX     4
+
+typedef struct {
+    bool used;
+    uint32_t msg_id;
+    char *peer_uid;
+    char *query_text;
+} rtm_pending_image_query_t;
+
 static volatile bool s_rtm_login_success = false;
 static uint32_t      s_rtm_msg_id = 0;
+static rtm_pending_image_query_t s_pending_image_queries[RTM_PENDING_IMAGE_QUERY_MAX] = {0};
 
 static const char *__rtm_state_str(rtm_msg_state_e s)
 {
@@ -88,10 +98,140 @@ static void __on_rtm_data(const char *rtm_uid, const void *msg, size_t msg_len, 
          rtm_uid ? rtm_uid : "", (unsigned)msg_len, custom_type ? custom_type : "");
 }
 
+static void __free_pending_image_query(rtm_pending_image_query_t *pending)
+{
+    if (!pending)
+    {
+        return;
+    }
+
+    if (pending->peer_uid)
+    {
+        os_free(pending->peer_uid);
+    }
+    if (pending->query_text)
+    {
+        os_free(pending->query_text);
+    }
+    os_memset(pending, 0, sizeof(*pending));
+}
+
+static void __remove_pending_image_query(uint32_t msg_id)
+{
+    for (size_t i = 0; i < RTM_PENDING_IMAGE_QUERY_MAX; i++)
+    {
+        if (s_pending_image_queries[i].used && s_pending_image_queries[i].msg_id == msg_id)
+        {
+            __free_pending_image_query(&s_pending_image_queries[i]);
+            return;
+        }
+    }
+}
+
+static void __clear_pending_image_queries(void)
+{
+    for (size_t i = 0; i < RTM_PENDING_IMAGE_QUERY_MAX; i++)
+    {
+        if (s_pending_image_queries[i].used)
+        {
+            __free_pending_image_query(&s_pending_image_queries[i]);
+        }
+    }
+}
+
+static bk_err_t __add_pending_image_query(uint32_t msg_id,
+                                          const char *peer_uid,
+                                          const char *query_text)
+{
+    rtm_pending_image_query_t *slot = NULL;
+
+    if (!query_text || query_text[0] == '\0')
+    {
+        return BK_OK;
+    }
+
+    for (size_t i = 0; i < RTM_PENDING_IMAGE_QUERY_MAX; i++)
+    {
+        if (!s_pending_image_queries[i].used)
+        {
+            slot = &s_pending_image_queries[i];
+            break;
+        }
+    }
+    if (!slot)
+    {
+        LOGE("pending image query full, msg_id=%u\n", msg_id);
+        return BK_FAIL;
+    }
+
+    slot->peer_uid = os_strdup(peer_uid);
+    slot->query_text = os_strdup(query_text);
+    if (!slot->peer_uid || !slot->query_text)
+    {
+        LOGE("pending image query OOM, msg_id=%u\n", msg_id);
+        __free_pending_image_query(slot);
+        return BK_FAIL;
+    }
+
+    slot->used = true;
+    slot->msg_id = msg_id;
+    LOGI("pending image query add msg_id=%u peer=%s\n", msg_id, peer_uid);
+    return BK_OK;
+}
+
+static rtm_pending_image_query_t *__find_pending_image_query(uint32_t msg_id)
+{
+    for (size_t i = 0; i < RTM_PENDING_IMAGE_QUERY_MAX; i++)
+    {
+        if (s_pending_image_queries[i].used && s_pending_image_queries[i].msg_id == msg_id)
+        {
+            return &s_pending_image_queries[i];
+        }
+    }
+
+    return NULL;
+}
+
 static void __on_rtm_send_data_res(const char *rtm_uid, uint32_t msg_id, rtm_msg_state_e state)
 {
     LOGI("rtm tx ack peer=%s msg_id=%u state=%s\n",
          rtm_uid ? rtm_uid : "", msg_id, __rtm_state_str(state));
+
+    rtm_pending_image_query_t *pending = __find_pending_image_query(msg_id);
+    if (!pending)
+    {
+        return;
+    }
+
+    if (state == RTM_MSG_STATE_RECEIVED)
+    {
+        char *peer_uid = pending->peer_uid;
+        char *query_text = pending->query_text;
+
+        pending->peer_uid = NULL;
+        pending->query_text = NULL;
+        __free_pending_image_query(pending);
+
+        LOGI("image msg_id=%u received, send query text to peer=%s\n",
+             msg_id, peer_uid ? peer_uid : "");
+        if (BK_OK != bk_agora_rtm_send_user_text(peer_uid, query_text))
+        {
+            LOGE("image msg_id=%u follow-up query text failed\n", msg_id);
+        }
+        if (peer_uid)
+        {
+            os_free(peer_uid);
+        }
+        if (query_text)
+        {
+            os_free(query_text);
+        }
+    }
+    else if (state == RTM_MSG_STATE_UNREACHABLE || state == RTM_MSG_STATE_TIMEOUT)
+    {
+        LOGE("image msg_id=%u not received, drop pending query\n", msg_id);
+        __free_pending_image_query(pending);
+    }
 }
 
 static const agora_rtm_handler_t s_rtm_handler =
@@ -132,6 +272,7 @@ bk_err_t bk_agora_rtm_start(const char *self_uid, const char *token)
     }
 
     s_rtm_msg_id = 0;
+    __clear_pending_image_queries();
     return BK_OK;
 }
 
@@ -152,11 +293,14 @@ bk_err_t bk_agora_rtm_stop(void)
     }
 
     s_rtm_login_success = false;
+    __clear_pending_image_queries();
     LOGI("rtm logout done\n");
     return (rval < 0) ? BK_FAIL : BK_OK;
 }
 
-bk_err_t bk_agora_rtm_send_image_url(const char *peer_uid, const char *image_url)
+static bk_err_t __send_image_url(const char *peer_uid,
+                                 const char *image_url,
+                                 const char *query_after_ack)
 {
     bk_err_t ret = BK_FAIL;
     cJSON *root = NULL;
@@ -164,6 +308,7 @@ bk_err_t bk_agora_rtm_send_image_url(const char *peer_uid, const char *image_url
     char uuid_buf[40] = {0};
     int rval;
     size_t payload_len;
+    uint32_t msg_id = 0;
 
     if (!peer_uid || peer_uid[0] == '\0')
     {
@@ -208,13 +353,20 @@ bk_err_t bk_agora_rtm_send_image_url(const char *peer_uid, const char *image_url
     }
 
     s_rtm_msg_id++;
-    LOGI("send_image peer=%s msg_id=%u payload=%s\n", peer_uid, s_rtm_msg_id, payload);
+    msg_id = s_rtm_msg_id;
+    if (BK_OK != __add_pending_image_query(msg_id, peer_uid, query_after_ack))
+    {
+        goto __exit;
+    }
+
+    LOGI("send_image peer=%s msg_id=%u payload=%s\n", peer_uid, msg_id, payload);
 
     rval = agora_rtc_send_rtm_data(peer_uid, payload, payload_len,
-                                   s_rtm_msg_id, RTM_CUSTOM_TYPE_IMAGE_UPLOAD);
+                                   msg_id, RTM_CUSTOM_TYPE_IMAGE_UPLOAD);
     if (rval < 0)
     {
         LOGE("agora_rtc_send_rtm_data failed: %d, %s\n", rval, agora_rtc_err_2_str(rval));
+        __remove_pending_image_query(msg_id);
         goto __exit;
     }
 
@@ -230,6 +382,18 @@ __exit:
         cJSON_Delete(root);
     }
     return ret;
+}
+
+bk_err_t bk_agora_rtm_send_image_url(const char *peer_uid, const char *image_url)
+{
+    return __send_image_url(peer_uid, image_url, NULL);
+}
+
+bk_err_t bk_agora_rtm_send_image_url_with_query(const char *peer_uid,
+                                                const char *image_url,
+                                                const char *query_text)
+{
+    return __send_image_url(peer_uid, image_url, query_text);
 }
 
 /* Strip every '\n' / '\r' in-place. BK's base64_encode() inserts a line
@@ -250,8 +414,10 @@ static void __strip_newlines_inplace(char *s)
     *w = '\0';
 }
 
-bk_err_t bk_agora_rtm_send_image_base64(const char *peer_uid,
-                                        const uint8_t *jpeg, size_t jpeg_len)
+static bk_err_t __send_image_base64(const char *peer_uid,
+                                    const uint8_t *jpeg,
+                                    size_t jpeg_len,
+                                    const char *query_after_ack)
 {
     bk_err_t ret = BK_FAIL;
     cJSON *root = NULL;
@@ -262,6 +428,7 @@ bk_err_t bk_agora_rtm_send_image_base64(const char *peer_uid,
     int b64_len = 0;
     int rval;
     size_t payload_len;
+    uint32_t msg_id = 0;
 
     if (!peer_uid || peer_uid[0] == '\0')
     {
@@ -340,15 +507,22 @@ bk_err_t bk_agora_rtm_send_image_base64(const char *peer_uid,
     }
 
     s_rtm_msg_id++;
+    msg_id = s_rtm_msg_id;
+    if (BK_OK != __add_pending_image_query(msg_id, peer_uid, query_after_ack))
+    {
+        goto __exit;
+    }
+
     LOGI("send_image_b64 peer=%s msg_id=%u uuid=%s jpeg=%u base64=%u payload=%u\n",
-         peer_uid, s_rtm_msg_id, uuid_buf,
+         peer_uid, msg_id, uuid_buf,
          (unsigned)jpeg_len, (unsigned)b64_len, (unsigned)payload_len);
 
     rval = agora_rtc_send_rtm_data(peer_uid, payload, payload_len,
-                                   s_rtm_msg_id, RTM_CUSTOM_TYPE_IMAGE_UPLOAD);
+                                   msg_id, RTM_CUSTOM_TYPE_IMAGE_UPLOAD);
     if (rval < 0)
     {
         LOGE("agora_rtc_send_rtm_data failed: %d, %s\n", rval, agora_rtc_err_2_str(rval));
+        __remove_pending_image_query(msg_id);
         goto __exit;
     }
 
@@ -368,6 +542,20 @@ __exit:
         cJSON_Delete(root);
     }
     return ret;
+}
+
+bk_err_t bk_agora_rtm_send_image_base64(const char *peer_uid,
+                                        const uint8_t *jpeg, size_t jpeg_len)
+{
+    return __send_image_base64(peer_uid, jpeg, jpeg_len, NULL);
+}
+
+bk_err_t bk_agora_rtm_send_image_base64_with_query(const char *peer_uid,
+                                                   const uint8_t *jpeg,
+                                                   size_t jpeg_len,
+                                                   const char *query_text)
+{
+    return __send_image_base64(peer_uid, jpeg, jpeg_len, query_text);
 }
 
 bk_err_t bk_agora_rtm_send_user_text(const char *peer_uid, const char *text)
