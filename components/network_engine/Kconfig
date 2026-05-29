@@ -11,6 +11,14 @@ menu "net_transfer"
 		bool "Enable Websocket Transmit for AI without PSRAM"
 		default n
 
+	config BK_TRANS_EN
+		bool "Enable BK network transfer backend for network_engine"
+		depends on BK_NTWK_TRANSFER
+		default y
+		help
+			Enable the network_engine adapter for the BK SDK
+			bk_network_transfer TCP/UDP/CS2 service.
+
 	config VOLC_ENABLE_VISION_BY_DEFAULT
 		bool "Enable visual recognition for volc_rtc by default"
 		default n

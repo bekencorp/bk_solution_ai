@@ -17,6 +17,7 @@ extern "C" {
 typedef enum {
     NETWORK_TYPE_VOLC_RTC = 0,    /**< 火山引擎RTC */
     NETWORK_TYPE_AGORA_RTC,       /**< 声网RTC */
+    NETWORK_TYPE_BK_TRANS,        /**< BK SDK network transfer */
     NETWORK_TYPE_MAX
 } network_type_t;
 
@@ -93,10 +94,16 @@ typedef struct {
     bool initialized;                      /**< 初始化标志 */
 } ntwk_eng_ctx_t;
 /**
- * @brief 初始化网络传输模块
+ * @brief 初始化 RTC 网络传输后端
  * @return int 初始化结果
  */
-int ntwk_eng_init(void);
+int ntwk_eng_rtc_init(void);
+
+/**
+ * @brief 初始化 BK network transfer 后端
+ * @return int 初始化结果
+ */
+int ntwk_eng_bk_trans_init(void);
 
 /**
  * @brief 反初始化网络传输模块

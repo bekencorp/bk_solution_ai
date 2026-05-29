@@ -13,6 +13,9 @@
 #elif CONFIG_AGORA_IOT_SDK
 #include "bk_agora_api.h"
 #endif
+#if CONFIG_BK_TRANS_EN
+#include "bk_trans_api.h"
+#endif
 #if CONFIG_BK_AUDIO_ENGINE
 #include "audio_engine.h"
 #endif
@@ -40,22 +43,143 @@ static ntwk_eng_ctx_t g_ntwk_eng_ctx = {0};
  * the agent's voice still needs to reach the speaker. */
 static volatile bool s_uplink_audio_muted = false;
 
+#if CONFIG_VOLC_RTC_EN || CONFIG_AGORA_IOT_SDK
+extern bool g_connected_flag;
+#endif
+
+static const char *ntwk_eng_network_type_name(network_type_t network_type)
+{
+    switch (network_type) {
+    case NETWORK_TYPE_VOLC_RTC:
+        return "volc_rtc";
+    case NETWORK_TYPE_AGORA_RTC:
+        return "agora_rtc";
+    case NETWORK_TYPE_BK_TRANS:
+        return "bk_trans";
+    default:
+        return "unknown";
+    }
+}
+
+static int ntwk_eng_register_volc_rtc(ntwk_eng_ctx_t *ctx)
+{
+    if (!ctx) {
+        return BK_FAIL;
+    }
+
+#if CONFIG_VOLC_RTC_EN
+    ctx->network_type = NETWORK_TYPE_VOLC_RTC;
+    ctx->audio_tx_cb = bk_byte_rtc_audio_data_send;
+    ctx->video_tx_cb = bk_byte_rtc_video_data_send;
+    ctx->start_cb = bk_byte_start;
+    ctx->stop_cb = bk_byte_stop;
+    ctx->pre_config_cb = bk_byte_pre_config;
+    ctx->update_cb = bk_byte_update_agent;
+    return BK_OK;
+#else
+    LOGE("Volc RTC backend is not enabled\n");
+    return -1;
+#endif
+}
+
+static int ntwk_eng_register_agora_rtc(ntwk_eng_ctx_t *ctx)
+{
+    if (!ctx) {
+        return BK_FAIL;
+    }
+
+#if CONFIG_AGORA_IOT_SDK
+    ctx->network_type = NETWORK_TYPE_AGORA_RTC;
+    ctx->audio_tx_cb = bk_agora_rtc_audio_data_send;
+    ctx->video_tx_cb = bk_agora_rtc_video_data_send;
+    ctx->start_cb = bk_agora_start;
+    ctx->stop_cb = bk_agora_stop;
+    ctx->pre_config_cb = bk_agora_pre_config;
+    ctx->update_cb = bk_agora_update_agent;
+    return BK_OK;
+#else
+    LOGE("Agora RTC backend is not enabled\n");
+    return -1;
+#endif
+}
+
+static int ntwk_eng_register_bk_trans(ntwk_eng_ctx_t *ctx)
+{
+    if (!ctx) {
+        return BK_FAIL;
+    }
+
+#if CONFIG_BK_TRANS_EN
+    ctx->network_type = NETWORK_TYPE_BK_TRANS;
+    ctx->audio_tx_cb = bk_trans_audio_data_send;
+    ctx->video_tx_cb = bk_trans_video_data_send;
+    ctx->start_cb = bk_trans_start;
+    ctx->stop_cb = bk_trans_stop;
+    ctx->pre_config_cb = bk_trans_pre_config;
+    ctx->update_cb = bk_trans_update;
+    return BK_OK;
+#else
+    LOGE("BK transfer backend is not enabled\n");
+    return -1;
+#endif
+}
+
+static int ntwk_eng_init_backend(network_type_t network_type)
+{
+    switch (network_type) {
+    case NETWORK_TYPE_VOLC_RTC:
+        return ntwk_eng_register_volc_rtc(&g_ntwk_eng_ctx);
+    case NETWORK_TYPE_AGORA_RTC:
+        return ntwk_eng_register_agora_rtc(&g_ntwk_eng_ctx);
+    case NETWORK_TYPE_BK_TRANS:
+        return ntwk_eng_register_bk_trans(&g_ntwk_eng_ctx);
+    default:
+        LOGE("Invalid ntwk engine backend %s(%d)\n",
+             ntwk_eng_network_type_name(network_type), network_type);
+        return -1;
+    }
+}
+
+static int ntwk_eng_deinit_backend(network_type_t network_type, void *user_data)
+{
+    switch (network_type) {
+    case NETWORK_TYPE_VOLC_RTC:
+    case NETWORK_TYPE_AGORA_RTC:
+        (void)user_data;
+        return BK_OK;
+    case NETWORK_TYPE_BK_TRANS:
+#if CONFIG_BK_TRANS_EN
+        return bk_trans_deinit(user_data);
+#else
+        break;
+#endif
+    default:
+        LOGE("Invalid ntwk engine backend %s(%d)\n",
+             ntwk_eng_network_type_name(network_type), network_type);
+        return -1;
+    }
+
+    LOGE("ntwk engine backend %s(%d) is not enabled\n",
+         ntwk_eng_network_type_name(network_type), network_type);
+    return -1;
+}
+
 int ntwk_eng_update(void *user_data, void *update_info)
 {
     int ret = 0;
 
     if (!g_ntwk_eng_ctx.initialized) {
-        LOGW("Network transfer not initialized\n");
+        LOGW("%s: NTWK engine not initialized\n", __func__);
         return -1;
     }
     if (g_ntwk_eng_ctx.update_cb) {
         ret = g_ntwk_eng_ctx.update_cb(user_data, update_info);
     }
     if (ret != 0) {
-        LOGE("Failed to update network transfer\n");
+        LOGE("Failed to update ntwk engine\n");
         return ret;
     }
-    LOGI("Network transfer updated\n");
+    LOGI("ntwk engine updated\n");
     return 0;
 }
 /**
@@ -67,27 +191,27 @@ int ntwk_eng_start(void *user_data)
 {
     int ret = 0;
     if (!g_ntwk_eng_ctx.initialized) {
-        LOGW("Network transfer not initialized\n");
+        LOGW("%s: NTWK engine not initialized\n", __func__);
         return -1;
     }
 
     if (g_ntwk_eng_ctx.is_started) {
-        LOGW("Network transfer already started\n");
+        LOGW("ntwk engine already started\n");
         return 0;
     }
-    
+
     // 调用启动回调函数
     if (g_ntwk_eng_ctx.start_cb) {
         ret = g_ntwk_eng_ctx.start_cb(user_data);
     }
     if (ret != 0) {
-        LOGE("Failed to start network transfer\n");
-        return ret; 
+        LOGE("Failed to start ntwk engine\n");
+        return ret;
     }
 
     g_ntwk_eng_ctx.is_started = true;
-    LOGI("Network transfer started\n");
-    
+    LOGI("ntwk engine started\n");
+
     return 0;
 }
 
@@ -106,12 +230,12 @@ int ntwk_eng_stop(void *user_data)
     int ret = 0;
 
     if (!g_ntwk_eng_ctx.initialized) {
-        LOGW("Network transfer not initialized\n");
+        LOGW("%s: NTWK engine not initialized\n", __func__);
         return -1;
     }
 
     if (!g_ntwk_eng_ctx.is_started) {
-        LOGW("Network transfer not started\n");
+        LOGW("ntwk engine not started\n");
         return -1;
     }
 
@@ -123,46 +247,39 @@ int ntwk_eng_stop(void *user_data)
     }
 
     if (ret != 0) {
-        LOGE("Failed to stop network transfer\n");
+        LOGE("Failed to stop ntwk engine\n");
         return ret;
     }
 
-    LOGI("Network transfer stopped\n");
-    
+    LOGI("ntwk engine stopped\n");
+
     return 0;
 }
 /**
  * @brief 初始化网络传输模块
  * @return int 0表示成功，负数表示失败
  */
-int ntwk_eng_init(void)
+static int ntwk_eng_init(network_type_t network_type)
 {
     int ret = 0;
 
     if (g_ntwk_eng_ctx.initialized) {
-        LOGW("Network transfer already initialized\n");
-        return 0;
+        if (g_ntwk_eng_ctx.network_type == network_type) {
+            LOGW("ntwk engine already initialized with %s\n",
+                 ntwk_eng_network_type_name(network_type));
+            return 0;
+        }
+
+        LOGE("ntwk engine already initialized with %s, deinit before switching to %s\n",
+             ntwk_eng_network_type_name(g_ntwk_eng_ctx.network_type),
+             ntwk_eng_network_type_name(network_type));
+        return -1;
     }
-    
-    // 根据配置选择RTC后端并设置相应的回调函数
-    #if CONFIG_VOLC_RTC_EN
-    g_ntwk_eng_ctx.audio_tx_cb = bk_byte_rtc_audio_data_send;
-    g_ntwk_eng_ctx.video_tx_cb = bk_byte_rtc_video_data_send;  // 设置底层视频发送回调
-    g_ntwk_eng_ctx.start_cb = bk_byte_start;
-    g_ntwk_eng_ctx.stop_cb = bk_byte_stop;
-    g_ntwk_eng_ctx.pre_config_cb = bk_byte_pre_config;
-    g_ntwk_eng_ctx.update_cb = bk_byte_update_agent;
-    g_ntwk_eng_ctx.network_type = NETWORK_TYPE_VOLC_RTC;
-    #elif CONFIG_AGORA_IOT_SDK
-    // 声网Agora RTC配置
-    g_ntwk_eng_ctx.audio_tx_cb = bk_agora_rtc_audio_data_send;
-    g_ntwk_eng_ctx.video_tx_cb = bk_agora_rtc_video_data_send;
-    g_ntwk_eng_ctx.start_cb = bk_agora_start;
-    g_ntwk_eng_ctx.stop_cb = bk_agora_stop;
-    g_ntwk_eng_ctx.pre_config_cb = bk_agora_pre_config;
-    g_ntwk_eng_ctx.update_cb = bk_agora_update_agent;
-    g_ntwk_eng_ctx.network_type = NETWORK_TYPE_AGORA_RTC;
-    #endif
+
+    ret = ntwk_eng_init_backend(network_type);
+    if (ret != 0) {
+        return ret;
+    }
 
     // 执行预配置回调
     if (g_ntwk_eng_ctx.pre_config_cb) {
@@ -170,14 +287,34 @@ int ntwk_eng_init(void)
     }
 
     if (ret != 0) {
-        LOGE("Failed to initialize network transfer\n");
+        LOGE("Failed to initialize ntwk engine\n");
+        os_memset(&g_ntwk_eng_ctx, 0, sizeof(ntwk_eng_ctx_t));
         return ret;
     }
-    
+
     g_ntwk_eng_ctx.initialized = true;
-    LOGI("Network transfer initialized with network type: %d\n", g_ntwk_eng_ctx.network_type);
-    
+    LOGI("ntwk engine initialized with backend: %s(%d)\n",
+         ntwk_eng_network_type_name(g_ntwk_eng_ctx.network_type),
+         g_ntwk_eng_ctx.network_type);
+
     return 0;
+}
+
+int ntwk_eng_rtc_init(void)
+{
+#if CONFIG_VOLC_RTC_EN
+    return ntwk_eng_init(NETWORK_TYPE_VOLC_RTC);
+#elif CONFIG_AGORA_IOT_SDK
+    return ntwk_eng_init(NETWORK_TYPE_AGORA_RTC);
+#else
+    LOGE("RTC backend is not enabled\n");
+    return -1;
+#endif
+}
+
+int ntwk_eng_bk_trans_init(void)
+{
+    return ntwk_eng_init(NETWORK_TYPE_BK_TRANS);
 }
 
 /**
@@ -189,21 +326,31 @@ int ntwk_eng_deinit(void)
     int ret = 0;
 
     if (!g_ntwk_eng_ctx.initialized) {
-        LOGW("Network transfer not initialized\n");
+        LOGW("%s: NTWK engine not initialized\n", __func__);
         return 0;
     }
-    
+
     // 先停止网络传输
-    ret = ntwk_eng_stop(g_ntwk_eng_ctx.user_data);
+    if (g_ntwk_eng_ctx.is_started) {
+        ret = ntwk_eng_stop(g_ntwk_eng_ctx.user_data);
+        if (ret != 0) {
+            LOGE("Failed to deinitialize network transfer\n");
+            return ret;
+        }
+    }
+
+    ret = ntwk_eng_deinit_backend(g_ntwk_eng_ctx.network_type,
+                                  g_ntwk_eng_ctx.user_data);
     if (ret != 0) {
-        LOGE("Failed to deinitialize network transfer\n");
+        LOGE("Failed to deinitialize backend %s\n",
+             ntwk_eng_network_type_name(g_ntwk_eng_ctx.network_type));
         return ret;
     }
-    
+
     // 清空全局上下文
     os_memset(&g_ntwk_eng_ctx, 0, sizeof(ntwk_eng_ctx_t));
     LOGI("Network transfer deinitialized\n");
-    
+
     return 0;
 }
 
@@ -219,16 +366,16 @@ int ntwk_eng_send_audio(const uint8_t *data, size_t size, audio_enc_type_t audio
     int ret = 0;
 
     if (!g_ntwk_eng_ctx.initialized) {
-        //LOGW("Network transfer not initialized\n");
+        //LOGW("%s: NTWK engine not initialized\n", __func__);
         return -1;
     }
-    
+
     // 参数校验
     if (!data || size == 0) {
         LOGE("Invalid audio data parameters\n");
         return -2;
     }
-    
+
     if (audio_type == AUDIO_ENC_TYPE_INVALID) {
         LOGE("Invalid audio type\n");
         return -3;
@@ -268,10 +415,10 @@ int ntwk_eng_send_video(frame_buffer_t *frame)
     int ret = 0;
 
     if (!g_ntwk_eng_ctx.initialized) {
-        LOGE("Network transfer not initialized\n");
+        LOGE("%s: NTWK engine not initialized\n", __func__);
         return -1;
     }
-    
+
     // 参数校验
     if (!frame || !frame->frame || frame->length == 0) {
         LOGE("Invalid video frame parameters\n");
@@ -304,15 +451,29 @@ network_type_t ntwk_eng_get_network_type(void)
     return g_ntwk_eng_ctx.network_type;
 }
 
-/* g_connected_flag is the public "agent joined" indicator exported by both
- * volc and agora bk_*_api modules (see agora_rtc/README.md). We forward it
- * here behind a stable name so UI code does not need to know which RTC
- * backend is active. */
-extern bool g_connected_flag;
-
 bool ntwk_eng_is_agent_connected(void)
 {
-    return g_ntwk_eng_ctx.initialized && g_connected_flag;
+    if (!g_ntwk_eng_ctx.initialized) {
+        return false;
+    }
+
+    switch (g_ntwk_eng_ctx.network_type) {
+    case NETWORK_TYPE_VOLC_RTC:
+    case NETWORK_TYPE_AGORA_RTC:
+#if CONFIG_VOLC_RTC_EN || CONFIG_AGORA_IOT_SDK
+        return g_connected_flag;
+#else
+        return false;
+#endif
+    case NETWORK_TYPE_BK_TRANS:
+#if CONFIG_BK_TRANS_EN
+        return bk_trans_is_connected();
+#else
+        return false;
+#endif
+    default:
+        return false;
+    }
 }
 
 void ntwk_eng_set_uplink_audio_muted(bool muted)
@@ -353,10 +514,10 @@ int ntwk_eng_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
 int ntwk_eng_recv_audio(const uint8_t *data, size_t size)
 {
     if (!g_ntwk_eng_ctx.initialized) {
-        LOGE("Network transfer not initialized\n");
+        LOGE("%s: NTWK engine not initialized\n", __func__);
         return -1;
     }
-    
+
     // 参数校验
     if (!data || size == 0) {
         LOGE("Invalid audio data parameters\n");

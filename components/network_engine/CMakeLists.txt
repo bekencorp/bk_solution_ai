@@ -35,6 +35,16 @@ list(APPEND srcs
 )
 endif()
 
+if (CONFIG_BK_TRANS_EN)
+list(APPEND incs
+            bk_trans
+)
+
+list(APPEND srcs
+    bk_trans/bk_trans_api.c
+)
+endif()
+
 if (CONFIG_VOLC_RTC_EN)
 list(APPEND incs
             volc_rtc
@@ -67,5 +77,5 @@ endif()
 armino_component_register(
     SRCS "${srcs}"
     INCLUDE_DIRS "${incs}"
-    PRIV_REQUIRES bk_common bk_init lwip_intf_v2_1 psa_mbedtls json base64 VolcEngineRTCLite agora-iot-sdk video_engine audio_engine bk_smart_config bk_app_event bk_factory_config bk_vfs
+    PRIV_REQUIRES bk_common bk_init lwip_intf_v2_1 psa_mbedtls json base64 VolcEngineRTCLite agora-iot-sdk video_engine audio_engine bk_smart_config bk_app_event bk_factory_config bk_vfs bk_network_transfer
 )
