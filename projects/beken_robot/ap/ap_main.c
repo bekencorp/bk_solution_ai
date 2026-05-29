@@ -48,6 +48,18 @@
 #include "bk_smart_config.h"
 #endif
 
+#if CONFIG_BK_ROBOT_LAN_NET
+#include "robot_lan_net.h"
+#endif
+
+#if CONFIG_BK_ROBOT_VIDEO_SERVICE
+#include "robot_video_service.h"
+#endif
+
+#if CONFIG_BK_ROBOT_CTRL_SERVICE
+#include "robot_ctrl_service.h"
+#endif
+
 #if CONFIG_APP_EVT
 #include "app_event.h"
 #endif
@@ -202,10 +214,16 @@ extern uint32_t bk_misc_get_ap_reset_reason(void);
 extern uint32_t bk_misc_get_cp_reset_reason(void);
 
 static const uint32_t s_user_value2 = 10;
+#if CONFIG_BK_ROBOT_LAN_NET
+static uint8_t s_robot_identity_store[4 + ROBOT_LAN_UUID_LEN + ROBOT_LAN_TOKEN_LEN] = {0};
+#endif
 
 const struct factory_config_t s_user_config[] = {
     {"user_key1", (void *)"user_value1", 11, BK_FALSE, 0},
     {"user_key2", (void *)&s_user_value2, 4, BK_TRUE, 4},
+#if CONFIG_BK_ROBOT_LAN_NET
+    {"robot_identity", (void *)s_robot_identity_store, sizeof(s_robot_identity_store), BK_TRUE, 4},
+#endif
 };
 #if 0
 /*Different hardware designs, different GPIOs control the LDO. Customers can adjust the following GPIO unmapping code */
@@ -366,6 +384,18 @@ int main(void)
 
     #if CONFIG_BK_SMART_CONFIG
         bk_sconf_init();
+    #endif
+
+    #if CONFIG_BK_ROBOT_LAN_NET
+        robot_lan_net_init();
+    #endif
+
+    #if CONFIG_BK_ROBOT_VIDEO_SERVICE
+        robot_video_service_init();
+    #endif
+
+    #if CONFIG_BK_ROBOT_CTRL_SERVICE
+        robot_ctrl_service_init();
     #endif
 
     //Notice need to wait other services to initialize

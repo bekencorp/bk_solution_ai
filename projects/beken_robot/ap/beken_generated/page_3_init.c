@@ -33,7 +33,7 @@
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 
-#define PAGE3_MENU_COUNT 9
+#define PAGE3_MENU_COUNT 10
 
 static int s_page3_menu_idx;
 
@@ -44,21 +44,24 @@ static int s_page3_menu_idx;
  *
  * Current layout on page_3 (button N inside each cell):
  *
- *     col1 (x=14)      col2 (x=131)     col3 (x=244)
- *  y=93   btn_1            btn_2           btn_3
+ *     col1 (x=28)      col2 (x=145)     col3 (x=258)
+ *  y=51   btn_1            btn_2           btn_3
  *         AI对话          视觉识别        命令词识别
- *  y=153  btn_7            btn_5           btn_6
+ *  y=111  btn_7            btn_5           btn_6
  *         音乐播放         音量设置        声源定位
- *  y=212  btn_8            btn_9           btn_4
+ *  y=171  btn_8            btn_9           btn_4
  *         手掌跟随        摄像头预览       U盘
+ *  y=231  btn_10           reserved        reserved
+ *         图传播放         (hidden)        (hidden)
  *
  * btn_4 used to be "人脸跟踪" (face tracking). The face-tracking pipeline
  * was never wired up, so the slot is now repurposed as the U-disk (USB
  * MSC) entry -- pressing it flips the Type-C mux to BK7259 USB and the
- * PC enumerates the on-board SD-NAND as a removable disk. This avoids
- * the previous 4th-row layout (a single centered btn_udisk at y=272)
- * which was awkward visually and required carrying an extra struct
- * member that was never actually instantiated.
+ * PC enumerates the on-board SD-NAND as a removable disk.
+ *
+ * btn_10 is the robot video playback entry ported from the older btn_9
+ * slot. btn_11/12 remain hidden placeholders and are not included in
+ * PAGE3_MENU_COUNT.
  *
  * If a button is moved on screen, update both this table AND the
  * matching case in on_screen_next() so the action stays in sync.
@@ -78,6 +81,7 @@ static lv_obj_t *page_3_menu_btn(bk_lv_ui_t *ui, int idx)
     case 6: return ui->page_3_button_8;
     case 7: return ui->page_3_button_9;  /* camera preview */
     case 8: return ui->page_3_button_4;  /* U-disk (USB MSC) */
+    case 9: return ui->page_3_button_10; /* robot video playback */
     default: return NULL;
     }
 }
@@ -274,6 +278,12 @@ static void on_screen_next(bk_lv_ui_t *ui)
             LOGE("board_usb_switch_to_usb failed\r\n");
         }
         break;
+    case 9: /* btn_10: robot video playback */
+        LOGI("Robot video playback -> page_11\r\n");
+        navigate_to_screen((lv_obj_t **)&ui->page_11,
+                           LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
+                           init_page_page_11);
+        break;
     default:
         break;
     }
@@ -294,10 +304,8 @@ const ui_page_nav_ops_t page_3_nav_ops = {
  * active, menu re-entry is blocked, but focus tracking still updates so
  * the user sees the highlight follow their finger when they come back.
  *
- * Index 8 here is btn_4 (= "U盘" / U-disk in the merged layout). The
- * action lives in on_screen_next() case 8, so a TP tap on the U-disk
- * tile goes through the exact same board_usb_switch_to_usb() path as
- * the keypad "ENTER" — no extra wiring needed for the new button.
+ * Index 9 here is btn_10 (= "图传播放" / robot video playback). TP taps
+ * and keypad ENTER share the same on_screen_next() action table.
  */
 static void page_3_button_click_cb(lv_event_t *e)
 {
@@ -352,8 +360,8 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_3_button_1_label, "AI对话");
     lv_label_set_long_mode(bk_ui->page_3_button_1_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_1_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_3_button_1, 14);
-    lv_obj_set_y(bk_ui->page_3_button_1, 93);
+    lv_obj_set_x(bk_ui->page_3_button_1, 28);
+    lv_obj_set_y(bk_ui->page_3_button_1, 51);
     lv_obj_set_width(bk_ui->page_3_button_1, 100);
     lv_obj_set_height(bk_ui->page_3_button_1, 40);
     lv_obj_set_style_bg_color(bk_ui->page_3_button_1, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -382,8 +390,8 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_3_button_2_label, "视觉识别");
     lv_label_set_long_mode(bk_ui->page_3_button_2_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_2_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_3_button_2, 131);
-    lv_obj_set_y(bk_ui->page_3_button_2, 93);
+    lv_obj_set_x(bk_ui->page_3_button_2, 145);
+    lv_obj_set_y(bk_ui->page_3_button_2, 51);
     lv_obj_set_width(bk_ui->page_3_button_2, 100);
     lv_obj_set_height(bk_ui->page_3_button_2, 40);
     lv_obj_set_style_bg_color(bk_ui->page_3_button_2, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -412,8 +420,8 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_3_button_3_label, "命令词识别");
     lv_label_set_long_mode(bk_ui->page_3_button_3_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_3_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_3_button_3, 244);
-    lv_obj_set_y(bk_ui->page_3_button_3, 94);
+    lv_obj_set_x(bk_ui->page_3_button_3, 258);
+    lv_obj_set_y(bk_ui->page_3_button_3, 51);
     lv_obj_set_width(bk_ui->page_3_button_3, 100);
     lv_obj_set_height(bk_ui->page_3_button_3, 40);
     lv_obj_set_style_bg_color(bk_ui->page_3_button_3, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -439,18 +447,17 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
 
     /* btn_4 was originally "人脸跟踪" (face tracking) in the LVGL Designer
      * export, but the face-tracking pipeline is not implemented on this
-     * board. The slot is now reused as the U-disk (USB MSC) entry so we
-     * don't need an awkward extra 4th centered row just for it. The
-     * geometry (x/y/size/style) is kept identical to the rest of the
-     * 3x3 grid -- only the label text and the on_screen_next() action
-     * for this index changed. See page_3_menu_btn() for index mapping. */
+     * board. The slot is now reused as the U-disk (USB MSC) entry. It
+     * stays in the third row with the other functional buttons; the fourth
+     * row below is used for robot video playback plus hidden placeholders.
+     * See page_3_menu_btn() for index mapping. */
     bk_ui->page_3_button_4 = lv_btn_create(bk_ui->page_3);
     bk_ui->page_3_button_4_label = lv_label_create(bk_ui->page_3_button_4);
     lv_label_set_text(bk_ui->page_3_button_4_label, "U盘");
     lv_label_set_long_mode(bk_ui->page_3_button_4_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_4_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_3_button_4, 244);
-    lv_obj_set_y(bk_ui->page_3_button_4, 212);
+    lv_obj_set_x(bk_ui->page_3_button_4, 258);
+    lv_obj_set_y(bk_ui->page_3_button_4, 171);
     lv_obj_set_width(bk_ui->page_3_button_4, 100);
     lv_obj_set_height(bk_ui->page_3_button_4, 40);
     lv_obj_set_style_bg_color(bk_ui->page_3_button_4, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -479,8 +486,8 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_3_button_5_label, "音量设置");
     lv_label_set_long_mode(bk_ui->page_3_button_5_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_5_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_3_button_5, 133);
-    lv_obj_set_y(bk_ui->page_3_button_5, 152);
+    lv_obj_set_x(bk_ui->page_3_button_5, 147);
+    lv_obj_set_y(bk_ui->page_3_button_5, 111);
     lv_obj_set_width(bk_ui->page_3_button_5, 100);
     lv_obj_set_height(bk_ui->page_3_button_5, 40);
     lv_obj_set_style_bg_color(bk_ui->page_3_button_5, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -509,8 +516,8 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_3_button_6_label, "声源定位");
     lv_label_set_long_mode(bk_ui->page_3_button_6_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_6_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_3_button_6, 248);
-    lv_obj_set_y(bk_ui->page_3_button_6, 153);
+    lv_obj_set_x(bk_ui->page_3_button_6, 262);
+    lv_obj_set_y(bk_ui->page_3_button_6, 111);
     lv_obj_set_width(bk_ui->page_3_button_6, 100);
     lv_obj_set_height(bk_ui->page_3_button_6, 40);
     lv_obj_set_style_bg_color(bk_ui->page_3_button_6, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -539,8 +546,8 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_3_button_7_label, "音乐播放");
     lv_label_set_long_mode(bk_ui->page_3_button_7_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_7_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_3_button_7, 14);
-    lv_obj_set_y(bk_ui->page_3_button_7, 153);
+    lv_obj_set_x(bk_ui->page_3_button_7, 28);
+    lv_obj_set_y(bk_ui->page_3_button_7, 111);
     lv_obj_set_width(bk_ui->page_3_button_7, 100);
     lv_obj_set_height(bk_ui->page_3_button_7, 40);
     lv_obj_set_style_bg_color(bk_ui->page_3_button_7, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -564,14 +571,14 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_shadow_offset_y(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_spread(bk_ui->page_3_button_7, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    /* page_3_button_9: camera preview (manual slot 131,212; merge if Designer regen). */
+    /* page_3_button_9: camera preview (manual slot 145,171; merge if Designer regen). */
     bk_ui->page_3_button_9 = lv_btn_create(bk_ui->page_3);
     bk_ui->page_3_button_9_label = lv_label_create(bk_ui->page_3_button_9);
     lv_label_set_text(bk_ui->page_3_button_9_label, "摄像头预览");
     lv_label_set_long_mode(bk_ui->page_3_button_9_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_9_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_3_button_9, 131);
-    lv_obj_set_y(bk_ui->page_3_button_9, 212);
+    lv_obj_set_x(bk_ui->page_3_button_9, 145);
+    lv_obj_set_y(bk_ui->page_3_button_9, 171);
     lv_obj_set_width(bk_ui->page_3_button_9, 100);
     lv_obj_set_height(bk_ui->page_3_button_9, 40);
     lv_obj_set_style_bg_color(bk_ui->page_3_button_9, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -600,8 +607,8 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_3_button_8_label, "手掌跟随");
     lv_label_set_long_mode(bk_ui->page_3_button_8_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_3_button_8_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_3_button_8, 14);
-    lv_obj_set_y(bk_ui->page_3_button_8, 212);
+    lv_obj_set_x(bk_ui->page_3_button_8, 28);
+    lv_obj_set_y(bk_ui->page_3_button_8, 171);
     lv_obj_set_width(bk_ui->page_3_button_8, 100);
     lv_obj_set_height(bk_ui->page_3_button_8, 40);
     lv_obj_set_style_bg_color(bk_ui->page_3_button_8, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -624,7 +631,102 @@ void init_page_page_3(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_shadow_offset_x(bk_ui->page_3_button_8, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_offset_y(bk_ui->page_3_button_8, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_spread(bk_ui->page_3_button_8, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    bk_ui->page_3_button_10 = lv_btn_create(bk_ui->page_3);
+    bk_ui->page_3_button_10_label = lv_label_create(bk_ui->page_3_button_10);
+    lv_label_set_text(bk_ui->page_3_button_10_label, "图传播放");
+    lv_label_set_long_mode(bk_ui->page_3_button_10_label, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_align(bk_ui->page_3_button_10_label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_x(bk_ui->page_3_button_10, 28);
+    lv_obj_set_y(bk_ui->page_3_button_10, 231);
+    lv_obj_set_width(bk_ui->page_3_button_10, 100);
+    lv_obj_set_height(bk_ui->page_3_button_10, 40);
+    lv_obj_set_style_bg_color(bk_ui->page_3_button_10, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(bk_ui->page_3_button_10, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_dir(bk_ui->page_3_button_10, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(bk_ui->page_3_button_10, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(bk_ui->page_3_button_10, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(bk_ui->page_3_button_10, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_side(bk_ui->page_3_button_10, LV_BORDER_SIDE_FULL, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(bk_ui->page_3_button_10, 5, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_clip_corner(bk_ui->page_3_button_10, false, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(bk_ui->page_3_button_10, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(bk_ui->page_3_button_10, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(bk_ui->page_3_button_10, &lv_font_ali_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(bk_ui->page_3_button_10, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_letter_space(bk_ui->page_3_button_10, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_color(bk_ui->page_3_button_10, lv_color_hex(0x1e7fcf), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(bk_ui->page_3_button_10, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(bk_ui->page_3_button_10, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_x(bk_ui->page_3_button_10, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_y(bk_ui->page_3_button_10, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_spread(bk_ui->page_3_button_10, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+#if 0
+    bk_ui->page_3_button_11 = lv_btn_create(bk_ui->page_3);
+    bk_ui->page_3_button_11_label = lv_label_create(bk_ui->page_3_button_11);
+    lv_label_set_text(bk_ui->page_3_button_11_label, "null");
+    lv_label_set_long_mode(bk_ui->page_3_button_11_label, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_align(bk_ui->page_3_button_11_label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_x(bk_ui->page_3_button_11, 145);
+    lv_obj_set_y(bk_ui->page_3_button_11, 231);
+    lv_obj_set_width(bk_ui->page_3_button_11, 100);
+    lv_obj_set_height(bk_ui->page_3_button_11, 40);
+    lv_obj_set_style_bg_color(bk_ui->page_3_button_11, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(bk_ui->page_3_button_11, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_dir(bk_ui->page_3_button_11, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(bk_ui->page_3_button_11, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(bk_ui->page_3_button_11, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(bk_ui->page_3_button_11, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_side(bk_ui->page_3_button_11, LV_BORDER_SIDE_FULL, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(bk_ui->page_3_button_11, 5, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_clip_corner(bk_ui->page_3_button_11, false, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(bk_ui->page_3_button_11, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(bk_ui->page_3_button_11, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(bk_ui->page_3_button_11, &lv_font_ali_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(bk_ui->page_3_button_11, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_letter_space(bk_ui->page_3_button_11, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_color(bk_ui->page_3_button_11, lv_color_hex(0x1e7fcf), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(bk_ui->page_3_button_11, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(bk_ui->page_3_button_11, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_x(bk_ui->page_3_button_11, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_y(bk_ui->page_3_button_11, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_spread(bk_ui->page_3_button_11, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    bk_ui->page_3_button_12 = lv_btn_create(bk_ui->page_3);
+    bk_ui->page_3_button_12_label = lv_label_create(bk_ui->page_3_button_12);
+    lv_label_set_text(bk_ui->page_3_button_12_label, "null");
+    lv_label_set_long_mode(bk_ui->page_3_button_12_label, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_align(bk_ui->page_3_button_12_label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_x(bk_ui->page_3_button_12, 258);
+    lv_obj_set_y(bk_ui->page_3_button_12, 231);
+    lv_obj_set_width(bk_ui->page_3_button_12, 100);
+    lv_obj_set_height(bk_ui->page_3_button_12, 40);
+    lv_obj_set_style_bg_color(bk_ui->page_3_button_12, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(bk_ui->page_3_button_12, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_dir(bk_ui->page_3_button_12, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(bk_ui->page_3_button_12, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(bk_ui->page_3_button_12, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(bk_ui->page_3_button_12, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_side(bk_ui->page_3_button_12, LV_BORDER_SIDE_FULL, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(bk_ui->page_3_button_12, 5, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_clip_corner(bk_ui->page_3_button_12, false, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(bk_ui->page_3_button_12, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(bk_ui->page_3_button_12, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(bk_ui->page_3_button_12, &lv_font_ali_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(bk_ui->page_3_button_12, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_letter_space(bk_ui->page_3_button_12, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_color(bk_ui->page_3_button_12, lv_color_hex(0x1e7fcf), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(bk_ui->page_3_button_12, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(bk_ui->page_3_button_12, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_x(bk_ui->page_3_button_12, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_y(bk_ui->page_3_button_12, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_spread(bk_ui->page_3_button_12, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+#else
+    bk_ui->page_3_button_11 = NULL;
+    bk_ui->page_3_button_11_label = NULL;
+    bk_ui->page_3_button_12 = NULL;
+    bk_ui->page_3_button_12_label = NULL;
+#endif
 
     // custom code implementation
         #ifdef ROBOT_TEST

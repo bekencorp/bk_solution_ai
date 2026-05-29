@@ -67,9 +67,16 @@ typedef struct
     lv_obj_t *page_3_button_7_label;
     lv_obj_t *page_3_button_8;
     lv_obj_t *page_3_button_8_label;
-    /* Camera preview button (manual, not from Designer); slot (131, 212). */
+    /* Camera preview button (manual, not from Designer); slot (145, 171). */
     lv_obj_t *page_3_button_9;
     lv_obj_t *page_3_button_9_label;
+    /* Robot video playback button plus hidden bottom-row placeholders. */
+    lv_obj_t *page_3_button_10;
+    lv_obj_t *page_3_button_10_label;
+    lv_obj_t *page_3_button_11;
+    lv_obj_t *page_3_button_11_label;
+    lv_obj_t *page_3_button_12;
+    lv_obj_t *page_3_button_12_label;
     /* NOTE: page_3_button_4 is reused as the U-disk (USB MSC) entry
      * (label "U盘"). The earlier dedicated page_3_button_udisk struct
      * member / centered 4th-row layout was dropped -- the original
@@ -121,6 +128,11 @@ typedef struct
     lv_obj_t *page_10_button_minus_label;
     lv_obj_t *page_10_button_plus;
     lv_obj_t *page_10_button_plus_label;
+    /* Page: 10 objects */
+    lv_obj_t *page_11;
+    lv_obj_t *page_11_label_title;
+    lv_obj_t *page_11_label_state;
+    lv_obj_t *page_11_spinner;
 } bk_lv_ui_t;
 
 void init_page_page_1(bk_lv_ui_t *bk_ui);
@@ -143,6 +155,9 @@ void init_page_page_9(bk_lv_ui_t *bk_ui);
 void destroy_page_page_9(bk_lv_ui_t *bk_ui);
 void init_page_page_10(bk_lv_ui_t *bk_ui);
 void destroy_page_page_10(bk_lv_ui_t *bk_ui);
+void init_page_page_11(bk_lv_ui_t *bk_ui);
+void destroy_page_page_11(bk_lv_ui_t *bk_ui);
+void page_11_set_video_connected(void);
 
 /* declare image */
 LV_IMAGE_DECLARE(beken_logo_blue_321x147_RGB565A8_NONE);
