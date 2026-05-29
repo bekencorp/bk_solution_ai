@@ -11,6 +11,7 @@ set(srcs
     beken_generated/page_6_init.c
     beken_generated/page_7_init.c
     beken_generated/page_10_init.c
+    src/palm_detection.cc
 )
 
 include(${CMAKE_CURRENT_LIST_DIR}/beken_generated/beken_generated.cmake)
@@ -19,8 +20,9 @@ list(APPEND incs ${BEKEN_GENERATOR_INCLUDE_DIRS})
 
 set(priv_req media_service network_transfer bk_voice_service audio_engine
               bk_smart_config bk_app_event bk_key_app bk_factory_config bk_led_blink
-              bk_motor bk_nfc bk_batt_monitor bk_bluetooth bk_pan
-              bk_display bk_peripheral multimedia_device_service video_engine bk_cli avdk_utils lvgl)
+              bk_motor bk_nfc bk_batt_monitor bk_bluetooth bk_pan avdk_nn_module bk_servo
+              bk_display bk_peripheral multimedia_device_service video_engine bk_cli avdk_utils lvgl
+              bk_tflite_micro)
 
 armino_component_register(SRCS "${srcs}" INCLUDE_DIRS "${incs}" PRIV_REQUIRES "${priv_req}")
 

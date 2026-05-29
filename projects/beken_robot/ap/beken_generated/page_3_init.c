@@ -18,6 +18,8 @@
 #include "event_runtime.h"
 #include <stdio.h>
 #include <string.h>
+#include "palm_detection.h"
+#include "lv_vendor.h"
 // custom page code
 #ifdef ROBOT_TEST
 
@@ -137,6 +139,8 @@ static void on_screen_next(bk_lv_ui_t *ui)
         break;
     case 3:
         LOGI("Face tracking\r\n");
+        lv_vendor_stop();
+        palm_detection_start();
         break;
     case 4:
         LOGI("Volume settings -> page_10\r\n");

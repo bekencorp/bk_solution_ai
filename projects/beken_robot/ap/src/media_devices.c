@@ -391,6 +391,8 @@ avdk_err_t media_gpu_open(uint16_t src_w, uint16_t src_h, uint16_t rotate_deg)
     gpu.flexa.src_height   = src_h;
     gpu.flexa.dst_width    = src_w;
     gpu.flexa.dst_height   = src_h;
+    gpu.flexa.tess_width   = 0;
+    gpu.flexa.tess_height  = 0;
     gpu.flexa.src_format   = BK_PIXEL_FORMAT_NV12;
     gpu.flexa.dst_format   = BK_PIXEL_FORMAT_ARGB8888;
     gpu.flexa.dst_compress = true;
