@@ -90,9 +90,9 @@ extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_360x390;
  * Current choice: 640x480 @ 30 fps -- gives a smaller SP NV12 (450 KB vs
  * 1.32 MB for 720p) and a much smaller JPEG, which is what the RTM image-
  * upload path actually wants (BK_AGORA_RTM_IMG_RAW_MAX_LEN = 22 KB cap). */
-#define PREVIEW_SENSOR_W    640
-#define PREVIEW_SENSOR_H    480
-#define PREVIEW_SENSOR_FPS  30
+#define PREVIEW_SENSOR_W    1280
+#define PREVIEW_SENSOR_H    720
+#define PREVIEW_SENSOR_FPS  20
 #define PREVIEW_ISP_W       400
 #define PREVIEW_ISP_H       368
 /* 270 deg rotate: GC2053 mount vs jd9855 scan (same as palm_detection). */
@@ -100,8 +100,8 @@ extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_360x390;
 
 /* SP 640x480 NV12 (1:1 with sensor). NV12 from the UNCODED slab (16 MB
  * pool at 0x60000000); never goes anywhere near PSRAM_HEAP (920 KB). */
-#define PREVIEW_SP_W           640
-#define PREVIEW_SP_H           480
+#define PREVIEW_SP_W           1280
+#define PREVIEW_SP_H           720
 #define PREVIEW_SP_NV12_BYTES  ((uint32_t)PREVIEW_SP_W * PREVIEW_SP_H * 3 / 2)
 
 /* SP read timeout: cam_thread may sit in 1s delay on MP flexa chnl before
