@@ -39,6 +39,24 @@ static gpu_board_config_t *gpu_board_config = NULL;
 static uint32_t s_psram_cover_area;
 #endif
 
+/* ---------------------------------------------------------------------------
+ * Snapshot / freeze state -- see app_gpu.h for the public contract.
+ *
+ *  * s_snapshot_arm   : one-shot, "next bkmm_frame_complete should snapshot".
+ *  * s_freeze_active  : while true, all GPU frames are dropped and the DPU is
+ *                       locked on s_snapshot_buf.
+ *  * s_snapshot_buf / _size : the photo, allocated from the same
+ *                             MEM_SLAB_HEAP_UNCODED pool as live GPU frames
+ *                             (so DPU can scan-out from it directly).
+ *
+ * volatile because the flags are flipped from a non-GPU thread
+ * (camera_preview worker on core 1) but read by the GPU completion path.
+ * ------------------------------------------------------------------------- */
+static volatile bool  s_snapshot_arm  = false;
+static volatile bool  s_freeze_active = false;
+static void          *s_snapshot_buf  = NULL;
+static uint32_t       s_snapshot_size = 0;
+
 static void *bkmm_frame_malloc(uint32_t size)
 {
     void *disp_frame = bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED, size);
@@ -66,16 +84,118 @@ static avdk_err_t bkmm_frame_free(void *ptr)
     return AVDK_ERR_OK;
 }
 
+/* Snapshot uses bk_frame_buffer_malloc (not bkmm_frame_malloc/write-through). */
+static void *snapshot_buffer_alloc(uint32_t size)
+{
+    return bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED, size);
+}
+
+static avdk_err_t snapshot_buffer_release_cb(void *ptr)
+{
+    /* Called from DPU on swap or deinit; safe to free snapshot buffer. */
+    if (ptr != NULL)
+    {
+        bk_frame_buffer_free(ptr);
+    }
+    return AVDK_ERR_OK;
+}
+
 static void bkmm_frame_complete(void *frame, uint32_t frame_size, void *args)
 {
-    (void)frame_size;
     (void)args;
+
+    /* Arm path: copy frame to snapshot buf, flush to DPU, freeze display. */
+    if (s_snapshot_arm && s_snapshot_buf == NULL)
+    {
+        s_snapshot_arm = false;
+        void *buf = snapshot_buffer_alloc(frame_size);
+        if (buf != NULL)
+        {
+            os_memcpy(buf, frame, frame_size);
+            s_snapshot_buf  = buf;
+            s_snapshot_size = frame_size;
+            LOGI("snapshot taken: buf=%p size=%u\n", buf, (unsigned)frame_size);
+            if (app_mipi_lcd_flush(buf, snapshot_buffer_release_cb) == AVDK_ERR_OK)
+            {
+                s_freeze_active = true;
+                bkmm_frame_free(frame);
+                return;
+            }
+            /* flush failed: free snapshot buf, keep live path */
+            LOGE("snapshot lcd_flush failed, fall back to live\n");
+            bk_frame_buffer_free(buf);
+            s_snapshot_buf  = NULL;
+            s_snapshot_size = 0;
+        }
+        else
+        {
+            LOGE("snapshot malloc(%u) failed; keep live\n", (unsigned)frame_size);
+        }
+    }
+
+    /* Frozen: drop live GPU frames, DPU holds snapshot */
+    if (s_freeze_active)
+    {
+        bkmm_frame_free(frame);
+        return;
+    }
+
+    /* Live path: clear local snapshot ref before flushing new frame */
+    if (s_snapshot_buf != NULL)
+    {
+        s_snapshot_buf  = NULL;
+        s_snapshot_size = 0;
+    }
+
     avdk_err_t ret = app_mipi_lcd_flush(frame, bkmm_frame_free);
     if (ret != AVDK_ERR_OK)
     {
         LOGD("%s, %d, GPU failed to flush frame %d\n", __func__, __LINE__, ret);
         bkmm_frame_free(frame);
     }
+}
+
+int app_gpu_arm_snapshot(void)
+{
+    if (s_freeze_active || s_snapshot_arm)
+    {
+        return 0;
+    }
+    s_snapshot_arm = true;
+    return 0;
+}
+
+int app_gpu_resume_live(void)
+{
+    /* Always clear arm and freeze; DPU owns snapshot buffer release */
+    s_snapshot_arm  = false;
+    s_freeze_active = false;
+    return 0;
+}
+
+int app_gpu_drop_snapshot(void)
+{
+    /* Stop path: clear flags only; DPU release_cb frees snapshot buffer */
+    s_snapshot_arm  = false;
+    s_freeze_active = false;
+    s_snapshot_buf  = NULL;
+    s_snapshot_size = 0;
+    return 0;
+}
+
+bool app_gpu_is_frozen(void)
+{
+    return s_freeze_active;
+}
+
+void *app_gpu_get_snapshot_buffer(void)
+{
+    return s_snapshot_buf;
+}
+
+uint32_t app_gpu_get_snapshot_size(void)
+{
+    return s_snapshot_size;
 }
 
 avdk_err_t app_gpu_turn_on(gpu_board_config_t *config)
@@ -167,6 +287,9 @@ avdk_err_t app_gpu_turn_off(bk_gpu_ctlr_handle_t ctlr)
         LOGW("%s, gpu handle is NULL\n", __func__);
         return AVDK_ERR_GENERIC;
     }
+
+    /* turn_off: drop snapshot flags; buffer freed on panel close / DPU deinit */
+    app_gpu_drop_snapshot();
 
     ret = bk_gpu_close(ctlr);
     if (ret != AVDK_ERR_OK)
