@@ -38,6 +38,15 @@ static PalmDetectionModel *model = NULL;
 #define PALM_SERVO_PWM_CHAN_V   PWM_ID_1
 #define PALM_SERVO_GPIO_ID_V    GPIO_60
 
+/* Per-axis mechanical safe range on this rig:
+ *   - H (pan)  can sweep the full 0..180 (no obstruction).
+ *   - V (tilt) is limited to 45..135 (i.e. neutral 90 ±45) so the
+ *     camera can't crash into the chassis at either extreme. */
+#define PALM_SERVO_MIN_ANGLE_H  0
+#define PALM_SERVO_MAX_ANGLE_H  180
+#define PALM_SERVO_MIN_ANGLE_V  45
+#define PALM_SERVO_MAX_ANGLE_V  (90 + 45)
+
 /* One handle per physical motor; tracking now drives both axes. */
 static bk_aimi_servo_handle_t s_servo_h = NULL;
 static bk_aimi_servo_handle_t s_servo_v = NULL;
@@ -49,15 +58,21 @@ static bk_aimi_servo_handle_t s_servo_v = NULL;
 static bk_aimi_palm_tracker_axis_cfg_t s_tracker_cfg_h;
 static bk_aimi_palm_tracker_axis_cfg_t s_tracker_cfg_v;
 
+/* Build a tracker cfg whose mechanical limits track those of the given
+ * servo handle, so the tracker math and the servo set_angle() clamp can
+ * never disagree (otherwise the tracker thinks the angle is X while the
+ * servo silently clamps to Y, and the next-frame delta is computed from
+ * the wrong baseline). */
 static void palm_tracker_axis_cfg_init(bk_aimi_palm_tracker_axis_cfg_t *cfg,
+                                       bk_aimi_servo_handle_t servo,
                                        int dir)
 {
     cfg->gain      = BK_AIMI_PALM_TRACKER_DEFAULT_GAIN;
     cfg->max_step  = BK_AIMI_PALM_TRACKER_DEFAULT_MAX_STEP;
     cfg->deadband  = BK_AIMI_PALM_TRACKER_DEFAULT_DEADBAND;
     cfg->dir       = dir;
-    cfg->min_angle = SERVO_MIN_ANGLE;
-    cfg->max_angle = SERVO_MAX_ANGLE;
+    cfg->min_angle = bk_aimi_servo_get_min_angle(servo);
+    cfg->max_angle = bk_aimi_servo_get_max_angle(servo);
 }
 
 /* The whole start-up path (sensor probe, ISP init, C++ object construction,
@@ -208,6 +223,8 @@ static void palm_detection_start_task(void *arg)
     servo_cfg_h.chan          = PALM_SERVO_PWM_CHAN_H;
     servo_cfg_h.gpio          = PALM_SERVO_GPIO_ID_H;
     servo_cfg_h.initial_angle = SERVO_CENTER_ANGLE;
+    servo_cfg_h.min_angle     = PALM_SERVO_MIN_ANGLE_H;
+    servo_cfg_h.max_angle     = PALM_SERVO_MAX_ANGLE_H;
     s_servo_h = bk_aimi_servo_init(&servo_cfg_h);
     if (s_servo_h == NULL) {
         bk_printf("palm_detection_start_task: H servo init failed\n");
@@ -217,19 +234,25 @@ static void palm_detection_start_task(void *arg)
     servo_cfg_v.chan          = PALM_SERVO_PWM_CHAN_V;
     servo_cfg_v.gpio          = PALM_SERVO_GPIO_ID_V;
     servo_cfg_v.initial_angle = SERVO_CENTER_ANGLE;
+    servo_cfg_v.min_angle     = PALM_SERVO_MIN_ANGLE_V;
+    servo_cfg_v.max_angle     = PALM_SERVO_MAX_ANGLE_V;
     s_servo_v = bk_aimi_servo_init(&servo_cfg_v);
     if (s_servo_v == NULL) {
         bk_printf("palm_detection_start_task: V servo init failed\n");
     }
 
-    /* Per-axis tracker cfg. Note dir: palm-on-right (norm > 0) should
-     * make the camera swing right, which on this rig means *increasing*
-     * the H angle, so dir_h = +1. Palm-down (norm > 0 on cy) should make
-     * the camera tilt down, but the V motor on this rig is mounted such
-     * that *decreasing* the angle tilts down, so dir_v = -1. Flip these
-     * if your mechanical assembly is mirrored. */
-    palm_tracker_axis_cfg_init(&s_tracker_cfg_h, +1);
-    palm_tracker_axis_cfg_init(&s_tracker_cfg_v, -1);
+    /* Per-axis tracker cfg. `dir` is the sign that maps "palm offset on
+     * this axis" to "angle delta on this motor":
+     *   - H: palm-on-right (norm > 0) -> camera swings right ->
+     *        H angle *increases* -> dir_h = +1.
+     *   - V: palm-down     (norm > 0) -> camera tilts down ->
+     *        V angle *increases* on this rig too -> dir_v = +1.
+     * Flip the sign if you ever change the mechanical mounting; the
+     * tracker math is otherwise the same for both axes. The tracker's
+     * min/max are read back from the servo handle so the two clamps
+     * always agree (tracker state == servo state). */
+    palm_tracker_axis_cfg_init(&s_tracker_cfg_h, s_servo_h, +1);
+    palm_tracker_axis_cfg_init(&s_tracker_cfg_v, s_servo_v, +1);
 
     model = new PalmDetectionModel();
     model->setBoxDetectionCallback(detection_box_cb);

@@ -67,11 +67,26 @@ typedef struct bk_aimi_servo_handle_s *bk_aimi_servo_handle_t;
  * line AND the starting value of the handle's internal angle state.
  * Setting it to SERVO_CENTER_ANGLE (90) avoids the "jump to 0 then to
  * 90 on first track" double-move that a hardcoded 0 would cause.
+ *
+ * `min_angle` / `max_angle` are the *software* mechanical limits for
+ * this specific motor: every bk_aimi_servo_set_angle() call clamps to
+ * this range, so the application layer (and the palm tracker) can pin
+ * the servo to a safe sub-range. They default to the full [0, 180]
+ * range that the PWM duty mapping (`servo_angle_to_duty`) spans:
+ *   - leave both at 0 to fall back to [SERVO_MIN_ANGLE, SERVO_MAX_ANGLE]
+ *   - or set tighter bounds, e.g. {45, 135} for a tilt motor that
+ *     should never travel past ±45 from neutral.
+ *
+ * NOTE: these limits live "above" the PWM standard (0.5ms@0°
+ * .. 2.5ms@180°), which is fixed by the servo itself; they only
+ * restrict what `set_angle` is allowed to command.
  */
 typedef struct {
     pwm_chan_t chan;          /**< PWM channel to drive (e.g. PWM_ID_0). */
     gpio_id_t  gpio;          /**< GPIO pin to output the PWM signal on. */
-    uint32_t   initial_angle; /**< Starting angle in degrees, [0, 180]. */
+    uint32_t   initial_angle; /**< Starting angle in degrees. */
+    uint32_t   min_angle;     /**< Software lower limit, degrees. 0 -> SERVO_MIN_ANGLE. */
+    uint32_t   max_angle;     /**< Software upper limit, degrees. 0 -> SERVO_MAX_ANGLE. */
 } bk_aimi_servo_config_t;
 
 /**
@@ -104,6 +119,20 @@ void bk_aimi_servo_set_angle(bk_aimi_servo_handle_t handle, uint32_t angle);
  * @return Last commanded angle in degrees, or 0 if @p handle is NULL.
  */
 uint32_t bk_aimi_servo_get_angle(bk_aimi_servo_handle_t handle);
+
+/**
+ * @brief Read the per-instance software lower limit for this servo.
+ *
+ * @return min_angle as resolved in bk_aimi_servo_init(), or 0 if NULL.
+ */
+uint32_t bk_aimi_servo_get_min_angle(bk_aimi_servo_handle_t handle);
+
+/**
+ * @brief Read the per-instance software upper limit for this servo.
+ *
+ * @return max_angle as resolved in bk_aimi_servo_init(), or 0 if NULL.
+ */
+uint32_t bk_aimi_servo_get_max_angle(bk_aimi_servo_handle_t handle);
 
 #ifdef __cplusplus
 }

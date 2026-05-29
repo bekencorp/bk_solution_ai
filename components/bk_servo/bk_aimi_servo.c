@@ -34,8 +34,10 @@
 struct bk_aimi_servo_handle_s {
 	pwm_chan_t chan;
 	gpio_id_t  gpio;
-	uint32_t   angle; /**< Last commanded angle (also "current physical
-	                   *   angle" for the purposes of incremental tracking). */
+	uint32_t   angle;     /**< Last commanded angle (also "current physical
+	                       *   angle" for the purposes of incremental tracking). */
+	uint32_t   min_angle; /**< Software lower limit, applied by set_angle(). */
+	uint32_t   max_angle; /**< Software upper limit, applied by set_angle(). */
 };
 
 /* ===================== Helpers ===================== */
@@ -84,9 +86,29 @@ bk_aimi_servo_handle_t bk_aimi_servo_init(const bk_aimi_servo_config_t *cfg)
 		return NULL;
 	}
 
+	/* Resolve the per-instance software limits. We treat (min, max) ==
+	 * (0, 0) as "caller didn't set them" and fall back to the full
+	 * [SERVO_MIN_ANGLE, SERVO_MAX_ANGLE] range so legacy callers still
+	 * compile and behave the same. */
+	uint32_t lo = cfg->min_angle;
+	uint32_t hi = cfg->max_angle;
+	if (lo == 0 && hi == 0) {
+		lo = SERVO_MIN_ANGLE;
+		hi = SERVO_MAX_ANGLE;
+	}
+	if (hi > SERVO_MAX_ANGLE) hi = SERVO_MAX_ANGLE;
+	if (lo > hi) {
+		LOGE("init: bad limits min=%u > max=%u\n",
+		     (unsigned)lo, (unsigned)hi);
+		return NULL;
+	}
+
+	/* Clamp the initial angle into [lo, hi] so the PWM duty programmed
+	 * below and the handle->angle state both respect the software
+	 * limits from the first frame. */
 	uint32_t angle = cfg->initial_angle;
-	if (angle > SERVO_MAX_ANGLE)
-		angle = SERVO_MAX_ANGLE;
+	if (angle < lo) angle = lo;
+	if (angle > hi) angle = hi;
 
 	struct bk_aimi_servo_handle_s *h =
 	    (struct bk_aimi_servo_handle_s *)os_malloc(sizeof(*h));
@@ -94,12 +116,15 @@ bk_aimi_servo_handle_t bk_aimi_servo_init(const bk_aimi_servo_config_t *cfg)
 		LOGE("init: out of memory\n");
 		return NULL;
 	}
-	h->chan  = cfg->chan;
-	h->gpio  = cfg->gpio;
-	h->angle = angle;
+	h->chan      = cfg->chan;
+	h->gpio      = cfg->gpio;
+	h->angle     = angle;
+	h->min_angle = lo;
+	h->max_angle = hi;
 
-	bk_printf("[servo] init, chan=%d, gpio=%d, initial_angle=%u\r\n",
-	          (int)h->chan, (int)h->gpio, (unsigned)h->angle);
+	bk_printf("[servo] init, chan=%d, gpio=%d, initial_angle=%u, limits=[%u..%u]\r\n",
+	          (int)h->chan, (int)h->gpio,
+	          (unsigned)h->angle, (unsigned)h->min_angle, (unsigned)h->max_angle);
 
 	BK_LOG_ON_ERR(bk_pwm_driver_init());
 
@@ -140,8 +165,11 @@ void bk_aimi_servo_set_angle(bk_aimi_servo_handle_t handle, uint32_t angle)
 	if (h == NULL)
 		return;
 
-	if (angle > SERVO_MAX_ANGLE)
-		angle = SERVO_MAX_ANGLE;
+	/* Clamp to the per-instance software limits, not the global PWM
+	 * range, so a tilt servo configured with {45, 135} can't be pushed
+	 * past its mechanical safe zone by a stray command. */
+	if (angle < h->min_angle) angle = h->min_angle;
+	if (angle > h->max_angle) angle = h->max_angle;
 
 	h->angle = angle;
 	servo_drive_pwm(h);
@@ -153,4 +181,20 @@ uint32_t bk_aimi_servo_get_angle(bk_aimi_servo_handle_t handle)
 	if (h == NULL)
 		return 0;
 	return h->angle;
+}
+
+uint32_t bk_aimi_servo_get_min_angle(bk_aimi_servo_handle_t handle)
+{
+	struct bk_aimi_servo_handle_s *h = (struct bk_aimi_servo_handle_s *)handle;
+	if (h == NULL)
+		return 0;
+	return h->min_angle;
+}
+
+uint32_t bk_aimi_servo_get_max_angle(bk_aimi_servo_handle_t handle)
+{
+	struct bk_aimi_servo_handle_s *h = (struct bk_aimi_servo_handle_s *)handle;
+	if (h == NULL)
+		return 0;
+	return h->max_angle;
 }
