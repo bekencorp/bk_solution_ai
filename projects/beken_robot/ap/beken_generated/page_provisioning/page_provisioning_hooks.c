@@ -8,6 +8,7 @@
  */
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 
 #include "lvgl.h"
 #include "beken_ui.h"
@@ -25,7 +26,21 @@
 
 #define PAGE4_MENU_COUNT 3
 
+static const uint32_t s_btn_base_colors[PAGE4_MENU_COUNT] = {
+    0x1677ff, 0x2a3a4f, 0xa83232,
+};
+
+static const uint32_t s_btn_focus_colors[PAGE4_MENU_COUNT] = {
+    0x4aa3ff, 0x45617f, 0xd94b4b,
+};
+
 static int s_menu_idx;
+
+/* Latched state text for the non-connected case. The connected case is
+ * derived live from the Wi-Fi link, so provisioning success (which arrives
+ * asynchronously on another task) is reflected without an explicit callback. */
+static const char *s_state_text = "State: READY";
+static lv_timer_t *s_status_timer;
 
 static lv_obj_t *menu_btn(bk_lv_ui_t *ui, int idx)
 {
@@ -50,11 +65,54 @@ static void apply_menu_focus(bk_lv_ui_t *ui)
         if (b == NULL) {
             continue;
         }
+        bool focused = (i == s_menu_idx);
+        uint32_t color = focused ? s_btn_focus_colors[i] : s_btn_base_colors[i];
         lv_obj_remove_state(b, LV_STATE_DISABLED);
-        uint32_t color = (i == s_menu_idx) ? 0xc0c0c0 : 0x2d75b9;
         lv_obj_set_style_bg_color(b, lv_color_hex(color),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(b, focused ? 2 : 0,
+                                      LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_color(b, lv_color_hex(0xffffff),
+                                      LV_PART_MAIN | LV_STATE_DEFAULT);
     }
+}
+
+/*
+ * Refresh both the SSID and State lines from the live Wi-Fi link status.
+ * ASCII only so it never depends on CJK glyph coverage. When the STA is
+ * connected we show the SSID and "CONNECTED"; otherwise we fall back to the
+ * latched s_state_text (READY / PROVISIONING / DELETED / RESETTING).
+ */
+static void update_status(bk_lv_ui_t *ui)
+{
+    char ssid[33];
+    char line[48];
+
+    if (ui == NULL) {
+        return;
+    }
+    if (provisioning_get_ssid(ssid, sizeof(ssid)) == 0) {
+        if (ui->page_4_label_status != NULL) {
+            snprintf(line, sizeof(line), "WiFi: %s", ssid);
+            lv_label_set_text(ui->page_4_label_status, line);
+        }
+        if (ui->page_4_label_hint != NULL) {
+            lv_label_set_text(ui->page_4_label_hint, "State: CONNECTED");
+        }
+    } else {
+        if (ui->page_4_label_status != NULL) {
+            lv_label_set_text(ui->page_4_label_status, "WiFi: --");
+        }
+        if (ui->page_4_label_hint != NULL) {
+            lv_label_set_text(ui->page_4_label_hint, s_state_text);
+        }
+    }
+}
+
+static void status_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    update_status(&bk_lv_tool_ui);
 }
 
 static void on_focus_prev(bk_lv_ui_t *ui)
@@ -94,13 +152,23 @@ static void on_screen_next(bk_lv_ui_t *ui)
     LOGI("page_provisioning short press idx=%d\r\n", s_menu_idx);
     switch (s_menu_idx) {
     case 0:
-        LOGI("Start provisioning (short press S4 to trigger)\r\n");
+        LOGI("Start provisioning\r\n");
+        s_state_text = "State: PROVISIONING";
         provisioning_trigger_smart_config();
         break;
-    case 1: LOGI("Delete\r\n"); break;
-    case 2: LOGI("Factory reset\r\n"); break;
+    case 1:
+        LOGI("Delete provisioning\r\n");
+        s_state_text = "State: DELETED";
+        provisioning_delete_smart_config();
+        break;
+    case 2:
+        LOGI("Factory reset\r\n");
+        s_state_text = "State: RESETTING";
+        provisioning_factory_reset();
+        break;
     default: break;
     }
+    update_status(ui);
 }
 
 static void on_confirm_long(bk_lv_ui_t *ui)
@@ -151,13 +219,25 @@ static void register_button_clicks(bk_lv_ui_t *ui)
 static void page_provisioning_on_init(bk_lv_ui_t *ui)
 {
     s_menu_idx = 0;
+    s_state_text = "State: READY";
+    update_status(ui);
     apply_menu_focus(ui);
     register_button_clicks(ui);
     (void)ui_nav_register_screen(ui->page_4, &page_4_nav_ops);
+
+    /* Poll the live Wi-Fi link so asynchronous provisioning success (which is
+     * reported on other tasks) is reflected on the page without a callback. */
+    if (s_status_timer == NULL) {
+        s_status_timer = lv_timer_create(status_timer_cb, 1000, NULL);
+    }
 }
 
 static void page_provisioning_on_destroy(bk_lv_ui_t *ui)
 {
+    if (s_status_timer != NULL) {
+        lv_timer_del(s_status_timer);
+        s_status_timer = NULL;
+    }
     ui_nav_unregister_screen(ui->page_4);
 }
 

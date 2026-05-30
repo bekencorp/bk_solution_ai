@@ -84,6 +84,11 @@ typedef struct
      * page_3_init.c for the menu/action mapping. */
     /* Page: 3 objects */
     lv_obj_t *page_4;
+    lv_obj_t *page_4_label_title;
+    lv_obj_t *page_4_label_desc;
+    lv_obj_t *page_4_status_card;
+    lv_obj_t *page_4_label_status;
+    lv_obj_t *page_4_label_hint;
     lv_obj_t *page_4_button_1;
     lv_obj_t *page_4_button_1_label;
     lv_obj_t *page_4_button_2;

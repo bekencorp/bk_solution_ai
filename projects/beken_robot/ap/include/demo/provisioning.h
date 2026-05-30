@@ -16,6 +16,20 @@ extern "C" {
 
 /** Kick the smart-config provisioning workflow. */
 void provisioning_trigger_smart_config(void);
+/** Delete saved Wi-Fi provisioning and Agent channel state. */
+void provisioning_delete_smart_config(void);
+/** Restore factory defaults, clear provisioning state, and reboot. */
+void provisioning_factory_reset(void);
+
+/**
+ * @brief Get the SSID of the currently connected Wi-Fi AP.
+ *
+ * @param buf  output buffer for the SSID string (always NUL-terminated).
+ * @param len  size of @p buf in bytes.
+ * @return 0 when STA is connected and @p buf holds a non-empty SSID;
+ *         -1 otherwise (buf is set to an empty string).
+ */
+int provisioning_get_ssid(char *buf, int len);
 
 int provisioning_init(void);
 int provisioning_start(void);
