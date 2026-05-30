@@ -35,12 +35,18 @@ typedef enum {
     AVDK_NN_MEM_TYPE_SRAM,
     AVDK_NN_MEM_TYPE_PSRAM_HEAP,
     AVDK_NN_MEM_TYPE_PSRAM_SLAB,
+    AVDK_NN_MEM_TYPE_PSRAM_SLAB_UNCODED,
 } avdk_nn_mem_type_t;
 
 typedef enum {
     AVDK_NN_MODEL_TYPE_CPU,
     AVDK_NN_MODEL_TYPE_NPU,
 } avdk_nn_model_type_t;
+
+typedef enum {
+    AVDK_NN_MODEL_LOAD_TYPE_FLASH,
+    AVDK_NN_MODEL_LOAD_TYPE_SD_FILE,
+} avdk_nn_model_load_type_t;
 
 
 /* Function-pointer typedef. The leading `*` is REQUIRED: without it
@@ -65,11 +71,13 @@ protected:
 
     avdk_nn_model_type_t model_type;
 
+    avdk_nn_model_load_type_t modelLoadType;
     avdk_nn_mem_type_t model_ram_type;
     uint8_t *model_data;
     uint32_t model_data_size;
     uint8_t *model_flash_data;
     uint32_t model_flash_data_size;
+    const char *modelFilePath;
 
     avdk_nn_mem_type_t fast_ram_type;
     uint8_t *fast_ram_data;
@@ -89,7 +97,10 @@ protected:
     boxDetectionCallbackT boxDetectionCallback;
 
 public:
-    AvdkDetectionModel() : boxDetectionCallback(nullptr) {}
+    AvdkDetectionModel() :
+        modelLoadType(AVDK_NN_MODEL_LOAD_TYPE_FLASH),
+        modelFilePath(nullptr),
+        boxDetectionCallback(nullptr) {}
     virtual ~AvdkDetectionModel() {}
 
     void setBoxDetectionCallback(boxDetectionCallbackT cb) { boxDetectionCallback = cb; }

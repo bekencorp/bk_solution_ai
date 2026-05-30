@@ -3,6 +3,11 @@
 #include "os/str.h"
 #include "os/os.h"
 #include "components/bk_frame_buffer.h"
+#if CONFIG_SDCARD
+extern "C" {
+#include "ff.h"
+}
+#endif
 
 #include "tensorflow/lite/micro/cortex_m_generic/debug_log_callback.h"
 
@@ -10,6 +15,10 @@
 
 
 static const char* TAG = "det-model";
+
+#if CONFIG_SDCARD
+#define AVDK_NN_MODEL_IO_CHUNK 4096u
+#endif
 
 #define LOGI(...) BK_LOGW((char*)TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW((char*)TAG, ##__VA_ARGS__)
@@ -33,6 +42,10 @@ void *AvdkDetectionModel::allocMemory(avdk_nn_mem_type_t type, uint32_t size)
     else if (type == AVDK_NN_MEM_TYPE_PSRAM_SLAB)
     {
         return bk_frame_buffer_malloc(MEM_SLAB_HEAP_CODED, size);
+    }
+    else if (type == AVDK_NN_MEM_TYPE_PSRAM_SLAB_UNCODED)
+    {
+        return bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED, size);
     }
 
     LOGE("Unsupported memory type alloc\n");
@@ -58,6 +71,10 @@ void AvdkDetectionModel::freeMemory(avdk_nn_mem_type_t type, void *ptr)
     {
         bk_frame_buffer_free(ptr);
     }
+    else if (type == AVDK_NN_MEM_TYPE_PSRAM_SLAB_UNCODED)
+    {
+        bk_frame_buffer_free(ptr);
+    }
     else
     {
         LOGE("Unsupported memory type free\n");
@@ -70,7 +87,82 @@ int AvdkDetectionModel::LoadModel()
 
     resourceLoad();
 
-    if (model_ram_type == AVDK_NN_MEM_TYPE_FALSH)
+    if (modelLoadType == AVDK_NN_MODEL_LOAD_TYPE_SD_FILE)
+    {
+#if CONFIG_SDCARD
+        if (modelFilePath == NULL || modelFilePath[0] == '\0')
+        {
+            LOGE("SD model path is empty\n");
+            resourceUnload();
+            return -1;
+        }
+
+        FIL file;
+        FRESULT fr = f_open(&file, modelFilePath, FA_READ);
+        if (fr != FR_OK)
+        {
+            LOGE("f_open %s failed, fr=%d\n", modelFilePath, fr);
+            resourceUnload();
+            return -1;
+        }
+
+        FSIZE_t file_size = f_size(&file);
+        if (file_size == 0 || file_size > UINT32_MAX)
+        {
+            LOGE("invalid SD model size=%u\n", (unsigned)file_size);
+            (void)f_close(&file);
+            resourceUnload();
+            return -1;
+        }
+
+        model_data_size = (uint32_t)file_size;
+        model_data = (uint8_t*)allocMemory(model_ram_type, model_data_size);
+        if (model_data == NULL)
+        {
+            LOGE("Failed to allocate SD model data, size=%u\n", (unsigned)model_data_size);
+            (void)f_close(&file);
+            resourceUnload();
+            return -1;
+        }
+
+        uint32_t total = 0;
+        while (total < model_data_size)
+        {
+            uint32_t chunk = model_data_size - total;
+            if (chunk > AVDK_NN_MODEL_IO_CHUNK)
+            {
+                chunk = AVDK_NN_MODEL_IO_CHUNK;
+            }
+
+            UINT br = 0;
+            fr = f_read(&file, model_data + total, chunk, &br);
+            if (fr != FR_OK || br != chunk)
+            {
+                LOGE("read SD model failed at %u/%u, fr=%d br=%u/%u\n",
+                     (unsigned)total,
+                     (unsigned)model_data_size,
+                     fr,
+                     (unsigned)br,
+                     (unsigned)chunk);
+                freeMemory(model_ram_type, model_data);
+                model_data = NULL;
+                model_data_size = 0;
+                (void)f_close(&file);
+                resourceUnload();
+                return -1;
+            }
+            total += br;
+        }
+
+        (void)f_close(&file);
+        LOGI("loaded SD model %s, size=%u\n", modelFilePath, (unsigned)model_data_size);
+#else
+        LOGE("SD model loading requires FatFS\n");
+        resourceUnload();
+        return -1;
+#endif
+    }
+    else if (model_ram_type == AVDK_NN_MEM_TYPE_FALSH)
     {
         model_data = model_flash_data;
         model_data_size = model_flash_data_size;

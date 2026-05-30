@@ -38,8 +38,10 @@
  */
 
 #include "PalmDetectionModel.h"
-#include "palm_detect_model_data.h"
 #include "palm_detection_anchors.h"
+#if !CONFIG_SDCARD
+#include "palm_detect_model_data.h"
+#endif
 #include <math.h>
 #include <components/log.h>   /* BK_LOGW / BK_LOGE / BK_LOGI / BK_LOGD */
 
@@ -133,6 +135,11 @@ static int nms_in_place(Box* boxes, int count, float iou_thresh) {
 
 /* ===================== AvdkDetectionModel overrides ===================== */
 
+void PalmDetectionModel::setModelFilePath(const char *path)
+{
+    modelFilePath = path;
+}
+
 void PalmDetectionModel::resolverLoad(void)
 {
     micro_op_resolver.AddEthosU();
@@ -150,11 +157,21 @@ void PalmDetectionModel::resourceLoad(void)
     format = BK_PIXEL_FORMAT_RGB888;
 
     model_type             = AVDK_NN_MODEL_TYPE_NPU;
+#if CONFIG_SDCARD
+    modelLoadType          = AVDK_NN_MODEL_LOAD_TYPE_SD_FILE;
     model_ram_type         = AVDK_NN_MEM_TYPE_PSRAM_SLAB;
+    model_flash_data       = NULL;
+    model_flash_data_size  = 0;
+    model_data             = NULL;
+    model_data_size        = 0;
+#else
+    modelLoadType          = AVDK_NN_MODEL_LOAD_TYPE_FLASH;
+    model_ram_type         = AVDK_NN_MEM_TYPE_FALSH;
     model_flash_data       = (uint8_t*)palm_detection_builtin_256_integer_quant_vela_tflite;
     model_flash_data_size  = palm_detection_builtin_256_integer_quant_vela_tflite_size;
     model_data             = (uint8_t*)palm_detection_builtin_256_integer_quant_vela_tflite;
     model_data_size        = palm_detection_builtin_256_integer_quant_vela_tflite_size;
+#endif
 
     fast_ram_type          = AVDK_NN_MEM_TYPE_HSRAM;
     fast_ram_data_size     = 128 * 1024;
