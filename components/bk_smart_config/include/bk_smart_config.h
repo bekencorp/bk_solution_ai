@@ -111,6 +111,7 @@ const char *bk_sconf_get_start_model_type(void);
 int bk_sconf_sync_flash_request(void);
 void bk_sconf_sync_flash_handler(void);
 void bk_sconf_erase_smart_config(void);
+void bk_sconf_factory_reset(void);
 void bk_sconf_begin_to_switch_ir_mode(void);
 
 /**

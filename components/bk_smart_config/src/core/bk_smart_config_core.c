@@ -51,6 +51,7 @@
 #endif
 
 #include "phy_client.h"
+#include <modules/pm.h>
 
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
@@ -703,8 +704,26 @@ void bk_sconf_network_provisioning_status_cb(bk_network_provisioning_status_t st
 }
 void bk_sconf_erase_smart_config(void)
 {
+    int ret;
+
+    LOGI("erase smart config\r\n");
     erase_network_auto_reconnect_info();
     bk_sconf_erase_channel_name();
+    s_network_provisioned = false;
+    smart_config_running = false;
+
+    ret = bk_wifi_sta_stop();
+    if (ret != BK_OK) {
+        LOGW("stop Wi-Fi STA after erase failed, ret=%d\r\n", ret);
+    }
+}
+void bk_sconf_factory_reset(void)
+{
+    LOGI("factory reset requested\r\n");
+    bk_pm_module_vote_power_ctrl(PM_POWER_MODULE_NAME_BTSP, PM_POWER_MODULE_STATE_OFF);
+    bk_factory_reset();
+    bk_sconf_erase_smart_config();
+    bk_reboot();
 }
 void bk_sconf_prepare_for_smart_config(void)
 {
@@ -979,10 +998,9 @@ static void bk_sconf_cli_handler(char *pcWriteBuffer, int xWriteBufferLen, int a
     if ((argC == 2) && (os_strcmp(argV[1], "start") == 0)) {
         bk_network_provisioning_start(BK_NETWORK_PROVISIONING_TYPE_BLE);
     } else if ((argC == 2) && (os_strcmp(argV[1], "erase") == 0)) {
-        erase_network_auto_reconnect_info();
-        bk_sconf_erase_channel_name();
+        bk_sconf_erase_smart_config();
     } else if ((argC == 2) && (os_strcmp(argV[1], "reset") == 0)) {
-        bk_sconf_prepare_for_smart_config();
+        bk_sconf_factory_reset();
     } else if ((argC == 2) && (os_strcmp(argV[1], "vision") == 0)) {
         bk_sconf_begin_cli_mode_switch(1);
     } else if ((argC == 2) && (os_strcmp(argV[1], "text") == 0)) {
