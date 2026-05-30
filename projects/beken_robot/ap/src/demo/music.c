@@ -34,7 +34,7 @@ static int music_play_local_test1(void)
 #if CONFIG_AE_SUPPORT_PROMPT_TONE && CONFIG_AE_PROMPT_TONE_SOURCE_ARRAY && CONFIG_AE_PROMPT_TONE_DECODER_MP3
     prompt_tone_uri_info_t info = {0};
     info.uri = (char *)test1_mp3;
-    info.total_len = test1_mp3_len;
+    info.total_len = sizeof(test1_mp3);
     int ret = audio_engine_prompt_tone_start(g_audio_engine_prompt_tone, &info);
     if (ret != 0) {
         LOGW("music play failed: %d\n", ret);
