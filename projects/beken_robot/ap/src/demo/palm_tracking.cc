@@ -50,6 +50,10 @@ bk_err_t bk_robot_lvgl_resume_display(void);
 static AvdkVideoReatorOSD *video_reator = NULL;
 static PalmDetectionModel *model = NULL;
 
+#ifndef PALM_TRACKING_MODEL_SD_PATH
+#define PALM_TRACKING_MODEL_SD_PATH "1:/tflite/palm_detection_builtin_256_integer_quant_vela.tflite"
+#endif
+
 /* Hardware binding for the palm-tracking servos on this board.
  * The bk_servo component is HW-agnostic: PWM channel and GPIO pin are
  * picked here at the application layer and passed in via config structs. */
@@ -331,6 +335,7 @@ static void palm_detection_start_task(void *arg)
         goto fail;
     }
     model->setBoxDetectionCallback(detection_box_cb);
+    model->setModelFilePath(PALM_TRACKING_MODEL_SD_PATH);
 
     video_reator = new AvdkVideoReatorOSD(model);
     if (video_reator == NULL) {
