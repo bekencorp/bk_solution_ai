@@ -312,7 +312,9 @@ int page_edge_ai_enter(void)
                                  0, EDGE_STATUS_Y, EDGE_SCREEN_W, 22,
                                  &lv_font_ali_16, 0x9eb7d9);
 
-    s_edge_idx = 0;
+    if (s_edge_idx < 0 || s_edge_idx >= EDGE_MENU_COUNT) {
+        s_edge_idx = 0;
+    }
     edge_ai_menu_apply_focus();
     bk_page_attach_right_swipe_gesture(s_edge_screen);
     bk_page_attach_right_swipe_gesture(panel);
