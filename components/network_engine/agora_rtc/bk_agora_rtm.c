@@ -17,7 +17,7 @@
 #include "agora_rtc_engine.h"
 #include "bk_agora_rtm.h"
 #include "cJSON.h"
-#include "driver/trng.h"
+#include "components/bk_platform.h"
 #include "base_64.h"
 
 #if CONFIG_AGORA_RTC_USE_STRING_UID

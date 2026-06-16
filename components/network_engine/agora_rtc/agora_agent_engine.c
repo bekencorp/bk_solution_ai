@@ -9,7 +9,7 @@
 #include "agora_agent_engine.h"
 #include "AgoraWebClientUtils.h"
 #include "cJSON.h"
-#include "driver/trng.h"
+#include "components/bk_platform.h"
 #include "agora_config.h"
 #if CONFIG_BK_VIDEO_ENGINE
 #include "video_engine.h"

@@ -136,10 +136,10 @@ static bk_err_t bk_hiwonder_hand_servo_hw_channel_init(bk_hiwonder_hand_servo_ha
     init_cfg.duty_cycle = bk_hiwonder_hand_servo_pulse_us_to_duty_cycle(h->duty[idx]);
     init_cfg.psc = BK_HIWONDER_HAND_SERVO_HW_PSC;
 
-    /* Route the PWM channel to the servo's GPIO before init, so the driver
-     * maps our pad directly and never touches its fixed default pad. */
-    bk_pwm_set_gpio(h->hw_map[idx].pwm_chan, h->hw_map[idx].gpio);
-
+    /* The PWM channel's output pad is owned by the project GPIO config table
+     * (GPIO_DEFAULT_DEV_CONFIG in usr_gpio_cfg.h); bk_pwm_init() routes it via
+     * gpio_dev_map_by_func(GPIO_DEV_PWM<chan>). hw_map[idx].gpio is kept only
+     * for logging/diagnostics here. */
     ret = bk_pwm_init(h->hw_map[idx].pwm_chan, &init_cfg);
     if (ret != BK_OK) {
         LOGE("bk_pwm_init idx=%u chan=%u gpio=%u failed %d\n",

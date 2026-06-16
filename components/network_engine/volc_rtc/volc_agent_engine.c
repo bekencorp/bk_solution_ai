@@ -6,7 +6,7 @@
 #include <os/os.h>
 #include <os/mem.h>
 #include <os/str.h>
-#include "driver/trng.h"
+#include "components/bk_platform.h"
 #include "volc_agent_engine.h"
 #include "RtcWebClientUtils.h"
 #include "volc_config.h"

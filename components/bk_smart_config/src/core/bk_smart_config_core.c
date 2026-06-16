@@ -15,7 +15,7 @@
 #include <components/event.h>
 #include <components/netif.h>
 #include <driver/gpio.h>
-#include <driver/trng.h>
+#include <components/bk_platform.h>
 #include "bk_wifi.h"
 #include "bk_wifi_types.h"
 #include "bk_cli.h"
