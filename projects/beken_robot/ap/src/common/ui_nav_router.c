@@ -107,20 +107,17 @@ void ui_nav_unregister_screen(lv_obj_t *screen)
     rtos_unlock_mutex(&s_reg_mutex);
 }
 
-void ui_nav_dispatch_event(ui_nav_event_t ev)
+static void ui_nav_dispatch_event_unlocked(ui_nav_event_t ev)
 {
     if ((unsigned)ev >= (unsigned)UI_NAV_EVENT_COUNT) {
         return;
     }
-
-    lv_vendor_disp_lock();
 
     lv_obj_t *active = lv_screen_active();
     bk_lv_ui_t *ui = &bk_lv_tool_ui;
 
     const ui_page_nav_ops_t *ops = ui_nav_lookup_ops(active);
     if (ops == NULL) {
-        lv_vendor_disp_unlock();
         return;
     }
 
@@ -153,8 +150,18 @@ void ui_nav_dispatch_event(ui_nav_event_t ev)
     default:
         break;
     }
+}
 
+void ui_nav_dispatch_event(ui_nav_event_t ev)
+{
+    lv_vendor_disp_lock();
+    ui_nav_dispatch_event_unlocked(ev);
     lv_vendor_disp_unlock();
+}
+
+void ui_nav_dispatch_event_from_lvgl(ui_nav_event_t ev)
+{
+    ui_nav_dispatch_event_unlocked(ev);
 }
 
 /* ------------------------------------------------------------------ */

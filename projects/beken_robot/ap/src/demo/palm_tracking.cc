@@ -41,7 +41,7 @@ extern "C" {
 #include "lv_vendor.h"
 #include "beken_ui.h"
 #include "event_runtime.h"
-#include "driver/drv_tp.h"
+#include "ui_overlay_swipe.h"
 
 bk_err_t bk_robot_lvgl_resume_display(void);
 }
@@ -116,36 +116,13 @@ static volatile bool s_palm_started = false;
 
 #if CONFIG_LVGL
 static beken_thread_t s_palm_exit_thread = NULL;
-#if CONFIG_TP
-#define PALM_TP_HOR_SIZE  360
-#define PALM_TP_VER_SIZE  390
-static bool s_tp_closed_for_palm = false;
-#endif
 #endif
 
 #if CONFIG_LVGL && CONFIG_TP
-static void palm_tp_close(void)
+static void palm_overlay_back(void *arg)
 {
-    int tp_ret = drv_tp_close();
-    if (tp_ret == BK_OK) {
-        s_tp_closed_for_palm = true;
-    } else {
-        bk_printf("palm_tp_close: drv_tp_close failed (%d)\n", tp_ret);
-    }
-}
-
-static void palm_tp_open(void)
-{
-    if (!s_tp_closed_for_palm) {
-        return;
-    }
-
-    int tp_ret = drv_tp_open(PALM_TP_HOR_SIZE, PALM_TP_VER_SIZE, TP_MIRROR_NONE);
-    if (tp_ret == BK_OK) {
-        s_tp_closed_for_palm = false;
-    } else {
-        bk_printf("palm_tp_open: drv_tp_open failed (%d)\n", tp_ret);
-    }
+    (void)arg;
+    (void)palm_detection_exit_to_menu();
 }
 #endif
 
@@ -280,9 +257,6 @@ static void palm_detection_start_task(void *arg)
 
 #if CONFIG_LVGL
     lv_vendor_stop();
-#if CONFIG_TP
-    palm_tp_close();
-#endif
 #endif
 
     plam_detection_config();
@@ -370,6 +344,10 @@ static void palm_detection_start_task(void *arg)
         goto fail;
     }
 
+#if CONFIG_LVGL && CONFIG_TP
+    (void)ui_overlay_swipe_back_start(palm_overlay_back, NULL);
+#endif
+
     bk_printf("palm_detection_start_task: done, exiting worker\n");
 
     s_palm_start_thread = NULL;
@@ -418,7 +396,7 @@ fail:
         }
     }
 #if CONFIG_TP
-    palm_tp_open();
+    ui_overlay_swipe_back_stop();
 #endif
     lv_vendor_start();
     lv_vendor_disp_lock();
@@ -493,6 +471,10 @@ int palm_detection_stop(void)
     if (!s_palm_started) {
         return 0;
     }
+
+#if CONFIG_TP
+    ui_overlay_swipe_back_stop();
+#endif
 
     for (int i = 0; i < 50 && s_palm_start_thread != NULL; i++) {
         rtos_delay_milliseconds(20);
@@ -572,7 +554,7 @@ static void palm_detection_exit_task(void *arg)
     }
 
 #if CONFIG_TP
-    palm_tp_open();
+    ui_overlay_swipe_back_stop();
 #endif
     lv_vendor_start();
 
@@ -598,6 +580,8 @@ done:
 extern "C" int palm_detection_exit_to_menu(void)
 {
 #if CONFIG_LVGL
+    ui_overlay_swipe_back_stop();
+
     /* Idempotent fast path: nothing to exit. */
     if (!s_palm_started) {
         return 0;

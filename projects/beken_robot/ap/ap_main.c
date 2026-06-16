@@ -15,6 +15,7 @@
 #include "lv_vendor.h"
 #include "beken_ui.h"
 #include "ui_nav_router.h"
+#include "ui_overlay_swipe.h"
 #include "custom_func.h"
 #include "demo/demo_registry.h"
 #include "page_hooks.h"
@@ -137,6 +138,7 @@ static bk_err_t bk_robot_lvgl_init(bk_display_ctlr_handle_t dpu_handle)
     cfg.args = &s_lvgl_dpu_handle;
     cfg.flush_cb = bk_robot_lvgl_flush_cb;
 
+    ui_overlay_swipe_set_display_transform(cfg.width, cfg.height, cfg.rotation);
     lv_vendor_init(&cfg);
 
 #if (CONFIG_TP)

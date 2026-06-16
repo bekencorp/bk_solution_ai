@@ -7,6 +7,7 @@ set(srcs
     src/common/media_devices.c
     src/common/ui_nav_router.c
     src/common/ui_key_bridge.c
+    src/common/ui_overlay_swipe.c
     src/common/wifi_status_ui.c
     src/common/board_usb_switch.c
 )

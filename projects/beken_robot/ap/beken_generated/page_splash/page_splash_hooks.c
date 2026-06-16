@@ -32,6 +32,8 @@ static const ui_page_nav_ops_t page_1_nav_ops = {
     .on_screen_next = on_screen_next,
 };
 
+static bool s_ignore_next_click;
+
 /*
  * TP click adapter: page_1 is a welcome screen with only a logo + title.
  * Any tap is treated as "confirm" and enters the top-level menu. The
@@ -41,12 +43,30 @@ static const ui_page_nav_ops_t page_1_nav_ops = {
 static void screen_click_cb(lv_event_t *e)
 {
     (void)e;
+    if (s_ignore_next_click) {
+        s_ignore_next_click = false;
+        return;
+    }
     on_screen_next(&bk_lv_tool_ui);
+}
+
+static void screen_gesture_cb(lv_event_t *e)
+{
+    lv_indev_t *indev = lv_event_get_indev(e);
+    if (indev == NULL) {
+        indev = lv_indev_active();
+    }
+
+    if (indev != NULL && lv_indev_get_gesture_dir(indev) == LV_DIR_RIGHT) {
+        s_ignore_next_click = true;
+    }
 }
 
 static void splash_on_page_init(bk_lv_ui_t *ui)
 {
+    s_ignore_next_click = false;
     lv_obj_add_flag(ui->page_1, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui->page_1, screen_gesture_cb, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(ui->page_1, screen_click_cb, LV_EVENT_CLICKED, NULL);
     (void)ui_nav_register_screen(ui->page_1, &page_1_nav_ops);
 }

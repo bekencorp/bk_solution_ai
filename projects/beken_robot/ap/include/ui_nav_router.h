@@ -50,6 +50,14 @@ void ui_nav_unregister_screen(lv_obj_t *screen);
 void ui_nav_dispatch_event(ui_nav_event_t ev);
 
 /**
+ * @brief Dispatch a navigation event from inside an LVGL event callback.
+ *
+ * This variant assumes the caller is already in LVGL context and therefore
+ * does not take lv_vendor_disp_lock again.
+ */
+void ui_nav_dispatch_event_from_lvgl(ui_nav_event_t ev);
+
+/**
  * @brief Register the `nav` CLI command (test helper) that simulates
  *        key-driven navigation events and supports direct page jumps
  *        for headless verification. Safe to call multiple times.

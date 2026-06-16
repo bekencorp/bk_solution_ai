@@ -28,6 +28,7 @@
 #include "lvgl.h"
 #include "media_devices.h"
 #include "lv_vendor.h"
+#include "ui_overlay_swipe.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -219,6 +220,12 @@ static int camera_preview_reopen_lvgl_panel(void)
     return 0;
 }
 
+static void camera_preview_overlay_back(void *arg)
+{
+    (void)arg;
+    (void)camera_preview_stop();
+}
+
 /* Restart LVGL; invalidate full screen after panel swap (partial-render). */
 static void camera_preview_resume_lvgl(void)
 {
@@ -288,12 +295,14 @@ static void camera_preview_start_task(void *arg)
     }
 
     s_preview_state = PREVIEW_STATE_RUNNING;
+    (void)ui_overlay_swipe_back_start(camera_preview_overlay_back, NULL);
     s_preview_thread = NULL;
     LOGI("camera_preview_start_task: running\n");
     rtos_delete_thread(NULL);
     return;
 
 err_rollback:
+    ui_overlay_swipe_back_stop();
     (void)camera_preview_reopen_lvgl_panel();
     camera_preview_resume_lvgl();
     s_preview_state = PREVIEW_STATE_IDLE;
@@ -898,6 +907,8 @@ static void camera_preview_stop_task(void *arg)
     (void)arg;
     LOGI("camera_preview_stop_task: begin\n");
 
+    ui_overlay_swipe_back_stop();
+
     camera_preview_wait_photo_worker(PREVIEW_PHOTO_WAIT_MS);
 
     /* Tear the vision-recognition LLM down BEFORE we close the camera
@@ -984,6 +995,7 @@ int camera_preview_stop(void)
     }
 
     s_preview_state = PREVIEW_STATE_STOPPING;
+    ui_overlay_swipe_back_stop();
     bk_err_t ret = rtos_core1_create_thread(&s_preview_thread,
                                             BEKEN_DEFAULT_WORKER_PRIORITY,
                                             PREVIEW_STOP_TASK_NAME,
