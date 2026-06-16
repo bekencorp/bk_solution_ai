@@ -17,6 +17,7 @@
 #include "custom_func.h"
 #include "event_runtime.h"
 #include "page_hooks.h"
+#include "ui_i18n.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -51,7 +52,7 @@ void init_page_page_10(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_bg_grad_dir(bk_ui->page_10, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     bk_ui->page_10_label_title = lv_label_create(bk_ui->page_10);
-    lv_label_set_text(bk_ui->page_10_label_title, "音量");
+    lv_label_set_text(bk_ui->page_10_label_title, ui_tr(STR_VOLUME_TITLE));
     page_10_style_text(bk_ui->page_10_label_title, &lv_font_ali_16);
     lv_obj_set_pos(bk_ui->page_10_label_title, 24, 24);
 

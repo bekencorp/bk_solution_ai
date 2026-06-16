@@ -139,6 +139,9 @@ lv_obj_t *ui_theme_create_text(lv_obj_t *parent, const char *text, int x, int y,
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_pos(label, x, y);
     lv_obj_set_width(label, w);
+    if (font != NULL) {
+        lv_obj_set_height(label, font->line_height + 2);
+    }
     set_common_text(label, font, color, align);
     return label;
 }
@@ -162,6 +165,7 @@ static const char *icon_text(ui_theme_icon_kind_t kind)
     case UI_THEME_ICON_VOLUME:   return LV_SYMBOL_VOLUME_MAX;
     case UI_THEME_ICON_USB:      return LV_SYMBOL_USB;
     case UI_THEME_ICON_RESET:    return LV_SYMBOL_REFRESH;
+    case UI_THEME_ICON_LANG:     return "文A";
     case UI_THEME_ICON_NONE:
     default:                     return LV_SYMBOL_LIST;
     }
@@ -313,7 +317,7 @@ void ui_theme_set_row_focus(lv_obj_t *row, const char *title,
     int icon_y = (row_h - icon_size) / 2;
     int title_x = icon_x + icon_size + 10;
     int title_y = row_h >= 56 ? 10 : 7;
-    int desc_w = row_w >= 310 ? 92 : 82;
+    int desc_w = row_w >= 310 ? 76 : 68;
     int desc_x = row_w - desc_w - 15;
     int title_w = desc != NULL ? desc_x - title_x - 8 : row_w - title_x - 15;
 

@@ -9,6 +9,7 @@ set(srcs
     src/common/ui_touch_gesture.c
     src/common/ui_list_menu.c
     src/common/ui_theme.c
+    src/common/ui_i18n.c
     src/common/ui_key_bridge.c
     src/common/ui_overlay_swipe.c
     src/common/ui_screenshot.c

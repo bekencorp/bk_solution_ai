@@ -68,6 +68,7 @@ typedef enum {
     UI_THEME_ICON_VOLUME,
     UI_THEME_ICON_USB,
     UI_THEME_ICON_RESET,
+    UI_THEME_ICON_LANG,
 } ui_theme_icon_kind_t;
 
 void ui_theme_apply_screen(lv_obj_t *screen);

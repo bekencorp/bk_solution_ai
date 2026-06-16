@@ -18,6 +18,7 @@
 #include "ui_nav_router.h"
 #include "ui_theme.h"
 #include "ui_touch_gesture.h"
+#include "ui_i18n.h"
 #include "event_runtime.h"
 
 #ifdef ROBOT_TEST
@@ -47,17 +48,20 @@ enum {
     DEMO_CAT_COUNT,
 };
 
-static const char *const s_category_items[DEMO_CAT_COUNT] = {
-    "端侧AI",
-    "云端AI",
-    "娱乐互动",
+static const char *const s_category_items[UI_LANG_COUNT][DEMO_CAT_COUNT] = {
+    { "端侧AI",    "云端AI",    "娱乐互动" },
+    { "Edge AI",   "Cloud AI",  "Fun" },
 };
 
-static const char *const s_category_descs[DEMO_CAT_COUNT] = {
-    "本地推理",
-    "大模型",
-    "影音互动",
+static const char *const s_category_descs[UI_LANG_COUNT][DEMO_CAT_COUNT] = {
+    { "本地推理",   "大模型",     "影音互动" },
+    { "On-device", "LLM",        "Media" },
 };
+
+static inline ui_lang_t demo_lang(void)
+{
+    return ui_i18n_get_lang();
+}
 
 static int home_enter(void)
 {
@@ -84,19 +88,13 @@ static int demo_center_show_category(int category);
 /* ------------------------------------------------------------------ */
 /* End-side AI sub-menu.                                               */
 /* ------------------------------------------------------------------ */
-static const char *const s_edge_items[] = {
-    "命令词识别",
-    "声源定位",
-    "手掌跟随",
-    "人脸检测",
-    "手势识别",
+static const char *const s_edge_items[UI_LANG_COUNT][5] = {
+    { "命令词识别", "声源定位", "手掌跟随", "人脸检测", "手势识别" },
+    { "Keyword ASR", "Sound Locate", "Palm Follow", "Face Detect", "Gesture" },
 };
-static const char *const s_edge_descs[] = {
-    "语音控制",
-    "方向定位",
-    "摄像头跟随",
-    "人脸检测",
-    "手势识别",
+static const char *const s_edge_descs[UI_LANG_COUNT][5] = {
+    { "语音控制", "方向定位", "摄像头跟随", "人脸检测", "手势识别" },
+    { "Voice", "Direction", "Camera", "Face", "Hand" },
 };
 static const ui_theme_icon_kind_t s_edge_icons[] = {
     UI_THEME_ICON_ASR,
@@ -105,7 +103,7 @@ static const ui_theme_icon_kind_t s_edge_icons[] = {
     UI_THEME_ICON_FACE,
     UI_THEME_ICON_GESTURE,
 };
-#define EDGE_ITEM_COUNT ((int)(sizeof(s_edge_items) / sizeof(s_edge_items[0])))
+#define EDGE_ITEM_COUNT ((int)(sizeof(s_edge_items[0]) / sizeof(s_edge_items[0][0])))
 
 static void edge_on_select(int index, void *user_data)
 {
@@ -138,14 +136,13 @@ static void edge_on_select(int index, void *user_data)
     }
 }
 
-static const ui_list_menu_config_t s_edge_cfg = {
-    .title = "端侧AI",
-    .subtitle = "本地神经网络示例",
-    .items = s_edge_items,
-    .descriptions = s_edge_descs,
+static const char *const s_edge_subtitle[UI_LANG_COUNT] = {
+    "本地神经网络示例", "On-device neural demos",
+};
+
+static ui_list_menu_config_t s_edge_cfg = {
     .icons = s_edge_icons,
     .item_count = EDGE_ITEM_COUNT,
-    .tabs = s_category_items,
     .tab_count = DEMO_CAT_COUNT,
     .active_tab = DEMO_CAT_EDGE,
     .on_select = edge_on_select,
@@ -162,22 +159,20 @@ int demo_category_edge_enter(void)
 /* ------------------------------------------------------------------ */
 /* Cloud AI sub-menu (AI camera is an overlay demo).                   */
 /* ------------------------------------------------------------------ */
-static const char *const s_cloud_items[] = {
-    "AI对话",
-    "视觉识别",
-    "AI相机",
+static const char *const s_cloud_items[UI_LANG_COUNT][3] = {
+    { "AI对话",    "视觉识别",   "AI相机" },
+    { "AI Chat",   "Vision",     "AI Camera" },
 };
-static const char *const s_cloud_descs[] = {
-    "大模型对话",
-    "预览/识图",
-    "拍照预览",
+static const char *const s_cloud_descs[UI_LANG_COUNT][3] = {
+    { "大模型对话", "预览/识图",  "拍照预览" },
+    { "LLM Chat",  "Preview",    "Photo" },
 };
 static const ui_theme_icon_kind_t s_cloud_icons[] = {
     UI_THEME_ICON_CHAT,
     UI_THEME_ICON_VISION,
     UI_THEME_ICON_CAMERA,
 };
-#define CLOUD_ITEM_COUNT ((int)(sizeof(s_cloud_items) / sizeof(s_cloud_items[0])))
+#define CLOUD_ITEM_COUNT ((int)(sizeof(s_cloud_items[0]) / sizeof(s_cloud_items[0][0])))
 
 /*
  * AI camera takes the framebuffer away from LVGL while the sub-menu screen
@@ -225,14 +220,13 @@ static void cloud_on_select(int index, void *user_data)
     }
 }
 
-static const ui_list_menu_config_t s_cloud_cfg = {
-    .title = "云端AI",
-    .subtitle = "云端大模型示例",
-    .items = s_cloud_items,
-    .descriptions = s_cloud_descs,
+static const char *const s_cloud_subtitle[UI_LANG_COUNT] = {
+    "云端大模型示例", "Cloud LLM demos",
+};
+
+static ui_list_menu_config_t s_cloud_cfg = {
     .icons = s_cloud_icons,
     .item_count = CLOUD_ITEM_COUNT,
-    .tabs = s_category_items,
     .tab_count = DEMO_CAT_COUNT,
     .active_tab = DEMO_CAT_CLOUD,
     .on_select = cloud_on_select,
@@ -249,19 +243,19 @@ int demo_category_cloud_enter(void)
 /* ------------------------------------------------------------------ */
 /* Entertainment sub-menu.                                             */
 /* ------------------------------------------------------------------ */
-static const char *const s_fun_items[] = {
-    "音乐播放",
-    "图传播放",
+static const char *const s_fun_items[UI_LANG_COUNT][2] = {
+    { "音乐播放",  "图传播放" },
+    { "Music",     "Video" },
 };
-static const char *const s_fun_descs[] = {
-    "音乐控制",
-    "实时图传",
+static const char *const s_fun_descs[UI_LANG_COUNT][2] = {
+    { "音乐控制",  "实时图传" },
+    { "Playback",  "Live" },
 };
 static const ui_theme_icon_kind_t s_fun_icons[] = {
     UI_THEME_ICON_MUSIC,
     UI_THEME_ICON_VIDEO,
 };
-#define FUN_ITEM_COUNT ((int)(sizeof(s_fun_items) / sizeof(s_fun_items[0])))
+#define FUN_ITEM_COUNT ((int)(sizeof(s_fun_items[0]) / sizeof(s_fun_items[0][0])))
 
 static void fun_on_select(int index, void *user_data)
 {
@@ -274,14 +268,13 @@ static void fun_on_select(int index, void *user_data)
     }
 }
 
-static const ui_list_menu_config_t s_fun_cfg = {
-    .title = "娱乐互动",
-    .subtitle = "影音娱乐示例",
-    .items = s_fun_items,
-    .descriptions = s_fun_descs,
+static const char *const s_fun_subtitle[UI_LANG_COUNT] = {
+    "影音娱乐示例", "Media & fun demos",
+};
+
+static ui_list_menu_config_t s_fun_cfg = {
     .icons = s_fun_icons,
     .item_count = FUN_ITEM_COUNT,
-    .tabs = s_category_items,
     .tab_count = DEMO_CAT_COUNT,
     .active_tab = DEMO_CAT_FUN,
     .on_select = fun_on_select,
@@ -297,16 +290,38 @@ int demo_category_fun_enter(void)
 
 static const ui_list_menu_config_t *demo_center_cfg_for_category(int category)
 {
+    ui_lang_t lang = demo_lang();
+    ui_list_menu_config_t *cfg;
+    int cat;
+
     switch (category) {
+    case DEMO_CAT_CLOUD: cfg = &s_cloud_cfg; cat = DEMO_CAT_CLOUD; break;
+    case DEMO_CAT_FUN:   cfg = &s_fun_cfg;   cat = DEMO_CAT_FUN;   break;
     case DEMO_CAT_EDGE:
-        return &s_edge_cfg;
-    case DEMO_CAT_CLOUD:
-        return &s_cloud_cfg;
-    case DEMO_CAT_FUN:
-        return &s_fun_cfg;
-    default:
-        return &s_edge_cfg;
+    default:             cfg = &s_edge_cfg;  cat = DEMO_CAT_EDGE;  break;
     }
+
+    cfg->title = s_category_items[lang][cat];
+    cfg->tabs = s_category_items[lang];
+    switch (cat) {
+    case DEMO_CAT_CLOUD:
+        cfg->items = s_cloud_items[lang];
+        cfg->descriptions = s_cloud_descs[lang];
+        cfg->subtitle = s_cloud_subtitle[lang];
+        break;
+    case DEMO_CAT_FUN:
+        cfg->items = s_fun_items[lang];
+        cfg->descriptions = s_fun_descs[lang];
+        cfg->subtitle = s_fun_subtitle[lang];
+        break;
+    case DEMO_CAT_EDGE:
+    default:
+        cfg->items = s_edge_items[lang];
+        cfg->descriptions = s_edge_descs[lang];
+        cfg->subtitle = s_edge_subtitle[lang];
+        break;
+    }
+    return cfg;
 }
 
 static bool demo_center_nav_intercepted(ui_nav_event_t ev)
@@ -439,6 +454,7 @@ static lv_obj_t *demo_center_create_segment(lv_obj_t *parent, const char *text,
     lv_label_set_text(label, text);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(label, w);
+    lv_obj_set_height(label, lv_font_ali_25.line_height + 2);
     lv_obj_set_style_bg_opa(label, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(label,
                                 lv_color_hex(active ? 0xffffff : UI_THEME_COLOR_DESC),
@@ -524,10 +540,11 @@ static void demo_center_render(void)
     lv_obj_clean(s_demo_center_screen);
     ui_theme_apply_screen(s_demo_center_screen);
 
-    char subtitle[48];
+    ui_lang_t lang = demo_lang();
+    char subtitle[64];
     snprintf(subtitle, sizeof(subtitle), "%s · %s",
-             s_category_descs[s_demo_center_active_cat], cfg->subtitle);
-    (void)ui_theme_create_title(s_demo_center_screen, "Demo中心");
+             s_category_descs[lang][s_demo_center_active_cat], cfg->subtitle);
+    (void)ui_theme_create_title(s_demo_center_screen, ui_tr(STR_DEMO_CENTER_TITLE));
     (void)ui_theme_create_subtitle(s_demo_center_screen, subtitle);
 
     lv_obj_t *demo_panel = ui_theme_create_card(s_demo_center_screen,
@@ -548,7 +565,7 @@ static void demo_center_render(void)
     for (int i = 0; i < DEMO_CAT_COUNT; i++) {
         int x = 3 + i * (segment_w + segment_gap);
         s_demo_center_tabs[i] = demo_center_create_segment(tabs_bg,
-                                                          s_category_items[i],
+                                                          s_category_items[lang][i],
                                                           x, segment_w,
                                                           i == s_demo_center_active_cat);
         lv_obj_add_flag(s_demo_center_tabs[i], LV_OBJ_FLAG_CLICKABLE);
@@ -657,35 +674,47 @@ int demo_center_enter(void)
 /* ------------------------------------------------------------------ */
 /* Device settings.                                                    */
 /* ------------------------------------------------------------------ */
-static const char *const s_settings_items[] = {
-    "音量设置",
-    "U盘",
-    "恢复出厂设置",
+enum {
+    SETTINGS_VOLUME = 0,
+    SETTINGS_UDISK,
+    SETTINGS_LANG,
+    SETTINGS_RESET,
+    SETTINGS_ITEM_COUNT,
 };
-static const char *const s_settings_descs[] = {
-    "系统音量",
-    "USB存储",
-    "清除配置",
+
+static const char *const s_settings_items[UI_LANG_COUNT][SETTINGS_ITEM_COUNT] = {
+    { "音量设置", "U盘",  "语言",     "恢复出厂设置" },
+    { "Volume",   "USB",  "Language", "Factory Reset" },
 };
-static const ui_theme_icon_kind_t s_settings_icons[] = {
+static const char *const s_settings_descs[UI_LANG_COUNT][SETTINGS_ITEM_COUNT] = {
+    { "系统音量",  "USB存储", "",  "清除配置" },
+    { "System",   "Storage", "",  "Clear" },
+};
+static const ui_theme_icon_kind_t s_settings_icons[SETTINGS_ITEM_COUNT] = {
     UI_THEME_ICON_VOLUME,
     UI_THEME_ICON_USB,
+    UI_THEME_ICON_LANG,
     UI_THEME_ICON_RESET,
 };
-#define SETTINGS_ITEM_COUNT ((int)(sizeof(s_settings_items) / sizeof(s_settings_items[0])))
+
+static int language_menu_enter(void);
 
 static void settings_on_select(int index, void *user_data)
 {
     (void)user_data;
-    ui_demo_set_return_menu(device_settings_enter);
     switch (index) {
-    case 0:
+    case SETTINGS_VOLUME:
+        ui_demo_set_return_menu(device_settings_enter);
         (void)volume_start();
         break;
-    case 1:
+    case SETTINGS_UDISK:
+        ui_demo_set_return_menu(device_settings_enter);
         (void)udisk_start();
         break;
-    case 2:
+    case SETTINGS_LANG:
+        (void)language_menu_enter();
+        break;
+    case SETTINGS_RESET:
         /* Factory reset clears provisioning state and reboots the board. */
         provisioning_factory_reset();
         break;
@@ -694,11 +723,7 @@ static void settings_on_select(int index, void *user_data)
     }
 }
 
-static const ui_list_menu_config_t s_settings_cfg = {
-    .title = "设备设置",
-    .subtitle = "音量 · U盘 · 恢复出厂",
-    .items = s_settings_items,
-    .descriptions = s_settings_descs,
+static ui_list_menu_config_t s_settings_cfg = {
     .icons = s_settings_icons,
     .item_count = SETTINGS_ITEM_COUNT,
     .on_select = settings_on_select,
@@ -709,7 +734,71 @@ static const ui_list_menu_config_t s_settings_cfg = {
 
 int device_settings_enter(void)
 {
+    ui_lang_t lang = demo_lang();
+    static const char *s_settings_desc_rt[SETTINGS_ITEM_COUNT];
+    for (int i = 0; i < SETTINGS_ITEM_COUNT; i++) {
+        s_settings_desc_rt[i] = s_settings_descs[lang][i];
+    }
+    /* The language row shows the active language name as its right-side hint. */
+    s_settings_desc_rt[SETTINGS_LANG] =
+        ui_tr(lang == UI_LANG_EN ? STR_LANG_NATIVE_EN : STR_LANG_NATIVE_ZH);
+
+    s_settings_cfg.title = ui_tr(STR_SETTINGS_TITLE);
+    s_settings_cfg.subtitle = ui_tr(STR_SETTINGS_SUBTITLE);
+    s_settings_cfg.items = s_settings_items[lang];
+    s_settings_cfg.descriptions = s_settings_desc_rt;
     return ui_list_menu_create(&s_settings_cfg) != NULL ? 0 : -1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Language selection sub-menu.                                        */
+/* ------------------------------------------------------------------ */
+enum {
+    LANG_ITEM_ZH = 0,
+    LANG_ITEM_EN,
+    LANG_ITEM_COUNT,
+};
+
+/* Language names are always shown in their own script. */
+static const char *const s_lang_items[LANG_ITEM_COUNT] = {
+    "中文",
+    "English",
+};
+static const ui_theme_icon_kind_t s_lang_icons[LANG_ITEM_COUNT] = {
+    UI_THEME_ICON_LANG,
+    UI_THEME_ICON_LANG,
+};
+
+static void language_on_select(int index, void *user_data)
+{
+    (void)user_data;
+    ui_lang_t target = (index == LANG_ITEM_EN) ? UI_LANG_EN : UI_LANG_ZH;
+    ui_i18n_set_lang(target);
+    /* Rebuild the sub-menu so the check mark and labels reflect the choice. */
+    (void)language_menu_enter();
+}
+
+static ui_list_menu_config_t s_lang_cfg = {
+    .items = s_lang_items,
+    .icons = s_lang_icons,
+    .item_count = LANG_ITEM_COUNT,
+    .on_select = language_on_select,
+    .on_back = device_settings_enter,
+    .on_nav_intercept = NULL,
+    .user_data = NULL,
+};
+
+static int language_menu_enter(void)
+{
+    ui_lang_t lang = demo_lang();
+    static const char *s_lang_desc_rt[LANG_ITEM_COUNT];
+    s_lang_desc_rt[LANG_ITEM_ZH] = (lang == UI_LANG_ZH) ? LV_SYMBOL_OK : "";
+    s_lang_desc_rt[LANG_ITEM_EN] = (lang == UI_LANG_EN) ? LV_SYMBOL_OK : "";
+
+    s_lang_cfg.title = ui_tr(STR_SETTINGS_LANG);
+    s_lang_cfg.subtitle = ui_tr(STR_SETTINGS_TITLE);
+    s_lang_cfg.descriptions = s_lang_desc_rt;
+    return ui_list_menu_create(&s_lang_cfg) != NULL ? 0 : -1;
 }
 
 #else /* !ROBOT_TEST */

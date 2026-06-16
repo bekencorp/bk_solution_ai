@@ -18,6 +18,7 @@
 #include "event_runtime.h"
 #include "page_hooks.h"
 #include "ui_theme.h"
+#include "ui_i18n.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -35,11 +36,11 @@ void init_page_page_4(bk_lv_ui_t *bk_ui)
     bk_ui->page_4 = lv_obj_create(NULL);
     ui_theme_apply_screen(bk_ui->page_4);
 
-    bk_ui->page_4_label_title = ui_theme_create_title(bk_ui->page_4, "连接设置");
-    bk_ui->page_4_label_desc = ui_theme_create_subtitle(bk_ui->page_4, "BLE配网 · WiFi连接");
+    bk_ui->page_4_label_title = ui_theme_create_title(bk_ui->page_4, ui_tr(STR_PROV_TITLE));
+    bk_ui->page_4_label_desc = ui_theme_create_subtitle(bk_ui->page_4, ui_tr(STR_PROV_SUBTITLE));
 
     bk_ui->page_4_status_card = ui_theme_create_card(bk_ui->page_4, 22, 74, 341, 124, 26, true);
-    (void)ui_theme_create_text(bk_ui->page_4_status_card, "当前设备名", 19, 18, 160,
+    (void)ui_theme_create_text(bk_ui->page_4_status_card, ui_tr(STR_PROV_DEVICE_NAME), 19, 18, 160,
                                &lv_font_ali_16, UI_THEME_COLOR_MUTED,
                                LV_TEXT_ALIGN_LEFT);
 
@@ -57,13 +58,13 @@ void init_page_page_4(bk_lv_ui_t *bk_ui)
                                                     LV_TEXT_ALIGN_LEFT);
 
     bk_ui->page_4_button_1 = ui_theme_create_action_button(bk_ui->page_4,
-                                                           "开始配网",
+                                                           ui_tr(STR_PROV_BTN_START),
                                                            22, 216, 160, 52,
                                                            UI_THEME_BUTTON_PRIMARY);
     bk_ui->page_4_button_1_label = lv_obj_get_child(bk_ui->page_4_button_1, 0);
 
     bk_ui->page_4_button_2 = ui_theme_create_action_button(bk_ui->page_4,
-                                                           "删除配网",
+                                                           ui_tr(STR_PROV_BTN_DELETE),
                                                            203, 216, 160, 52,
                                                            UI_THEME_BUTTON_DANGER);
     bk_ui->page_4_button_2_label = lv_obj_get_child(bk_ui->page_4_button_2, 0);

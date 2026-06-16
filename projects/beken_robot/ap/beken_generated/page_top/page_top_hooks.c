@@ -20,6 +20,7 @@
 #include "page_hooks.h"
 #include "ui_theme.h"
 #include "ui_touch_gesture.h"
+#include "ui_i18n.h"
 
 #ifdef ROBOT_TEST
 
@@ -37,16 +38,14 @@ enum {
     HOME_ITEM_COUNT,
 };
 
-static const char *const s_home_items[HOME_ITEM_COUNT] = {
-    "连接设置",
-    "Demo中心",
-    "设备设置",
+static const char *const s_home_items[UI_LANG_COUNT][HOME_ITEM_COUNT] = {
+    { "连接设置",  "Demo中心",    "设备设置" },
+    { "Connect",   "Demo Center", "Settings" },
 };
 
-static const char *const s_home_tags[HOME_ITEM_COUNT] = {
-    "WiFi/BLE",
-    "AI/娱乐",
-    "音量/系统",
+static const char *const s_home_tags[UI_LANG_COUNT][HOME_ITEM_COUNT] = {
+    { "WiFi/BLE",  "AI/娱乐",  "音量/系统" },
+    { "WiFi/BLE",  "AI/Fun",   "Vol/Sys" },
 };
 
 static const ui_theme_icon_kind_t s_home_icons[HOME_ITEM_COUNT] = {
@@ -83,7 +82,8 @@ static void apply_home_focus(void)
             continue;
         }
         bool focused = (i == s_home_focus);
-        ui_theme_set_row_focus(row, s_home_items[i], s_home_tags[i],
+        ui_lang_t lang = ui_i18n_get_lang();
+        ui_theme_set_row_focus(row, s_home_items[lang][i], s_home_tags[lang][i],
                                s_home_icons[i], focused);
     }
 }
@@ -92,7 +92,8 @@ static lv_obj_t *create_home_row(lv_obj_t *parent, int index, int y)
 {
     lv_obj_t *row = ui_theme_create_card(parent, 18, y, 311, 48, 18, false);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    ui_theme_set_row_focus(row, s_home_items[index], s_home_tags[index],
+    ui_lang_t lang = ui_i18n_get_lang();
+    ui_theme_set_row_focus(row, s_home_items[lang][index], s_home_tags[lang][index],
                            s_home_icons[index], false);
     return row;
 }
@@ -165,11 +166,11 @@ static void page_top_on_init(bk_lv_ui_t *ui)
         return;
     }
 
-    (void)ui_theme_create_title(ui->page_2, "机器人控制台");
+    (void)ui_theme_create_title(ui->page_2, ui_tr(STR_HOME_TITLE));
     ui_touch_tap_reset(&s_home_tap_state);
 
     lv_obj_t *card = ui_theme_create_card(ui->page_2, 19, 70, 347, 223, 30, true);
-    (void)ui_theme_create_text(card, "请选择功能模块", 22, 18, 170,
+    (void)ui_theme_create_text(card, ui_tr(STR_HOME_HINT), 22, 18, 170,
                                &lv_font_ali_16, UI_THEME_COLOR_MUTED,
                                LV_TEXT_ALIGN_LEFT);
 

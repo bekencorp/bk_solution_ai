@@ -17,6 +17,7 @@
 #include "ui_nav_router.h"
 #include "ui_overlay_swipe.h"
 #include "ui_screenshot.h"
+#include "ui_i18n.h"
 #include "custom_func.h"
 #include "demo/demo_registry.h"
 #include "page_hooks.h"
@@ -220,10 +221,12 @@ extern uint32_t bk_misc_get_ap_reset_reason(void);
 extern uint32_t bk_misc_get_cp_reset_reason(void);
 
 static const uint32_t s_user_value2 = 10;
+static const uint32_t s_ui_locale_default = 0; /* UI_LANG_ZH */
 
 const struct factory_config_t s_user_config[] = {
     {"user_key1", (void *)"user_value1", 11, BK_FALSE, 0},
     {"user_key2", (void *)&s_user_value2, 4, BK_TRUE, 4},
+    {"ui_locale", (void *)&s_ui_locale_default, 4, BK_TRUE, 4},
 };
 #if 0
 /*Different hardware designs, different GPIOs control the LDO. Customers can adjust the following GPIO unmapping code */
@@ -336,6 +339,11 @@ int main(void)
     bk_regist_factory_user_config((const struct factory_config_t *)&s_user_config,
                                     sizeof(s_user_config)/sizeof(s_user_config[0]));
     bk_factory_init();
+
+#if CONFIG_LVGL
+    /* Load the persisted UI language before any page is built. */
+    ui_i18n_init();
+#endif
 
     #if CONFIG_LED_BLINK
         led_driver_init();

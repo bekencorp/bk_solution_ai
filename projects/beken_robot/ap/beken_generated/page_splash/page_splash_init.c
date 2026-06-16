@@ -11,6 +11,7 @@
 #include "event_runtime.h"
 #include "page_hooks.h"
 #include "ui_theme.h"
+#include "ui_i18n.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -45,7 +46,7 @@ void init_page_page_1(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_image_recolor_opa(bk_ui->page_1_image_3, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     bk_ui->page_1_label_1 = lv_label_create(bk_ui->page_1);
-    lv_label_set_text(bk_ui->page_1_label_1, "BK7259机器人方案");
+    lv_label_set_text(bk_ui->page_1_label_1, ui_tr(STR_SPLASH_TITLE));
     lv_label_set_long_mode(bk_ui->page_1_label_1, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_x(bk_ui->page_1_label_1, 20);
     lv_obj_set_y(bk_ui->page_1_label_1, 200);
@@ -56,12 +57,12 @@ void init_page_page_1(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_text_font(bk_ui->page_1_label_1, &lv_font_ali_30, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_align(bk_ui->page_1_label_1, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    (void)ui_theme_create_text(bk_ui->page_1, "AI · 视觉 · 图传 · 设备设置",
+    (void)ui_theme_create_text(bk_ui->page_1, ui_tr(STR_SPLASH_FEATURES),
                                32, 244, 321, &lv_font_ali_16,
                                UI_THEME_COLOR_DESC, LV_TEXT_ALIGN_CENTER);
 
     lv_obj_t *hint = lv_label_create(bk_ui->page_1);
-    lv_label_set_text(hint, "轻触屏幕进入系统");
+    lv_label_set_text(hint, ui_tr(STR_SPLASH_HINT));
     lv_label_set_long_mode(hint, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_x(hint, 32);
     lv_obj_set_y(hint, 274);

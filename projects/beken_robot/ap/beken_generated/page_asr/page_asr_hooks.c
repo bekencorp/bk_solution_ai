@@ -20,6 +20,7 @@
 
 #include "ui_nav_router.h"
 #include "ui_list_menu.h"
+#include "ui_i18n.h"
 #include <components/log.h>
 
 #define TAG "page_asr"
@@ -42,10 +43,10 @@ static char s_action_text[32] = "前进";
 static void apply_listening_view(void)
 {
     if (s_label_state) {
-        lv_label_set_text(s_label_state, "聆听中...");
+        lv_label_set_text(s_label_state, ui_tr(STR_ASR_LISTENING));
     }
     if (s_label_hint) {
-        lv_label_set_text(s_label_hint, "你可以说: 前进 后退 向左转 向右转");
+        lv_label_set_text(s_label_hint, ui_tr(STR_ASR_HINT));
         lv_obj_clear_flag(s_label_hint, LV_OBJ_FLAG_HIDDEN);
     }
     if (s_spinner) {
@@ -63,7 +64,7 @@ static void apply_listening_view(void)
 static void apply_recognized_view(void)
 {
     if (s_label_state) {
-        lv_label_set_text(s_label_state, "已识别");
+        lv_label_set_text(s_label_state, ui_tr(STR_ASR_RECOGNIZED));
     }
     if (s_label_hint) {
         lv_obj_add_flag(s_label_hint, LV_OBJ_FLAG_HIDDEN);
@@ -83,9 +84,9 @@ static void on_phrase_recognized(const char *phrase)
         return;
     }
     if ((strcmp(phrase, "nihaobaotong") == 0) || (strcmp(phrase, "nihaobotong") == 0)) {
-        snprintf(s_action_text, sizeof(s_action_text), "你好博通");
+        snprintf(s_action_text, sizeof(s_action_text), "%s", ui_tr(STR_ASR_HELLO));
     } else if (strcmp(phrase, "zaijianbotong") == 0) {
-        snprintf(s_action_text, sizeof(s_action_text), "再见博通");
+        snprintf(s_action_text, sizeof(s_action_text), "%s", ui_tr(STR_ASR_BYE));
     } else {
         return;
     }
