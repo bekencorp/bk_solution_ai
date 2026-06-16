@@ -15,6 +15,7 @@
 #include "event_runtime.h"
 #include "page_hooks.h"
 #include "demo/provisioning.h"
+#include "wifi_status_ui.h"
 
 #ifdef ROBOT_TEST
 
@@ -160,6 +161,14 @@ static void on_screen_next(bk_lv_ui_t *ui)
         LOGI("Delete provisioning\r\n");
         s_state_text = "State: DELETED";
         provisioning_delete_smart_config();
+        /* bk_sconf_erase_smart_config() clears the provisioned flag but
+         * emits no app_event, and page_2 is cached across navigation so
+         * its init hook will not re-run on return. Hide the wifi icon
+         * directly. We are already inside the LVGL event-callback chain
+         * (button_click_cb -> on_screen_next) running under lv_task_handler,
+         * which already holds lv_vendor_disp_lock(); use the _locked
+         * variant to avoid deadlocking the non-recursive disp mutex. */
+        wifi_status_ui_set_provisioned_locked(false);
         break;
     case 2:
         LOGI("Factory reset\r\n");

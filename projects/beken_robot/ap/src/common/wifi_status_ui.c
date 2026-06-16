@@ -112,11 +112,23 @@ void wifi_status_ui_init(void)
     inited = true;
 }
 
+void wifi_status_ui_set_provisioned_locked(bool provisioned)
+{
+    BK_LOGI(TAG, "wifi icon -> %s (forced, locked)\n",
+            provisioned ? "show" : "hide");
+    wifi_icon_set_visible_locked(provisioned);
+}
+
 #else /* !(CONFIG_LVGL && CONFIG_APP_EVT) */
 
 void wifi_status_ui_init(void)
 {
     BK_LOGI(TAG, "wifi_status_ui skipped (LVGL or APP_EVT disabled)\n");
+}
+
+void wifi_status_ui_set_provisioned_locked(bool provisioned)
+{
+    (void)provisioned;
 }
 
 #endif /* CONFIG_LVGL && CONFIG_APP_EVT */
