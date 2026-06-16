@@ -111,8 +111,16 @@ static volatile int32_t s_wakeup_phsm2 = 0;
 audio_engine_prompt_tone_handle_t g_audio_engine_prompt_tone = NULL;
 #endif
 uint8_t g_volume_level = 7;   // volume level, not gain.
+
+/*
+ * Volume ladder (dB). Levels 1..10 are the original -36 dB-anchored ladder.
+ * Level 0 is forced to BK_AUD_DAC_DIG_GAIN_DB_SILENCE instead of -36 dB:
+ * -36 dB is still faintly audible, so at the lowest level we drive the DAC
+ * digital gain into its mute region (gain_db <= SILENCE -> bk_aud_dac_mute)
+ * for true silence.
+ */
 static const float g_volume_gain[SPK_VOLUME_LEVEL] = {
-	-36.00f, -33.06f, -29.82f, -26.22f, -22.26f, -17.88f,
+	BK_AUD_DAC_DIG_GAIN_DB_SILENCE, -33.06f, -29.82f, -26.22f, -22.26f, -17.88f,
 	-13.03f, -7.68f, -1.76f, 4.77f, 12.00f
 };
 
