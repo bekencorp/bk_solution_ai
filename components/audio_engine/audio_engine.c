@@ -9,6 +9,9 @@
 #include <components/bk_player_service.h>
 #include <components/bk_player_service_types.h>
 #include <components/bk_audio/audio_pipeline/rb_port.h>
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+#include "bk_posix.h"
+#endif
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
 #include "audio_engine_prompt_tone.h"
 #endif
@@ -424,15 +427,81 @@ static bk_player_handle_t      s_mix_player;
 static audio_port_handle_t     s_mix_port;
 static audio_element_handle_t  s_mix_spk;
 static bool                    s_mix_inited;
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+static bool                    s_play_vfs_is_mount;
+static bool                    s_play_vfs_active;
+extern int                     bk_vfs_open(const char *path, int oflag);
+extern int                     bk_vfs_close(int fd);
+#endif
 
 static audio_dec_type_t resolve_dec(audio_dec_type_t dec_type)
 {
     return (dec_type != AUDIO_DEC_TYPE_INVALID) ? dec_type : AE_PLAY_DEFAULT_DEC;
 }
 
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+static bool ae_play_vfs_file_accessible(const char *path)
+{
+    if (path == NULL) {
+        return false;
+    }
+
+    int fd = bk_vfs_open(path, 0);
+    if (fd < 0) {
+        return false;
+    }
+    (void)bk_vfs_close(fd);
+    return true;
+}
+
+static int ae_play_vfs_mount(const char *path)
+{
+    if (!s_play_vfs_is_mount) {
+        struct bk_fatfs_partition partition;
+        char *fs_name = "fatfs";
+
+        partition.part_type = FATFS_DEVICE;
+        partition.part_dev.device_name = FATFS_DEV_SDCARD;
+        partition.mount_path = VFS_SD_0_PATITION_0;
+
+        int ret = BK_FAIL;
+        for (uint32_t i = 0; i < 3; i++) {
+            ret = mount("SOURCE_NONE", partition.mount_path, fs_name, 0, &partition);
+            if (ret == BK_OK || ae_play_vfs_file_accessible(path)) {
+                s_play_vfs_is_mount = true;
+                LOGI("play vfs mount /sd0%s\n", ret == BK_OK ? "" : " already ready");
+                return BK_OK;
+            }
+            LOGI("play vfs mount /sd0 retry %u ret=%d\n", (unsigned)i + 1, ret);
+            rtos_delay_milliseconds(100);
+        }
+
+        LOGE("play vfs mount /sd0 fail %d\n", ret);
+        return ret;
+    }
+
+    return BK_OK;
+}
+
+static void ae_play_vfs_unmount(void)
+{
+    /* Keep /sd0 mounted between short prompt tones. Unmounting resets SDIO
+     * and can make the next VFS prompt miss its playback window. */
+    s_play_vfs_active = false;
+}
+#endif
+
 static int mix_event_handler(int event, void *data, void *args)
 {
     (void)args;
+    if (event == PLAYER_EVENT_FINISH || event == PLAYER_EVENT_STOP) {
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+        if (s_play_vfs_active) {
+            ae_play_vfs_unmount();
+        }
+#endif
+        return BK_OK;
+    }
     if (event != PLAYER_EVENT_MUSIC_INFO || s_mix_spk == NULL || data == NULL) {
         return BK_OK;
     }
@@ -571,7 +640,11 @@ static int standalone_event_handler(int event, void *data, void *args)
     (void)data;
     (void)args;
     if (event == PLAYER_EVENT_FINISH || event == PLAYER_EVENT_STOP) {
-        /* placeholder for completion hooks (UI ducking unfreeze etc.) */
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+        if (s_play_vfs_active) {
+            ae_play_vfs_unmount();
+        }
+#endif
     }
     return BK_OK;
 }
@@ -621,9 +694,20 @@ static int ae_play_internal_stop(void)
         bk_player_stop(s_mix_player);
     }
     if (!s_player) {
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+        if (s_play_vfs_active) {
+            ae_play_vfs_unmount();
+        }
+#endif
         return BK_OK;
     }
-    return bk_player_stop(s_player);
+    int ret = bk_player_stop(s_player);
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+    if (s_play_vfs_active) {
+        ae_play_vfs_unmount();
+    }
+#endif
+    return ret;
 }
 
 static int ae_play_internal_deinit(void)
@@ -720,12 +804,25 @@ int audio_engine_play_array(const void *data, uint32_t len, audio_dec_type_t dec
 
 int audio_engine_play_vfs(const char *path, audio_dec_type_t dec_type)
 {
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+    if (ae_play_vfs_mount(path) != BK_OK) {
+        return BK_FAIL;
+    }
+#endif
     player_uri_info_t uri = {
         .uri_type  = PLAYER_URI_TYPE_VFS,
         .uri       = (char *)path,
         .total_len = 0,
     };
-    return dispatch(&uri, dec_type);
+    int ret = dispatch(&uri, dec_type);
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+    if (ret == BK_OK) {
+        s_play_vfs_active = true;
+    } else {
+        ae_play_vfs_unmount();
+    }
+#endif
+    return ret;
 }
 
 int audio_engine_play(const audio_engine_play_uri_t *uri)

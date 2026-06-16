@@ -79,28 +79,11 @@ static int vfs_mount_sd0_fatfs(void)
     return ret;
 }
 
-/* unmount sdcard */
+/* Keep /sd0 mounted after prompt playback. Repeated umount/mount cycles reset
+ * SDIO and can make the next prompt fail while the card is reinitializing. */
 static bk_err_t vfs_unmount_sd0_fatfs(void)
 {
-    bk_err_t ret = BK_OK;
-
-    if (!gl_sdcard_is_mount)
-    {
-        return BK_OK;
-    }
-
-    LOGD("func %s, unmount /sd0 \n", __func__);
-    if (BK_OK != umount(VFS_SD_0_PATITION_0))
-    {
-        LOGE("func %s, unmount /sd0 fail\n", __func__);
-        ret = BK_FAIL;
-    }
-    else
-    {
-        gl_sdcard_is_mount = false;
-    }
-
-    return ret;
+    return BK_OK;
 }
 #endif
 
@@ -170,6 +153,12 @@ static int player_not_playback_event_handler(int data, void *params, void *args)
     else if (data == PLAYER_EVENT_FINISH)
     {
         LOGD("[%s] PLAYER_EVENT_FINISH\n", __func__);
+        gl_wait_play_finish = true;
+        (void)app_event_send_msg(APP_EVT_PROMPT_TONE_FINISH, 0);
+    }
+    else if (data == PLAYER_EVENT_FAILURE || data == PLAYER_EVENT_STOP)
+    {
+        LOGD("[%s] prompt tone stop/failure event: %d\n", __func__, data);
         gl_wait_play_finish = true;
         (void)app_event_send_msg(APP_EVT_PROMPT_TONE_FINISH, 0);
     }

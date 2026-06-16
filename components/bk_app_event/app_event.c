@@ -75,8 +75,12 @@ static bool s_prompt_tone_owns_audio_engine;
 static prompt_tone_uri_info_t s_event_prompt_tone_info = {0};
 static uint8_t s_prompt_tone_status; //0 stop 1 play
 
+static audio_dec_type_t app_prompt_tone_dec_type(void)
+{
+    return AUDIO_DEC_TYPE_MP3;
+}
+
 #if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
-#if CONFIG_AE_PROMPT_TONE_DECODER_MP3
 static char asr_wakeup_prompt_tone_path[] = "/sd0/asr_wakeup_16k_mono_16bit_en.mp3";
 static char asr_standby_prompt_tone_path[] = "/sd0/asr_standby_16k_mono_16bit_en.mp3";
 static char network_provision_prompt_tone_path[] = "/sd0/network_provision_16k_mono_16bit_en.mp3";
@@ -92,43 +96,6 @@ static char low_voltage_prompt_tone_path[] = "/sd0/low_voltage_16k_mono_16bit_en
 static char ota_update_success_prompt_tone_path[] = "/sd0/ota_update_success_16k_mono_16bit_en.mp3";
 static char ota_update_fail_prompt_tone_path[] = "/sd0/ota_update_fail_16k_mono_16bit_en.mp3";
 static char agent_start_fail_prompt_tone_path[] = "/sd0/agent_start_fail_16k_mono_16bit_en.mp3";
-#endif
-
-#if CONFIG_AE_PROMPT_TONE_DECODER_WAV
-static char asr_wakeup_prompt_tone_path[] = "/sd0/asr_wakeup_16k_mono_16bit_en.wav";
-static char asr_standby_prompt_tone_path[] = "/sd0/asr_standby_16k_mono_16bit_en.wav";
-static char network_provision_prompt_tone_path[] = "/sd0/network_provision_16k_mono_16bit_en.wav";
-static char network_provision_success_prompt_tone_path[] = "/sd0/network_provision_success_16k_mono_16bit_en.wav";
-static char network_provision_fail_prompt_tone_path[] = "/sd0/network_provision_fail_16k_mono_16bit_en.wav";
-static char reconnect_network_prompt_tone_path[] = "/sd0/reconnect_network_16k_mono_16bit_en.wav";
-static char reconnect_network_success_prompt_tone_path[] = "/sd0/reconnect_network_success_16k_mono_16bit_en.wav";
-static char reconnect_network_fail_prompt_tone_path[] = "/sd0/reconnect_network_fail_16k_mono_16bit_en.wav";
-static char rtc_connection_lost_prompt_tone_path[] = "/sd0/rtc_connection_lost_16k_mono_16bit_en.wav";
-static char agent_joined_prompt_tone_path[] = "/sd0/agent_joined_16k_mono_16bit_en.wav";
-static char agent_offline_prompt_tone_path[] = "/sd0/agent_offline_16k_mono_16bit_en.wav";
-static char low_voltage_prompt_tone_path[] = "/sd0/low_voltage_16k_mono_16bit_en.wav";
-static char ota_update_success_prompt_tone_path[] = "/sd0/ota_update_success_16k_mono_16bit_en.wav";
-static char ota_update_fail_prompt_tone_path[] = "/sd0/ota_update_fail_16k_mono_16bit_en.wav";
-static char agent_start_fail_prompt_tone_path[] = "/sd0/agent_start_fail_16k_mono_16bit_en.wav";
-#endif
-
-#if CONFIG_AE_PROMPT_TONE_DECODER_PCM
-static char asr_wakeup_prompt_tone_path[] = "/sd0/asr_wakeup_16k_mono_16bit_en.pcm";
-static char asr_standby_prompt_tone_path[] = "/sd0/asr_standby_16k_mono_16bit_en.pcm";
-static char network_provision_prompt_tone_path[] = "/sd0/network_provision_16k_mono_16bit_en.pcm";
-static char network_provision_success_prompt_tone_path[] = "/sd0/network_provision_success_16k_mono_16bit_en.pcm";
-static char network_provision_fail_prompt_tone_path[] = "/sd0/network_provision_fail_16k_mono_16bit_en.pcm";
-static char reconnect_network_prompt_tone_path[] = "/sd0/reconnect_network_16k_mono_16bit_en.pcm";
-static char reconnect_network_success_prompt_tone_path[] = "/sd0/reconnect_network_success_16k_mono_16bit_en.pcm";
-static char reconnect_network_fail_prompt_tone_path[] = "/sd0/reconnect_network_fail_16k_mono_16bit_en.pcm";
-static char rtc_connection_lost_prompt_tone_path[] = "/sd0/rtc_connection_lost_16k_mono_16bit_en.pcm";
-static char agent_joined_prompt_tone_path[] = "/sd0/agent_joined_16k_mono_16bit_en.pcm";
-static char agent_offline_prompt_tone_path[] = "/sd0/agent_offline_16k_mono_16bit_en.pcm";
-static char low_voltage_prompt_tone_path[] = "/sd0/low_voltage_16k_mono_16bit_en.pcm";
-static char ota_update_success_prompt_tone_path[] = "/sd0/ota_update_success_16k_mono_16bit_en.pcm";
-static char ota_update_fail_prompt_tone_path[] = "/sd0/ota_update_fail_16k_mono_16bit_en.pcm";
-static char agent_start_fail_prompt_tone_path[] = "/sd0/agent_start_fail_16k_mono_16bit_en.pcm";
-#endif
 #endif  //CONFIG_AE_PROMPT_TONE_SOURCE_VFS
 #endif  //CONFIG_AE_SUPPORT_PROMPT_TONE
 
@@ -403,6 +370,29 @@ static bk_err_t app_play_prompt_tone(app_evt_type_t event)
 
     if (play_flag)
     {
+        if (s_prompt_tone_status != 0) {
+            LOGI("[prompt_tone] skip event %d, prompt tone busy\n", event);
+            return BK_OK;
+        }
+
+        if (audio_engine_is_running()) {
+            /* Voice-mix playback owns its stop/restart flow in audio_engine.
+             * Do not skip here because the mix player may keep PLAYING state
+             * briefly after the short prompt has drained. */
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            ret = audio_engine_play_vfs(s_event_prompt_tone_info.uri,
+                                        app_prompt_tone_dec_type());
+#elif CONFIG_AE_PROMPT_TONE_SOURCE_ARRAY
+            ret = audio_engine_play_array(s_event_prompt_tone_info.uri,
+                                          s_event_prompt_tone_info.total_len,
+                                          app_prompt_tone_dec_type());
+#endif
+            if (ret != BK_OK) {
+                LOGE("%s, %d, mix event prompt tone fail\n", __func__, __LINE__);
+            }
+            return ret;
+        }
+
         if (g_audio_engine_prompt_tone == NULL && !audio_engine_is_running()) {
             if (audio_engine_init() == AUDIO_ENGINE_SUCCESS) {
                 s_prompt_tone_owns_audio_engine = true;
@@ -415,10 +405,12 @@ static bk_err_t app_play_prompt_tone(app_evt_type_t event)
             LOGI("[prompt_tone] skip event %d, audio engine prompt unavailable\n", event);
             return BK_OK;
         }
+        s_prompt_tone_status = 1;
         ret = audio_engine_prompt_tone_start(g_audio_engine_prompt_tone, &s_event_prompt_tone_info);
         if (ret != BK_OK)
         {
             LOGE("%s, %d, play event prompt tone fail\n", __func__, __LINE__);
+            s_prompt_tone_status = 0;
             if (s_prompt_tone_owns_audio_engine && audio_engine_is_running()) {
                 s_prompt_tone_owns_audio_engine = false;
                 (void)audio_engine_stop();
@@ -427,7 +419,7 @@ static bk_err_t app_play_prompt_tone(app_evt_type_t event)
     }
     else
     {
-		s_prompt_tone_status = 1;
+        s_prompt_tone_status = 0;
         ret = BK_OK;
     }
 
@@ -780,6 +772,7 @@ static void app_event_thread(beken_thread_arg_t data)
                 case APP_EVT_PROMPT_TONE_FINISH:
                     LOGI("APP_EVT_PROMPT_TONE_FINISH\n");
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
+                    s_prompt_tone_status = 0;
                     if (s_prompt_tone_owns_audio_engine && audio_engine_is_running()) {
                         s_prompt_tone_owns_audio_engine = false;
                         (void)audio_engine_stop();
