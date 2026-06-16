@@ -98,8 +98,27 @@ protected:
 
 public:
     AvdkDetectionModel() :
+        tensor_arena(nullptr),
+        tensor_arena_raw(nullptr),
+        pinterpreter(nullptr),
+        name(nullptr),
+        width(0),
+        height(0),
+        format((bk_pixel_format_t)0),
+        model_type(AVDK_NN_MODEL_TYPE_CPU),
         modelLoadType(AVDK_NN_MODEL_LOAD_TYPE_FLASH),
+        model_ram_type(AVDK_NN_MEM_TYPE_FALSH),
+        model_data(nullptr),
+        model_data_size(0),
+        model_flash_data(nullptr),
+        model_flash_data_size(0),
         modelFilePath(nullptr),
+        fast_ram_type(AVDK_NN_MEM_TYPE_HSRAM),
+        fast_ram_data(nullptr),
+        fast_ram_data_size(0),
+        arena_ram_type(AVDK_NN_MEM_TYPE_HSRAM),
+        arena_ram_data(nullptr),
+        arena_data_size(0),
         boxDetectionCallback(nullptr) {}
     virtual ~AvdkDetectionModel() {}
 
