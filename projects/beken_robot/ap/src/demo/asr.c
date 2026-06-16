@@ -53,6 +53,10 @@ void asr_reset_phrase_trigger(void)
 int asr_start_service(void)
 {
 #if (CONFIG_ASR_SERVICE)
+    if (!audio_engine_is_running() && audio_engine_init() != AUDIO_ENGINE_SUCCESS) {
+        LOGI("ASR restore audio engine failed\r\n");
+        return -1;
+    }
     return (AUDIO_ENGINE_SUCCESS == audio_engine_asr_start()) ? 0 : -1;
 #else
     return 0;
@@ -62,7 +66,10 @@ int asr_start_service(void)
 int asr_stop_service(void)
 {
 #if (CONFIG_ASR_SERVICE)
-    return (AUDIO_ENGINE_SUCCESS == audio_engine_asr_stop()) ? 0 : -1;
+    if (!audio_engine_is_running()) {
+        return 0;
+    }
+    return (AUDIO_ENGINE_SUCCESS == audio_engine_stop()) ? 0 : -1;
 #else
     return 0;
 #endif

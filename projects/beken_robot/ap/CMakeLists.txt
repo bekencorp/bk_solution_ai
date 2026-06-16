@@ -42,7 +42,7 @@ set(priv_req media_service network_engine bk_voice_service audio_engine
               bk_smart_config bk_app_event bk_key_app bk_factory_config bk_led_blink
               bk_motor bk_nfc bk_batt_monitor bk_bluetooth bk_pan avdk_nn_module bk_servo
               bk_display bk_peripheral multimedia_device_service video_engine bk_cli avdk_utils lvgl
-              bk_tflite_micro bk_network_transfer robot_lan_net robot_video_service robot_ctrl_service)
+              bk_tflite_micro bk_network_transfer robot_lan_net robot_video_service robot_ctrl_service bk_vfs)
 
 armino_component_register(SRCS "${srcs}" INCLUDE_DIRS "${incs}" PRIV_REQUIRES "${priv_req}")
 

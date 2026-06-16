@@ -334,10 +334,6 @@ int main(void)
         nfc_get_id_task();
     #endif
 
-    #if CONFIG_BK_AUDIO_ENGINE
-        audio_engine_init();
-    #endif
-    
     #if CONFIG_APP_EVT
         app_event_init();
     #endif

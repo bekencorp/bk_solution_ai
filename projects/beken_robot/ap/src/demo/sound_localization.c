@@ -206,6 +206,13 @@ int page_5_cli_init(void)
 int sound_localization_start_service(void)
 {
 #if (CONFIG_ASR_SERVICE)
+    if (!audio_engine_is_running()) {
+        LOGI("audio engine stopped, restart for page5 doa\r\n");
+        if (AUDIO_ENGINE_SUCCESS != audio_engine_init()) {
+            LOGI("page5 restart audio engine failed\r\n");
+            return -1;
+        }
+    }
     return (AUDIO_ENGINE_SUCCESS == audio_engine_asr_start()) ? 0 : -1;
 #else
     return 0;
@@ -215,7 +222,10 @@ int sound_localization_start_service(void)
 int sound_localization_stop_service(void)
 {
 #if (CONFIG_ASR_SERVICE)
-    return (AUDIO_ENGINE_SUCCESS == audio_engine_asr_stop()) ? 0 : -1;
+    if (!audio_engine_is_running()) {
+        return 0;
+    }
+    return (AUDIO_ENGINE_SUCCESS == audio_engine_stop()) ? 0 : -1;
 #else
     return 0;
 #endif
@@ -232,16 +242,16 @@ extern int page_doa_enter(void);
 int sound_localization_start(void)
 {
     LOGI("Sound source localization -> page_5\r\n");
+    if (page_doa_enter() != 0) {
+        LOGI("page5 init failed\r\n");
+        return -1;
+    }
+
     if (sound_localization_start_service() != 0) {
         LOGI("page5 start asr failed\r\n");
-        return -1;
+        return 0;
     }
     LOGI("page5 start asr\r\n");
-    if (page_doa_enter() != 0) {
-        LOGI("page5 init failed, rollback asr\r\n");
-        (void)sound_localization_stop_service();
-        return -1;
-    }
     return 0;
 }
 

@@ -73,6 +73,17 @@ bk_err_t board_usb_switch_to_usb(void);
  */
 bk_err_t board_usb_switch_to_uart(void);
 
+/**
+ * @brief Make the SD-NAND available to the AP-side FatFS.
+ *
+ * If the FSW3157A is currently routed to BK7259 USB (and the CherryUSB
+ * MSC layer therefore owns the SDIO), this call performs the same
+ * teardown as board_usb_switch_to_uart() so the AP can subsequently
+ * f_mount drive 1. Idempotent: no-op when the mux is already in UART
+ * mode.
+ */
+bk_err_t board_usb_switch_prepare_nand_access(void);
+
 #ifdef __cplusplus
 }
 #endif

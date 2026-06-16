@@ -46,6 +46,9 @@
 #if CONFIG_BK_NETWORK_ENGINE
 #include "network_engine.h"
 #endif
+#if CONFIG_APP_EVT
+#include "app_event.h"
+#endif
 
 /* -----------------------------------------------------------------------
  * Debug-only: persist each captured JPEG to the on-board SD-NAND.
@@ -971,6 +974,11 @@ int camera_preview_demo_start(void)
         LOGE("camera_preview_start trigger failed\r\n");
         return -1;
     }
+#if CONFIG_APP_EVT
+    if (app_event_send_msg(APP_EVT_AGENT_JOINED, 0) != BK_OK) {
+        LOGW("AI camera entry prompt event failed\r\n");
+    }
+#endif
     return 0;
 }
 

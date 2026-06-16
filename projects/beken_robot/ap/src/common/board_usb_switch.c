@@ -441,6 +441,19 @@ bk_err_t board_usb_switch_to_uart(void)
     return err;
 }
 
+bk_err_t board_usb_switch_prepare_nand_access(void)
+{
+    /* If the FSW3157A is still routed to BK7259 USB (and CherryUSB MSC
+     * has the SD-NAND mounted), the AP-side FatFS cannot grab the chip
+     * because the MSC layer holds the SDIO. board_usb_switch_to_uart()
+     * tears MSC down and flips the mux back so subsequent f_mount on
+     * drive 1 works. Idempotent when already in UART mode. */
+    if (s_usb_sw_in_usb_mode) {
+        return board_usb_switch_to_uart();
+    }
+    return BK_OK;
+}
+
 bk_err_t board_usb_switch_to_usb(void)
 {
     board_sd_nand_power_on();
@@ -565,5 +578,6 @@ bk_err_t board_usb_switch_init(void)
 bk_err_t board_usb_switch_init(void)     { return board_sd_nand_cli_register(); }
 bk_err_t board_usb_switch_to_usb(void)   { return BK_OK; }
 bk_err_t board_usb_switch_to_uart(void)  { return BK_OK; }
+bk_err_t board_usb_switch_prepare_nand_access(void) { return BK_OK; }
 
 #endif /* CONFIG_BOARD_USB_SWITCH_ENABLE */

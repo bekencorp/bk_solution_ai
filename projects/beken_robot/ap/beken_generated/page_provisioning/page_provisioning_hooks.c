@@ -247,6 +247,7 @@ static void page_provisioning_on_destroy(bk_lv_ui_t *ui)
         lv_timer_del(s_status_timer);
         s_status_timer = NULL;
     }
+    (void)provisioning_stop();
     ui_nav_unregister_screen(ui->page_4);
 }
 

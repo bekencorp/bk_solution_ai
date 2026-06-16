@@ -8,9 +8,13 @@
 
 #ifdef ROBOT_TEST
 
+#include "audio_engine.h"
 #include "bk_smart_config.h"
 #if CONFIG_BK_NETWORK_ENGINE
 #include "network_engine.h"
+#endif
+#if CONFIG_APP_EVT
+#include "app_event.h"
 #endif
 #include <components/log.h>
 
@@ -26,12 +30,28 @@ int ai_chat_start_service(void)
         return -1;
     }
 #endif
-    return (bk_sconf_enter_text_mode() == BK_OK) ? 0 : -1;
+    if (!audio_engine_is_running() && audio_engine_init() != AUDIO_ENGINE_SUCCESS) {
+        LOGW("AI chat restore audio engine failed\r\n");
+        return -1;
+    }
+    if (bk_sconf_enter_text_mode() != BK_OK) {
+        return -1;
+    }
+#if CONFIG_APP_EVT
+    if (app_event_send_msg(APP_EVT_AGENT_JOINED, 0) != BK_OK) {
+        LOGW("AI chat entry prompt event failed\r\n");
+    }
+#endif
+    return 0;
 }
 
 int ai_chat_request_exit(void)
 {
-    return (bk_sconf_exit_ai_mode_async(0) == BK_OK) ? 0 : -1;
+    int ret = (bk_sconf_exit_ai_mode_async(0) == BK_OK) ? 0 : -1;
+    if (audio_engine_is_running()) {
+        (void)audio_engine_stop();
+    }
+    return ret;
 }
 
 int ai_chat_init(void)  { return 0; }

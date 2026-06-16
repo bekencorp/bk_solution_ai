@@ -137,7 +137,7 @@ static void on_screen_prev(bk_lv_ui_t *ui)
     destroy_page_page_10(ui);
 }
 
-static void on_screen_next(bk_lv_ui_t *ui) { (void)ui; }
+static void on_screen_next(bk_lv_ui_t *ui) { volume_up(ui); }
 
 static const ui_page_nav_ops_t page_10_nav_ops = {
     .on_focus_prev  = on_focus_prev,

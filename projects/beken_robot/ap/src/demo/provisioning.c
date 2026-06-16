@@ -10,6 +10,7 @@
 
 #ifdef ROBOT_TEST
 
+#include "audio_engine.h"
 #include <components/log.h>
 #include "bk_wifi.h"
 #include "bk_wifi_types.h"
@@ -83,7 +84,13 @@ int provisioning_start(void)
     return page_provisioning_enter();
 }
 
-int provisioning_stop(void) { return 0; }
+int provisioning_stop(void)
+{
+    if (audio_engine_is_running()) {
+        (void)audio_engine_stop();
+    }
+    return 0;
+}
 
 #else  /* !ROBOT_TEST */
 
