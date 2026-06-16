@@ -15,6 +15,10 @@
 #include "bk_wifi.h"
 #include "bk_wifi_types.h"
 
+#if CONFIG_BLUETOOTH
+#include <components/bluetooth/bk_dm_gap_ble.h>
+#endif
+
 #if CONFIG_BK_SMART_CONFIG
 #include "bk_smart_config.h"
 #endif
@@ -75,6 +79,26 @@ int provisioning_get_ssid(char *buf, int len)
     return 0;
 }
 
+int provisioning_get_ble_name(char *buf, int len)
+{
+    if (buf == NULL || len <= 0) {
+        return -1;
+    }
+    buf[0] = '\0';
+
+#if CONFIG_BLUETOOTH
+    uint32_t size = (uint32_t)len;
+    if (bk_ble_gap_get_device_name(buf, &size) != BK_ERR_BLE_SUCCESS) {
+        buf[0] = '\0';
+        return -1;
+    }
+    buf[len - 1] = '\0';
+    return buf[0] != '\0' ? 0 : -1;
+#else
+    return -1;
+#endif
+}
+
 int provisioning_init(void) { return 0; }
 
 extern int page_provisioning_enter(void);
@@ -98,6 +122,13 @@ void provisioning_trigger_smart_config(void) {}
 void provisioning_delete_smart_config(void) {}
 void provisioning_factory_reset(void) {}
 int  provisioning_get_ssid(char *buf, int len)
+{
+    if (buf != NULL && len > 0) {
+        buf[0] = '\0';
+    }
+    return -1;
+}
+int  provisioning_get_ble_name(char *buf, int len)
 {
     if (buf != NULL && len > 0) {
         buf[0] = '\0';

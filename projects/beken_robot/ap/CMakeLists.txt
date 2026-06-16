@@ -6,6 +6,9 @@ set(srcs
     ap_main.c
     src/common/media_devices.c
     src/common/ui_nav_router.c
+    src/common/ui_touch_gesture.c
+    src/common/ui_list_menu.c
+    src/common/ui_theme.c
     src/common/ui_key_bridge.c
     src/common/ui_overlay_swipe.c
     src/common/ui_screenshot.c
@@ -18,6 +21,7 @@ set(srcs
 # framebuffer away from LVGL, so they keep a documented lv_vendor_* dependency.
 list(APPEND srcs
     src/demo/demo_registry.c
+    src/demo/demo_catalog.c
     src/demo/provisioning.c
     src/demo/ai_chat.c
     src/demo/vision.c

@@ -31,6 +31,15 @@ void provisioning_factory_reset(void);
  */
 int provisioning_get_ssid(char *buf, int len);
 
+/**
+ * @brief Get the current BLE provisioning device name.
+ *
+ * @param buf  output buffer for the device name (always NUL-terminated).
+ * @param len  size of @p buf in bytes.
+ * @return 0 when a non-empty BLE name is available; -1 otherwise.
+ */
+int provisioning_get_ble_name(char *buf, int len);
+
 int provisioning_init(void);
 int provisioning_start(void);
 int provisioning_stop(void);

@@ -20,6 +20,7 @@
 #define OVERLAY_SWIPE_POLL_MS          20
 #define OVERLAY_SWIPE_MIN_DX           120
 #define OVERLAY_SWIPE_MAX_DY           120
+#define OVERLAY_SWIPE_EDGE_X           42
 #define OVERLAY_SWIPE_MAX_MS           1500U
 #define OVERLAY_SWIPE_DEBOUNCE_MS      500U
 #define OVERLAY_SWIPE_STOP_WAIT_MS     400U
@@ -104,6 +105,7 @@ static bool overlay_swipe_check_right(overlay_swipe_state_t *st,
     st->pressed = false;
 
     if (elapsed > OVERLAY_SWIPE_MAX_MS ||
+        st->start_x > OVERLAY_SWIPE_EDGE_X ||
         dx < OVERLAY_SWIPE_MIN_DX ||
         dy > OVERLAY_SWIPE_MAX_DY) {
         return false;

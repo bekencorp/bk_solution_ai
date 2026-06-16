@@ -19,6 +19,7 @@
 #ifdef ROBOT_TEST
 
 #include "ui_nav_router.h"
+#include "ui_list_menu.h"
 #include <components/log.h>
 
 #define TAG "page_asr"
@@ -117,9 +118,7 @@ static void on_screen_prev(bk_lv_ui_t *ui)
     }
     LOGI("page_asr back -> page_3\r\n");
     (void)asr_stop_service();
-    navigate_to_screen((lv_obj_t **)&ui->page_3,
-                       LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
-                       init_page_page_3);
+    (void)ui_demo_return_to_menu();
 }
 
 static const ui_page_nav_ops_t page_8_nav_ops = {

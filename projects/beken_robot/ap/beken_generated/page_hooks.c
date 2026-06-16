@@ -7,7 +7,7 @@
 #include <stdbool.h>
 
 #include "lvgl.h"
-#include "ui_nav_router.h"
+#include "ui_touch_gesture.h"
 
 #define BK_PAGE_SLOT_COUNT (BK_PAGE_ID_MAX + 1)
 
@@ -20,10 +20,6 @@ static inline bool is_valid_page_id(int page_id)
 {
     return page_id >= BK_PAGE_ID_MIN && page_id <= BK_PAGE_ID_MAX;
 }
-
-#define BK_PAGE_RIGHT_SWIPE_DEBOUNCE_MS 500U
-
-static uint32_t s_last_right_swipe_ms;
 
 static lv_obj_t *bk_page_screen_by_id(int page_id, bk_lv_ui_t *ui)
 {
@@ -47,31 +43,9 @@ static lv_obj_t *bk_page_screen_by_id(int page_id, bk_lv_ui_t *ui)
     }
 }
 
-static void bk_page_global_gesture_cb(lv_event_t *e)
-{
-    lv_indev_t *indev = lv_event_get_indev(e);
-    if (indev == NULL) {
-        indev = lv_indev_active();
-    }
-
-    if (indev != NULL && lv_indev_get_gesture_dir(indev) == LV_DIR_RIGHT) {
-        uint32_t now = lv_tick_get();
-        if (s_last_right_swipe_ms != 0 &&
-            now - s_last_right_swipe_ms < BK_PAGE_RIGHT_SWIPE_DEBOUNCE_MS) {
-            return;
-        }
-        s_last_right_swipe_ms = now;
-        ui_nav_dispatch_event_from_lvgl(UI_NAV_EVENT_SCREEN_PREV);
-    }
-}
-
 void bk_page_attach_right_swipe_gesture(lv_obj_t *screen)
 {
-    if (screen == NULL) {
-        return;
-    }
-
-    lv_obj_add_event_cb(screen, bk_page_global_gesture_cb, LV_EVENT_GESTURE, NULL);
+    ui_touch_attach_nav_back_edge_swipe(screen);
 }
 
 static void bk_page_attach_global_gesture(int page_id, bk_lv_ui_t *ui)

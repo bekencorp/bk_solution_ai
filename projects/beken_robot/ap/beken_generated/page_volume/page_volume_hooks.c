@@ -12,16 +12,19 @@
 #include "event_runtime.h"
 #include "page_hooks.h"
 #include "demo/volume.h"
+#include "ui_touch_gesture.h"
 
 #ifdef ROBOT_TEST
 
 #include "ui_nav_router.h"
+#include "ui_list_menu.h"
 #include <components/log.h>
 
 #define TAG "page_volume"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 
 static bool s_refreshing;
+static ui_touch_tap_state_t s_button_tap_state;
 
 static void set_wave_state(lv_obj_t *wave, bool active)
 {
@@ -112,14 +115,34 @@ static void slider_event_cb(lv_event_t *e)
     refresh_volume(ui);
 }
 
-static void minus_event_cb(lv_event_t *e)
+static bool tap_release_accepted(lv_event_t *e)
 {
-    volume_down((bk_lv_ui_t *)lv_event_get_user_data(e));
+    return ui_touch_tap_release(e, &s_button_tap_state,
+                                UI_TOUCH_TAP_MOVE_LIMIT_DEFAULT);
 }
 
-static void plus_event_cb(lv_event_t *e)
+static void button_press_cb(lv_event_t *e)
 {
-    volume_up((bk_lv_ui_t *)lv_event_get_user_data(e));
+    ui_touch_tap_press(e, &s_button_tap_state);
+}
+
+static void button_press_lost_cb(lv_event_t *e)
+{
+    ui_touch_tap_cancel(e, &s_button_tap_state);
+}
+
+static void minus_release_cb(lv_event_t *e)
+{
+    if (tap_release_accepted(e)) {
+        volume_down((bk_lv_ui_t *)lv_event_get_user_data(e));
+    }
+}
+
+static void plus_release_cb(lv_event_t *e)
+{
+    if (tap_release_accepted(e)) {
+        volume_up((bk_lv_ui_t *)lv_event_get_user_data(e));
+    }
 }
 
 static void on_focus_prev(bk_lv_ui_t *ui) { volume_down(ui); }
@@ -130,10 +153,8 @@ static void on_screen_prev(bk_lv_ui_t *ui)
     if (ui == NULL) {
         return;
     }
-    LOGI("page10 back -> page_3\r\n");
-    navigate_to_screen((lv_obj_t **)&ui->page_3,
-                       LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
-                       init_page_page_3);
+    LOGI("page10 back -> demo menu\r\n");
+    (void)ui_demo_return_to_menu();
     destroy_page_page_10(ui);
 }
 
@@ -150,10 +171,19 @@ static void page_volume_on_init(bk_lv_ui_t *ui)
 {
     lv_obj_add_event_cb(ui->page_10_slider_volume, slider_event_cb,
                         LV_EVENT_VALUE_CHANGED, ui);
-    lv_obj_add_event_cb(ui->page_10_button_minus, minus_event_cb,
-                        LV_EVENT_CLICKED, ui);
-    lv_obj_add_event_cb(ui->page_10_button_plus, plus_event_cb,
-                        LV_EVENT_CLICKED, ui);
+    ui_touch_tap_reset(&s_button_tap_state);
+    lv_obj_add_event_cb(ui->page_10_button_minus, button_press_cb,
+                        LV_EVENT_PRESSED, ui);
+    lv_obj_add_event_cb(ui->page_10_button_minus, minus_release_cb,
+                        LV_EVENT_RELEASED, ui);
+    lv_obj_add_event_cb(ui->page_10_button_minus, button_press_lost_cb,
+                        LV_EVENT_PRESS_LOST, ui);
+    lv_obj_add_event_cb(ui->page_10_button_plus, button_press_cb,
+                        LV_EVENT_PRESSED, ui);
+    lv_obj_add_event_cb(ui->page_10_button_plus, plus_release_cb,
+                        LV_EVENT_RELEASED, ui);
+    lv_obj_add_event_cb(ui->page_10_button_plus, button_press_lost_cb,
+                        LV_EVENT_PRESS_LOST, ui);
     refresh_volume(ui);
     (void)ui_nav_register_screen(ui->page_10, &page_10_nav_ops);
 }

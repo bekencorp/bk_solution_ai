@@ -1,4 +1,4 @@
-SDK_DIR ?= $(abspath ../..)
+SDK_DIR = /home/yantao.li/7259_robot_org/avdk_smp
 
 PROJECT_MAKE_FILE := $(SDK_DIR)/tools/build_tools/build_files/project_main.mk
 ifeq ($(wildcard $(PROJECT_MAKE_FILE)),)

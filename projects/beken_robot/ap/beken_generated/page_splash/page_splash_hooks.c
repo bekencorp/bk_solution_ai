@@ -10,10 +10,12 @@
 #include "beken_ui.h"
 #include "event_runtime.h"
 #include "page_hooks.h"
+#include <stdint.h>
 
 #ifdef ROBOT_TEST
 
 #include "ui_nav_router.h"
+#include "ui_touch_gesture.h"
 
 static void on_screen_next(bk_lv_ui_t *ui)
 {
@@ -32,7 +34,7 @@ static const ui_page_nav_ops_t page_1_nav_ops = {
     .on_screen_next = on_screen_next,
 };
 
-static bool s_ignore_next_click;
+static ui_touch_tap_state_t s_tap_state;
 
 /*
  * TP click adapter: page_1 is a welcome screen with only a logo + title.
@@ -40,34 +42,46 @@ static bool s_ignore_next_click;
  * listener is installed on the page root and root clickable is enabled
  * explicitly so the indev does not forward the event past us.
  */
-static void screen_click_cb(lv_event_t *e)
+static void screen_press_cb(lv_event_t *e)
 {
-    (void)e;
-    if (s_ignore_next_click) {
-        s_ignore_next_click = false;
+    ui_touch_tap_press(e, &s_tap_state);
+}
+
+static void screen_release_cb(lv_event_t *e)
+{
+    if (!ui_touch_tap_release(e, &s_tap_state,
+                              UI_TOUCH_TAP_MOVE_LIMIT_DEFAULT)) {
         return;
     }
     on_screen_next(&bk_lv_tool_ui);
 }
 
-static void screen_gesture_cb(lv_event_t *e)
+static void screen_press_lost_cb(lv_event_t *e)
 {
-    lv_indev_t *indev = lv_event_get_indev(e);
-    if (indev == NULL) {
-        indev = lv_indev_active();
+    ui_touch_tap_cancel(e, &s_tap_state);
+}
+
+static void attach_tap_to_enter(lv_obj_t *obj)
+{
+    if (obj == NULL) {
+        return;
     }
 
-    if (indev != NULL && lv_indev_get_gesture_dir(indev) == LV_DIR_RIGHT) {
-        s_ignore_next_click = true;
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(obj, screen_press_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(obj, screen_release_cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(obj, screen_press_lost_cb, LV_EVENT_PRESS_LOST, NULL);
+
+    uint32_t child_count = lv_obj_get_child_count(obj);
+    for (uint32_t i = 0; i < child_count; i++) {
+        attach_tap_to_enter(lv_obj_get_child(obj, i));
     }
 }
 
 static void splash_on_page_init(bk_lv_ui_t *ui)
 {
-    s_ignore_next_click = false;
-    lv_obj_add_flag(ui->page_1, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(ui->page_1, screen_gesture_cb, LV_EVENT_GESTURE, NULL);
-    lv_obj_add_event_cb(ui->page_1, screen_click_cb, LV_EVENT_CLICKED, NULL);
+    ui_touch_tap_reset(&s_tap_state);
+    attach_tap_to_enter(ui->page_1);
     (void)ui_nav_register_screen(ui->page_1, &page_1_nav_ops);
 }
 

@@ -16,6 +16,7 @@
 #ifdef ROBOT_TEST
 
 #include "ui_nav_router.h"
+#include "ui_list_menu.h"
 #include <components/log.h>
 
 #define TAG "page_ai_chat"
@@ -33,9 +34,7 @@ static void on_screen_prev(bk_lv_ui_t *ui)
     if (ai_chat_request_exit() != 0) {
         LOGW("AI chat exit dispatch failed (worker busy?)\r\n");
     }
-    navigate_to_screen((lv_obj_t **)&ui->page_3,
-                       LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
-                       init_page_page_3);
+    (void)ui_demo_return_to_menu();
     destroy_page_page_6(ui);
 }
 

@@ -11,10 +11,12 @@
 #include "event_runtime.h"
 #include "page_hooks.h"
 #include "demo/music.h"
+#include "ui_touch_gesture.h"
 
 #ifdef ROBOT_TEST
 
 #include "ui_nav_router.h"
+#include "ui_list_menu.h"
 #include <components/log.h>
 
 #define TAG "page_music"
@@ -42,6 +44,7 @@
 #define TIMER_PERIOD_MS        40
 
 static int s_menu_idx;
+static ui_touch_tap_state_t s_button_tap_state;
 static uint32_t s_last_action_tick_ms;
 static uint32_t s_anim_tick;
 
@@ -343,10 +346,8 @@ static void on_screen_prev(bk_lv_ui_t *ui)
         return;
     }
     (void)music_pause();
-    LOGI("page9 back -> page_3\r\n");
-    navigate_to_screen((lv_obj_t **)&ui->page_3,
-                       LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
-                       init_page_page_3);
+    LOGI("page9 back -> demo menu\r\n");
+    (void)ui_demo_return_to_menu();
 }
 
 static void on_screen_next(bk_lv_ui_t *ui)
@@ -365,15 +366,31 @@ static const ui_page_nav_ops_t page_9_nav_ops = {
     .on_screen_next = on_screen_next,
 };
 
-static void button_click_cb(lv_event_t *e)
+static void button_press_cb(lv_event_t *e)
+{
+    ui_touch_tap_press(e, &s_button_tap_state);
+}
+
+static void button_release_cb(lv_event_t *e)
 {
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
-    if (idx < 0 || idx >= MUSIC_MENU_COUNT || !can_accept_action()) {
+
+    if (idx < 0 || idx >= MUSIC_MENU_COUNT) {
+        return;
+    }
+    if (!ui_touch_tap_release(e, &s_button_tap_state,
+                              UI_TOUCH_TAP_MOVE_LIMIT_DEFAULT) ||
+        !can_accept_action()) {
         return;
     }
     s_menu_idx = idx;
     apply_menu_focus(&bk_lv_tool_ui);
     handle_action(&bk_lv_tool_ui, idx);
+}
+
+static void button_press_lost_cb(lv_event_t *e)
+{
+    ui_touch_tap_cancel(e, &s_button_tap_state);
 }
 
 static void register_button_clicks(bk_lv_ui_t *ui)
@@ -386,7 +403,9 @@ static void register_button_clicks(bk_lv_ui_t *ui)
         if (b == NULL) {
             continue;
         }
-        lv_obj_add_event_cb(b, button_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(b, button_press_cb, LV_EVENT_PRESSED, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(b, button_release_cb, LV_EVENT_RELEASED, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(b, button_press_lost_cb, LV_EVENT_PRESS_LOST, (void *)(intptr_t)i);
     }
 }
 
@@ -395,6 +414,7 @@ static void page_music_on_init(bk_lv_ui_t *ui)
     LOGI("page9 hook init: 91554 spectrum layout\r\n");
 
     s_menu_idx = 1;
+    ui_touch_tap_reset(&s_button_tap_state);
     s_last_action_tick_ms = 0;
     s_anim_tick = 0;
 

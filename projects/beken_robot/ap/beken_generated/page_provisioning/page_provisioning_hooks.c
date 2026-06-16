@@ -8,6 +8,7 @@
  */
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #include "lvgl.h"
@@ -16,6 +17,8 @@
 #include "page_hooks.h"
 #include "demo/provisioning.h"
 #include "wifi_status_ui.h"
+#include "ui_theme.h"
+#include "ui_touch_gesture.h"
 
 #ifdef ROBOT_TEST
 
@@ -25,22 +28,15 @@
 #define TAG "page_provisioning"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 
-#define PAGE4_MENU_COUNT 3
-
-static const uint32_t s_btn_base_colors[PAGE4_MENU_COUNT] = {
-    0x1677ff, 0x2a3a4f, 0xa83232,
-};
-
-static const uint32_t s_btn_focus_colors[PAGE4_MENU_COUNT] = {
-    0x4aa3ff, 0x45617f, 0xd94b4b,
-};
+#define PAGE4_MENU_COUNT 2
 
 static int s_menu_idx;
+static ui_touch_tap_state_t s_button_tap_state;
 
 /* Latched state text for the non-connected case. The connected case is
  * derived live from the Wi-Fi link, so provisioning success (which arrives
  * asynchronously on another task) is reflected without an explicit callback. */
-static const char *s_state_text = "State: READY";
+static const char *s_state_text = "State: WAIT_PROVISIONING";
 static lv_timer_t *s_status_timer;
 
 static lv_obj_t *menu_btn(bk_lv_ui_t *ui, int idx)
@@ -51,7 +47,6 @@ static lv_obj_t *menu_btn(bk_lv_ui_t *ui, int idx)
     switch (idx) {
     case 0: return ui->page_4_button_1;
     case 1: return ui->page_4_button_2;
-    case 2: return ui->page_4_button_3;
     default: return NULL;
     }
 }
@@ -66,15 +61,10 @@ static void apply_menu_focus(bk_lv_ui_t *ui)
         if (b == NULL) {
             continue;
         }
-        bool focused = (i == s_menu_idx);
-        uint32_t color = focused ? s_btn_focus_colors[i] : s_btn_base_colors[i];
         lv_obj_remove_state(b, LV_STATE_DISABLED);
-        lv_obj_set_style_bg_color(b, lv_color_hex(color),
-                                  LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_width(b, focused ? 2 : 0,
-                                      LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_color(b, lv_color_hex(0xffffff),
-                                      LV_PART_MAIN | LV_STATE_DEFAULT);
+        ui_theme_set_button_focus(b,
+                                  i == 0 ? UI_THEME_BUTTON_PRIMARY : UI_THEME_BUTTON_DANGER,
+                                  i == s_menu_idx);
     }
 }
 
@@ -87,6 +77,7 @@ static void apply_menu_focus(bk_lv_ui_t *ui)
 static void update_status(bk_lv_ui_t *ui)
 {
     char ssid[33];
+    char ble_name[32];
     char line[48];
 
     if (ui == NULL) {
@@ -94,15 +85,23 @@ static void update_status(bk_lv_ui_t *ui)
     }
     if (provisioning_get_ssid(ssid, sizeof(ssid)) == 0) {
         if (ui->page_4_label_status != NULL) {
-            snprintf(line, sizeof(line), "WiFi: %s", ssid);
+            snprintf(line, sizeof(line), "Wi-Fi: %s", ssid);
             lv_label_set_text(ui->page_4_label_status, line);
         }
         if (ui->page_4_label_hint != NULL) {
             lv_label_set_text(ui->page_4_label_hint, "State: CONNECTED");
         }
+    } else if (provisioning_get_ble_name(ble_name, sizeof(ble_name)) == 0) {
+        if (ui->page_4_label_status != NULL) {
+            snprintf(line, sizeof(line), "BLE: %s", ble_name);
+            lv_label_set_text(ui->page_4_label_status, line);
+        }
+        if (ui->page_4_label_hint != NULL) {
+            lv_label_set_text(ui->page_4_label_hint, s_state_text);
+        }
     } else {
         if (ui->page_4_label_status != NULL) {
-            lv_label_set_text(ui->page_4_label_status, "WiFi: --");
+            lv_label_set_text(ui->page_4_label_status, "Wi-Fi: BK-Robot");
         }
         if (ui->page_4_label_hint != NULL) {
             lv_label_set_text(ui->page_4_label_hint, s_state_text);
@@ -170,11 +169,6 @@ static void on_screen_next(bk_lv_ui_t *ui)
          * variant to avoid deadlocking the non-recursive disp mutex. */
         wifi_status_ui_set_provisioned_locked(false);
         break;
-    case 2:
-        LOGI("Factory reset\r\n");
-        s_state_text = "State: RESETTING";
-        provisioning_factory_reset();
-        break;
     default: break;
     }
     update_status(ui);
@@ -199,15 +193,30 @@ static const ui_page_nav_ops_t page_4_nav_ops = {
     .on_confirm_long = on_confirm_long,
 };
 
-static void button_click_cb(lv_event_t *e)
+static void button_press_cb(lv_event_t *e)
+{
+    ui_touch_tap_press(e, &s_button_tap_state);
+}
+
+static void button_release_cb(lv_event_t *e)
 {
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
+
     if (idx < 0 || idx >= PAGE4_MENU_COUNT) {
+        return;
+    }
+    if (!ui_touch_tap_release(e, &s_button_tap_state,
+                              UI_TOUCH_TAP_MOVE_LIMIT_DEFAULT)) {
         return;
     }
     s_menu_idx = idx;
     apply_menu_focus(&bk_lv_tool_ui);
     on_screen_next(&bk_lv_tool_ui);
+}
+
+static void button_press_lost_cb(lv_event_t *e)
+{
+    ui_touch_tap_cancel(e, &s_button_tap_state);
 }
 
 static void register_button_clicks(bk_lv_ui_t *ui)
@@ -220,7 +229,11 @@ static void register_button_clicks(bk_lv_ui_t *ui)
         if (b == NULL) {
             continue;
         }
-        lv_obj_add_event_cb(b, button_click_cb, LV_EVENT_CLICKED,
+        lv_obj_add_event_cb(b, button_press_cb, LV_EVENT_PRESSED,
+                            (void *)(intptr_t)i);
+        lv_obj_add_event_cb(b, button_release_cb, LV_EVENT_RELEASED,
+                            (void *)(intptr_t)i);
+        lv_obj_add_event_cb(b, button_press_lost_cb, LV_EVENT_PRESS_LOST,
                             (void *)(intptr_t)i);
     }
 }
@@ -228,7 +241,8 @@ static void register_button_clicks(bk_lv_ui_t *ui)
 static void page_provisioning_on_init(bk_lv_ui_t *ui)
 {
     s_menu_idx = 0;
-    s_state_text = "State: READY";
+    ui_touch_tap_reset(&s_button_tap_state);
+    s_state_text = "State: WAIT_PROVISIONING";
     update_status(ui);
     apply_menu_focus(ui);
     register_button_clicks(ui);

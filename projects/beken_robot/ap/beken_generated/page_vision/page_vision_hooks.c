@@ -17,6 +17,7 @@
 #ifdef ROBOT_TEST
 
 #include "ui_nav_router.h"
+#include "ui_list_menu.h"
 #include <components/log.h>
 
 #define TAG "page_vision"
@@ -36,9 +37,7 @@ static void on_screen_prev(bk_lv_ui_t *ui)
     if (vision_request_exit() != 0) {
         LOGW("Vision recognition exit dispatch failed (worker busy?)\r\n");
     }
-    navigate_to_screen((lv_obj_t **)&ui->page_3,
-                       LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
-                       init_page_page_3);
+    (void)ui_demo_return_to_menu();
     destroy_page_page_7(ui);
 }
 
