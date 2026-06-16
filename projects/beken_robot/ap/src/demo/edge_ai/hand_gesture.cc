@@ -55,7 +55,7 @@ static const bk_hiwonder_hand_servo_hw_map_t s_hiwonder_servo_hw_map[] = {
 #endif
 
 #define HAND_GESTURE_DISPLAY_W   400
-#define HAND_GESTURE_DISPLAY_H   368
+#define HAND_GESTURE_DISPLAY_H   320
 
 #define HAND_GESTURE_START_TASK_STACK_SIZE   (1024 * 8)
 #define HAND_GESTURE_START_TASK_NAME         "hand_gesture_start"
@@ -278,9 +278,9 @@ fail:
     }
 
 #if CONFIG_LVGL
-    if (display_open_attempted) {
-        (void)bk_robot_lvgl_resume_display();
-    }
+  if (display_open_attempted) {
+    (void)bk_robot_lvgl_resume_display();
+  }
 #if CONFIG_TP
     ui_overlay_swipe_back_stop();
 #endif
