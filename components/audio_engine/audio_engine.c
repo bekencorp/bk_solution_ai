@@ -1,9 +1,14 @@
 #include "audio_engine.h"
 #include <os/os.h>
+#include <os/mem.h>
 #include <common/bk_include.h>
 #include <common/bk_err.h>
 #include <network_engine.h>
 #include <string.h>
+#include "cli.h"
+#include <components/bk_player_service.h>
+#include <components/bk_player_service_types.h>
+#include <components/bk_audio/audio_pipeline/rb_port.h>
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
 #include "audio_engine_prompt_tone.h"
 #endif
@@ -125,6 +130,76 @@ static const float g_volume_gain[SPK_VOLUME_LEVEL] = {
 };
 
 /*
+ * --------------------------------------------------------------------
+ *  Heavy-op worker.
+ *
+ *  One-shot worker thread with 8 KB stack. The public verbs that build
+ *  or tear down audio pipelines (audio_engine_start / _stop / _asr_start
+ *  / _asr_stop / audio_engine_play_init / _deinit) hand off the heavy
+ *  work here so callers on Tmr Svc (~3 KB stack) do not blow the stack.
+ * --------------------------------------------------------------------
+ */
+#define AE_WORKER_NAME       "ae_worker"
+#define AE_WORKER_PRIO       3
+#define AE_WORKER_STACK      8192
+
+typedef int (*ae_op_fn_t)(void);
+
+static beken_thread_t      s_worker_thread;
+static beken_semaphore_t   s_worker_done_sem;
+static ae_op_fn_t          s_worker_fn;
+static volatile int        s_worker_rc;
+static volatile bool       s_in_worker;
+
+static void ae_worker_entry(beken_thread_arg_t arg)
+{
+    (void)arg;
+    s_in_worker = true;
+    s_worker_rc = (s_worker_fn != NULL) ? s_worker_fn() : -1;
+    s_in_worker = false;
+    rtos_set_semaphore(&s_worker_done_sem);
+    s_worker_fn = NULL;
+    s_worker_thread = NULL;
+    rtos_delete_thread(NULL);
+}
+
+static bool ae_in_worker(void)
+{
+    return s_in_worker;
+}
+
+static int ae_worker_run(ae_op_fn_t fn)
+{
+    if (fn == NULL) {
+        return -1;
+    }
+    /* Inline execute when already on the worker so internal cross-calls
+     * (stop -> cleanup) do not recurse the dispatch and deadlock. */
+    if (s_in_worker) {
+        return fn();
+    }
+
+    if (s_worker_done_sem == NULL &&
+        rtos_init_semaphore_ex(&s_worker_done_sem, 1, 0) != BK_OK) {
+        LOGE("ae_worker: sem init fail; running inline\n");
+        return fn();
+    }
+
+    s_worker_fn = fn;
+    s_worker_rc = -1;
+    bk_err_t rc = rtos_create_thread(&s_worker_thread, AE_WORKER_PRIO,
+                                     AE_WORKER_NAME, ae_worker_entry,
+                                     AE_WORKER_STACK, NULL);
+    if (rc != BK_OK) {
+        LOGE("ae_worker: thread create fail (%d); running inline\n", (int)rc);
+        s_worker_fn = NULL;
+        return fn();
+    }
+    rtos_get_semaphore(&s_worker_done_sem, BEKEN_NEVER_TIMEOUT);
+    return s_worker_rc;
+}
+
+/*
  * Map the cached AEC phase metric to an on-screen arrow angle.
  * The input is clamped first to defend against upstream drift.
  */
@@ -229,6 +304,27 @@ static int audio_engine_adjust_voice_gain(float gain_db)
     return AUDIO_ENGINE_SUCCESS;
 }
 
+float audio_engine_volume_get_gain_db(void)
+{
+    uint8_t lvl = g_volume_level;
+    if (lvl >= SPK_VOLUME_LEVEL) {
+        lvl = SPK_VOLUME_LEVEL - 1;
+    }
+    return g_volume_gain[lvl];
+}
+
+audio_element_handle_t audio_engine_get_spk_stream(void)
+{
+    audio_element_handle_t spk = NULL;
+    if (!g_audio_engine.is_started || !g_audio_engine.voice_handle) {
+        return NULL;
+    }
+    if (bk_voice_get_spkstr(g_audio_engine.voice_handle, &spk) != BK_OK) {
+        return NULL;
+    }
+    return spk;
+}
+
 void audio_engine_volume_increase(void)
 {
     LOGI("volume up\r\n");
@@ -239,23 +335,28 @@ void audio_engine_volume_increase(void)
         return;
     }
 
-    if (BK_OK == audio_engine_adjust_voice_gain(g_volume_gain[g_volume_level + 1]))
+    g_volume_level += 1;
+    #if CONFIG_BK_FACTORY_CONFIG
+    if (0 != bk_config_write("volume", (void *)&g_volume_level, 4))
     {
-        g_volume_level += 1;
-        #if CONFIG_BK_FACTORY_CONFIG
-        if (0 != bk_config_write("volume", (void *)&g_volume_level, 4))
-        {
-            LOGE("storage volume: %d fail\n", g_volume_level);
+        LOGE("storage volume: %d fail\n", g_volume_level);
+    }
+    #else
+    LOGE("not support factory config, storage volume: %d fail\n", g_volume_level);
+    #endif
+
+    /* Persist the logical level even when no voice speaker is active
+     * (e.g. after the music page stopped audio_engine). The next
+     * audio_engine_start() / music pipeline start will pick up
+     * audio_engine_volume_get_gain_db(). */
+    if (g_audio_engine.is_started && g_audio_engine.voice_handle) {
+        if (BK_OK != audio_engine_adjust_voice_gain(g_volume_gain[g_volume_level])) {
+            LOGI("set live volume fail, level saved\n");
         }
-        #else
-        LOGE("not support factory config, storage volume: %d fail\n", g_volume_level);
-        #endif
-        LOGI("current volume level: %u, %.1f dB\n", g_volume_level, g_volume_gain[g_volume_level]);
+    } else {
+        LOGI("set live volume skipped, voice not active\n");
     }
-    else
-    {
-        LOGI("set volume fail\n");
-    }
+    LOGI("current volume level: %u, %.1f dB\n", g_volume_level, g_volume_gain[g_volume_level]);
 }
 
 void audio_engine_volume_decrease(void)
@@ -268,23 +369,24 @@ void audio_engine_volume_decrease(void)
         return;
     }
 
-    if (BK_OK == audio_engine_adjust_voice_gain(g_volume_gain[g_volume_level - 1]))
+    g_volume_level -= 1;
+    #if CONFIG_BK_FACTORY_CONFIG
+    if (0 != bk_config_write("volume", (void *)&g_volume_level, 4))
     {
-        g_volume_level -= 1;
-        #if CONFIG_BK_FACTORY_CONFIG
-        if (0 != bk_config_write("volume", (void *)&g_volume_level, 4))
-        {
-            LOGE("storage volume: %d fail\n", g_volume_level);
+        LOGE("storage volume: %d fail\n", g_volume_level);
+    }
+    #else
+    LOGE("not support factory config, storage volume: %d fail\n", g_volume_level);
+    #endif
+
+    if (g_audio_engine.is_started && g_audio_engine.voice_handle) {
+        if (BK_OK != audio_engine_adjust_voice_gain(g_volume_gain[g_volume_level])) {
+            LOGI("set live volume fail, level saved\n");
         }
-        #else
-        LOGE("not support factory config, storage volume: %d fail\n", g_volume_level);
-        #endif
-        LOGI("current volume level: %u, %.1f dB\n", g_volume_level, g_volume_gain[g_volume_level]);
+    } else {
+        LOGI("set live volume skipped, voice not active\n");
     }
-    else
-    {
-        LOGI("set volume fail\n");
-    }
+    LOGI("current volume level: %u, %.1f dB\n", g_volume_level, g_volume_gain[g_volume_level]);
 }
 
 uint8_t audio_engine_volume_get_level(void)
@@ -299,6 +401,351 @@ uint8_t audio_engine_volume_get_level(void)
 uint8_t audio_engine_volume_get_max_level(void)
 {
     return SPK_VOLUME_LEVEL - 1;
+}
+
+/*
+ * --------------------------------------------------------------------
+ *  Verb-style playback layer
+ *
+ *  The beken_robot product always uses this layer for standalone prompt
+ *  tones, voice-mixed tones, and page-owned custom music pipelines, so
+ *  it is part of audio_engine.c rather than a separately gated module.
+ * --------------------------------------------------------------------
+ */
+#define AE_PLAY_DEFAULT_DEC AUDIO_DEC_TYPE_MP3
+#define AE_MIX_RBUF_BYTES   4096
+#define AE_MIX_PORT_ID      1
+#define AE_MIX_PORT_PRI     1
+
+static bk_player_handle_t      s_player;
+static bool                    s_player_inited;
+
+static bk_player_handle_t      s_mix_player;
+static audio_port_handle_t     s_mix_port;
+static audio_element_handle_t  s_mix_spk;
+static bool                    s_mix_inited;
+
+static audio_dec_type_t resolve_dec(audio_dec_type_t dec_type)
+{
+    return (dec_type != AUDIO_DEC_TYPE_INVALID) ? dec_type : AE_PLAY_DEFAULT_DEC;
+}
+
+static int mix_event_handler(int event, void *data, void *args)
+{
+    (void)args;
+    if (event != PLAYER_EVENT_MUSIC_INFO || s_mix_spk == NULL || data == NULL) {
+        return BK_OK;
+    }
+
+    audio_element_info_t *info = (audio_element_info_t *)data;
+    audio_port_info_t pi = DEFAULT_AUDIO_PORT_INFO();
+    pi.chl_num     = info->channels;
+    pi.sample_rate = info->sample_rates;
+    pi.bits        = info->bits;
+    pi.port_id     = AE_MIX_PORT_ID;
+    pi.priority    = AE_MIX_PORT_PRI;
+    pi.port        = s_mix_port;
+    if (BK_OK != onboard_speaker_stream_set_input_port_info(s_mix_spk, &pi)) {
+        LOGE("mix set_input_port_info fail\n");
+        return BK_FAIL;
+    }
+    LOGI("mix tone port: %uHz %ubit ch=%u\n",
+         (unsigned)pi.sample_rate, pi.bits, pi.chl_num);
+    return BK_OK;
+}
+
+static void mix_deinit(void)
+{
+    if (!s_mix_inited) {
+        return;
+    }
+    if (s_mix_player) {
+        bk_player_stop(s_mix_player);
+        bk_player_set_output_port(s_mix_player, NULL);
+        bk_player_destroy(s_mix_player);
+        s_mix_player = NULL;
+    }
+    if (s_mix_port) {
+        audio_port_deinit(s_mix_port);
+        s_mix_port = NULL;
+    }
+    s_mix_spk = NULL;
+    s_mix_inited = false;
+}
+
+static int mix_init(void)
+{
+    if (s_mix_inited) {
+        return BK_OK;
+    }
+
+    s_mix_spk = audio_engine_get_spk_stream();
+    if (s_mix_spk == NULL) {
+        LOGE("mix init: voice spk unavailable\n");
+        return BK_FAIL;
+    }
+
+    bk_player_cfg_t pcfg = DEFAULT_PLAYER_NOT_PLAYBACK_CONFIG();
+    pcfg.event_handle = mix_event_handler;
+    pcfg.args = NULL;
+    s_mix_player = bk_player_create(&pcfg);
+    if (!s_mix_player) {
+        LOGE("mix bk_player_create fail\n");
+        goto fail;
+    }
+
+    if (BK_OK != bk_player_set_decode_type(s_mix_player, AE_PLAY_DEFAULT_DEC)) {
+        LOGE("mix set_decode_type fail\n");
+        goto fail;
+    }
+
+    player_uri_info_t seed = {
+        .uri_type = PLAYER_URI_TYPE_VFS,
+        .uri      = "temp.mp3",
+        .total_len = 0,
+    };
+    if (BK_OK != bk_player_set_uri(s_mix_player, &seed)) {
+        LOGE("mix seed set_uri fail\n");
+        goto fail;
+    }
+
+    ringbuf_port_cfg_t rcfg = RINGBUF_PORT_CFG_DEFAULT();
+    rcfg.ringbuf_size = AE_MIX_RBUF_BYTES;
+    s_mix_port = ringbuf_port_init(&rcfg);
+    if (!s_mix_port) {
+        LOGE("mix ringbuf_port_init fail\n");
+        goto fail;
+    }
+    if (BK_OK != bk_player_set_output_port(s_mix_player, s_mix_port)) {
+        LOGE("mix set_output_port fail\n");
+        goto fail;
+    }
+
+    s_mix_inited = true;
+    LOGI("voice-mix player ready\n");
+    return BK_OK;
+
+fail:
+    mix_deinit();
+    return BK_FAIL;
+}
+
+static int play_via_voice(player_uri_info_t *uri, audio_dec_type_t dec_type)
+{
+    if (mix_init() != BK_OK) {
+        return BK_FAIL;
+    }
+    if (!uri || !uri->uri) {
+        return BK_FAIL;
+    }
+
+    bk_player_stop(s_mix_player);
+
+    int ret = bk_player_set_decode_type(s_mix_player, resolve_dec(dec_type));
+    if (ret != BK_OK) {
+        return ret;
+    }
+
+    ret = bk_player_set_uri(s_mix_player, uri);
+    if (ret != BK_OK) {
+        return ret;
+    }
+
+    /* bk_player_set_uri() rebuilds the play pipeline whenever the input
+     * stream type changes (ARRAY <-> VFS). Re-bind the port each time so
+     * decoded PCM always reaches the active voice speaker mix input. */
+    if (BK_OK != bk_player_set_output_port(s_mix_player, s_mix_port)) {
+        LOGE("mix re-bind output port fail\n");
+        return BK_FAIL;
+    }
+
+    ret = bk_player_start(s_mix_player);
+    if (ret != BK_OK) {
+        LOGE("mix start fail %d\n", ret);
+    }
+    return ret;
+}
+
+static int standalone_event_handler(int event, void *data, void *args)
+{
+    (void)data;
+    (void)args;
+    if (event == PLAYER_EVENT_FINISH || event == PLAYER_EVENT_STOP) {
+        /* placeholder for completion hooks (UI ducking unfreeze etc.) */
+    }
+    return BK_OK;
+}
+
+static bk_player_cfg_t standalone_cfg(void)
+{
+    bk_player_cfg_t pcfg = DEFAULT_PLAYER_WITH_PLAYBACK_CONFIG();
+    pcfg.event_handle = standalone_event_handler;
+    pcfg.args = NULL;
+
+#if CONFIG_ADK_ONBOARD_SPEAKER_STREAM_V2
+    /* Prompt tone assets are 16 kHz mono. The SDK default puts the DAC
+     * at 48 kHz, which would play decoded 16 kHz PCM at 3x speed. */
+    for (uint32_t i = 0; i < AUD_DAC_SOURCE_MAX; i++) {
+        pcfg.spk_cfg.onboard_spk_cfg.sample_rate[i] = 16000;
+        pcfg.spk_cfg.onboard_spk_cfg.frame_size[i]  = 640;
+    }
+#endif
+
+    pcfg.spk_cfg.onboard_spk_cfg.dig_gain = audio_engine_volume_get_gain_db();
+    return pcfg;
+}
+
+static int ae_play_internal_init(void)
+{
+    if (s_player_inited) {
+        return BK_OK;
+    }
+    if (audio_engine_is_running()) {
+        return BK_OK;
+    }
+
+    bk_player_cfg_t pcfg = standalone_cfg();
+    s_player = bk_player_create(&pcfg);
+    if (!s_player) {
+        LOGE("standalone bk_player_create fail\n");
+        return BK_FAIL;
+    }
+    s_player_inited = true;
+    LOGI("standalone player ready\n");
+    return BK_OK;
+}
+
+static int ae_play_internal_stop(void)
+{
+    if (s_mix_player) {
+        bk_player_stop(s_mix_player);
+    }
+    if (!s_player) {
+        return BK_OK;
+    }
+    return bk_player_stop(s_player);
+}
+
+static int ae_play_internal_deinit(void)
+{
+    (void)ae_play_internal_stop();
+    mix_deinit();
+    if (s_player) {
+        bk_player_destroy(s_player);
+        s_player = NULL;
+    }
+    s_player_inited = false;
+    return BK_OK;
+}
+
+static void ae_play_internal_voice_mix_invalidate(void)
+{
+    mix_deinit();
+}
+
+int audio_engine_play_stop(void)
+{
+    return ae_play_internal_stop();
+}
+
+int audio_engine_play_init(void)
+{
+    return ae_worker_run(ae_play_internal_init);
+}
+
+int audio_engine_play_deinit(void)
+{
+    return ae_worker_run(ae_play_internal_deinit);
+}
+
+bool audio_engine_play_is_playing(void)
+{
+    bk_player_state_t state = PLAYER_STATE_NONE;
+    if (s_mix_player && bk_player_get_state(s_mix_player, &state) == BK_OK &&
+        state == PLAYER_STATE_PLAYING) {
+        return true;
+    }
+    if (!s_player) {
+        return false;
+    }
+    if (bk_player_get_state(s_player, &state) != BK_OK) {
+        return false;
+    }
+    return (state == PLAYER_STATE_PLAYING);
+}
+
+static int dispatch(player_uri_info_t *uri, audio_dec_type_t dec_type)
+{
+    if (audio_engine_is_running()) {
+        return play_via_voice(uri, dec_type);
+    }
+
+    if (!s_player_inited || !s_player) {
+        if (ae_play_internal_init() != BK_OK) {
+            return BK_FAIL;
+        }
+    }
+    if (!uri || !uri->uri) {
+        return BK_FAIL;
+    }
+
+    (void)ae_play_internal_stop();
+
+    int ret = bk_player_set_decode_type(s_player, resolve_dec(dec_type));
+    if (ret != BK_OK) {
+        LOGE("set_decode_type fail %d\n", ret);
+        return ret;
+    }
+    ret = bk_player_set_uri(s_player, uri);
+    if (ret != BK_OK) {
+        LOGE("set_uri fail %d\n", ret);
+        return ret;
+    }
+    ret = bk_player_start(s_player);
+    if (ret != BK_OK) {
+        LOGE("start fail %d\n", ret);
+    }
+    return ret;
+}
+
+int audio_engine_play_array(const void *data, uint32_t len, audio_dec_type_t dec_type)
+{
+    player_uri_info_t uri = {
+        .uri_type  = PLAYER_URI_TYPE_ARRAY,
+        .uri       = (char *)data,
+        .total_len = len,
+    };
+    return dispatch(&uri, dec_type);
+}
+
+int audio_engine_play_vfs(const char *path, audio_dec_type_t dec_type)
+{
+    player_uri_info_t uri = {
+        .uri_type  = PLAYER_URI_TYPE_VFS,
+        .uri       = (char *)path,
+        .total_len = 0,
+    };
+    return dispatch(&uri, dec_type);
+}
+
+int audio_engine_play(const audio_engine_play_uri_t *uri)
+{
+    if (!uri || !uri->uri) {
+        return BK_FAIL;
+    }
+    if (uri->total_len == 0) {
+        return audio_engine_play_vfs(uri->uri, AE_PLAY_DEFAULT_DEC);
+    }
+    return audio_engine_play_array(uri->uri, uri->total_len, AE_PLAY_DEFAULT_DEC);
+}
+
+int audio_engine_play_photo_shutter(void)
+{
+    /* No bundled shutter asset in upstream defconfig; the function exists
+     * so camera_preview can call it unconditionally. Wire up to an array
+     * when product supplies one. */
+    LOGI("play_photo_shutter (no asset bundled)\n");
+    return BK_OK;
 }
 
 #if (CONFIG_ASR_SERVICE)
@@ -977,7 +1424,7 @@ static int audio_engine_asr_build_cfg(asr_cfg_t *asr_cfg)
     return AUDIO_ENGINE_SUCCESS;
 }
 
-int audio_engine_asr_start(void)
+static int audio_engine_asr_start_inner(void)
 {
     asr_cfg_t asr_cfg = {0};
     voice_cfg_t mic_cfg = {0};
@@ -1066,7 +1513,7 @@ int audio_engine_asr_start(void)
     return AUDIO_ENGINE_SUCCESS;
 }
 
-int audio_engine_asr_stop(void)
+static int audio_engine_asr_stop_inner(void)
 {
     int ret = AUDIO_ENGINE_SUCCESS;
 
@@ -1103,7 +1550,48 @@ int audio_engine_asr_stop(void)
 }
 #endif
 
+static int audio_engine_start_inner(audio_engine_cfg_t *cfg);
+#if (CONFIG_ASR_SERVICE)
+static int audio_engine_asr_start_inner(void);
+static int audio_engine_asr_stop_inner(void);
+#endif
+
+static audio_engine_cfg_t *s_worker_start_cfg;
+static int audio_engine_start_worker_entry(void)
+{
+    return audio_engine_start_inner(s_worker_start_cfg);
+}
+
 int audio_engine_start(audio_engine_cfg_t *cfg)
+{
+    if (ae_in_worker()) {
+        return audio_engine_start_inner(cfg);
+    }
+    s_worker_start_cfg = cfg;
+    int rc = ae_worker_run(audio_engine_start_worker_entry);
+    s_worker_start_cfg = NULL;
+    return rc;
+}
+
+#if (CONFIG_ASR_SERVICE)
+int audio_engine_asr_start(void)
+{
+    if (ae_in_worker()) {
+        return audio_engine_asr_start_inner();
+    }
+    return ae_worker_run(audio_engine_asr_start_inner);
+}
+
+int audio_engine_asr_stop(void)
+{
+    if (ae_in_worker()) {
+        return audio_engine_asr_stop_inner();
+    }
+    return ae_worker_run(audio_engine_asr_stop_inner);
+}
+#endif
+
+static int audio_engine_start_inner(audio_engine_cfg_t *cfg)
 {
     int ret = 0;
 
@@ -1117,6 +1605,10 @@ int audio_engine_start(audio_engine_cfg_t *cfg)
         LOGD("Audio engine already started\n");
         return AUDIO_ENGINE_SUCCESS;
     }
+
+    /* Voice owns mic/DAC. Drop any standalone/mix player that may have
+     * been restored by a playback-only page before building voice again. */
+    (void)ae_play_internal_deinit();
 
     os_memcpy(&g_audio_engine_cfg, cfg, sizeof(audio_engine_cfg_t));
 
@@ -1466,12 +1958,30 @@ cleanup:
  *         - -1: Audio engine not started
  *         - -2: Stop operations failed
  */
+static int audio_engine_stop_inner(void);
+
 int audio_engine_stop(void)
+{
+    if (ae_in_worker()) {
+        return audio_engine_stop_inner();
+    }
+    return ae_worker_run(audio_engine_stop_inner);
+}
+
+static int audio_engine_stop_inner(void)
 {
     if (!g_audio_engine.is_started) {
         LOGD("Audio engine not started\n");
         return AUDIO_ENGINE_ERR_NOT_STARTED;
     }
+
+    /* The voice-mix bk_player caches the
+     * spk_element pointer obtained from this voice handle. bk_voice_deinit
+     * below frees that element; if the mix player kept its cached
+     * pointer, the next prompt tone after voice_start would write into
+     * a dead port and play silent. Drop the mix player here so the next
+     * play_via_voice() rebuilds against the fresh spk_element. */
+    ae_play_internal_voice_mix_invalidate();
 
     int ret = AUDIO_ENGINE_SUCCESS;
 
@@ -1746,6 +2256,59 @@ audio_dec_type_t audio_engine_str_to_dec_type(const char *dec_str)
     }
 }
 
+static void bk_aud_engine_cli_help(void)
+{
+    LOGI("aude {start|stop|prompt_tone <event>}\n");
+}
+
+static void bk_aud_engine_test_cmd(char *pcWriteBuffer, int xWriteBufferLen,
+                                   int argc, char **argv)
+{
+    (void)pcWriteBuffer;
+    (void)xWriteBufferLen;
+
+    if (argc < 2) {
+        goto cmd_fail;
+    }
+
+    if (os_strcmp(argv[1], "start") == 0) {
+        LOGI("start audio engine\r\n");
+        if (argc >= 3 && os_strcmp(argv[2], "g722") == 0) {
+#if CONFIG_VOICE_SERVICE_G722_ENCODER && CONFIG_VOICE_SERVICE_G722_DECODER
+            /* Reserved for manual G722 loopback tests. */
+#endif
+        }
+    } else if (os_strcmp(argv[1], "stop") == 0) {
+        LOGI("stop audio engine\r\n");
+    } else if (os_strcmp(argv[1], "prompt_tone") == 0) {
+        if (argc < 3) {
+            goto cmd_fail;
+        }
+        LOGI("prompt_test audio engine\r\n");
+#if CONFIG_APP_EVT
+        extern bk_err_t app_event_send_msg(uint32_t event, uint32_t param);
+        app_event_send_msg(os_strtoul(argv[2], NULL, 10), 0);
+#endif
+    } else {
+        goto cmd_fail;
+    }
+
+    return;
+
+cmd_fail:
+    bk_aud_engine_cli_help();
+}
+
+static const struct cli_command s_aud_engine_commands[] = {
+    {"aude", "aude debug ...", bk_aud_engine_test_cmd},
+};
+
+int bk_aud_engine_cli_init(void)
+{
+    return cli_register_commands(s_aud_engine_commands,
+                                 sizeof(s_aud_engine_commands) / sizeof(s_aud_engine_commands[0]));
+}
+
 int audio_engine_init(void)
 {
     audio_engine_cfg_t cfg = {
@@ -1801,7 +2364,6 @@ int audio_engine_init(void)
         return AUDIO_ENGINE_ERR_INIT_FAILED;
     }
 
-    extern int bk_aud_engine_cli_init(void);
     bk_aud_engine_cli_init();
 #endif
 

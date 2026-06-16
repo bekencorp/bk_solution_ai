@@ -30,6 +30,7 @@ typedef enum {
 // #include "boarding_service.h"
 #include "bk_factory_config.h"
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
+#include "audio_engine.h"
 #include "audio_engine_prompt_tone.h"
 #endif
 #if CONFIG_AE_PROMPT_TONE_SOURCE_ARRAY
@@ -67,6 +68,7 @@ static app_event_handler_t *s_event_handlers = NULL;
 static beken_mutex_t s_event_mutex = NULL;
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
 extern audio_engine_prompt_tone_handle_t g_audio_engine_prompt_tone;
+static bool s_prompt_tone_owns_audio_engine;
 #endif
 
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
@@ -401,10 +403,26 @@ static bk_err_t app_play_prompt_tone(app_evt_type_t event)
 
     if (play_flag)
     {
+        if (g_audio_engine_prompt_tone == NULL && !audio_engine_is_running()) {
+            if (audio_engine_init() == AUDIO_ENGINE_SUCCESS) {
+                s_prompt_tone_owns_audio_engine = true;
+            } else {
+                LOGI("[prompt_tone] skip event %d, audio engine init failed\n", event);
+                return BK_FAIL;
+            }
+        }
+        if (g_audio_engine_prompt_tone == NULL) {
+            LOGI("[prompt_tone] skip event %d, audio engine prompt unavailable\n", event);
+            return BK_OK;
+        }
         ret = audio_engine_prompt_tone_start(g_audio_engine_prompt_tone, &s_event_prompt_tone_info);
         if (ret != BK_OK)
         {
             LOGE("%s, %d, play event prompt tone fail\n", __func__, __LINE__);
+            if (s_prompt_tone_owns_audio_engine && audio_engine_is_running()) {
+                s_prompt_tone_owns_audio_engine = false;
+                (void)audio_engine_stop();
+            }
         }
     }
     else
@@ -757,6 +775,15 @@ static void app_event_thread(beken_thread_arg_t data)
                     LOGI("APP_EVT_SYNC_FLASH\n");
 #if CONFIG_BK_SMART_CONFIG
                     bk_sconf_sync_flash_handler();
+#endif
+                    break;
+                case APP_EVT_PROMPT_TONE_FINISH:
+                    LOGI("APP_EVT_PROMPT_TONE_FINISH\n");
+#if CONFIG_AE_SUPPORT_PROMPT_TONE
+                    if (s_prompt_tone_owns_audio_engine && audio_engine_is_running()) {
+                        s_prompt_tone_owns_audio_engine = false;
+                        (void)audio_engine_stop();
+                    }
 #endif
                     break;
                 default:

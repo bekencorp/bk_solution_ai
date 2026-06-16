@@ -7,6 +7,8 @@
 #include <components/bk_voice_service.h>
 #include <components/bk_voice_read_service.h>
 #include <components/bk_voice_write_service.h>
+#include <components/bk_audio/audio_pipeline/audio_element.h>
+#include <components/bk_audio/audio_pipeline/audio_types.h>
 
 #if (CONFIG_ASR_SERVICE)
 #include <components/bk_audio_asr_service.h>
@@ -259,8 +261,67 @@ void audio_engine_volume_increase(void);
 void audio_engine_volume_decrease(void);
 uint8_t audio_engine_volume_get_level(void);
 uint8_t audio_engine_volume_get_max_level(void);
+
+/**
+ * @brief Current user volume mapped to a digital gain (dB).
+ *
+ * Use when constructing an onboard_speaker_stream_cfg so a newly built
+ * pipeline (voice / play / external music pipeline) inherits the
+ * persisted user choice instead of the SDK default (-7 dB) which would
+ * silently revert the value the user just set on the volume page.
+ */
+float audio_engine_volume_get_gain_db(void);
+
+/**
+ * @brief Speaker element from the active voice session.
+ *
+ * Returns the spk_element of the current voice_handle, or NULL when
+ * audio_engine_is_running() == false. Used internally to mix prompt
+ * tones on top of an active agent session.
+ */
+audio_element_handle_t audio_engine_get_spk_stream(void);
+
 int audio_engine_init(void);
 int audio_engine_deinit(void);
+
+/* ============================================================
+ *  Play API (sits on top of bk_player_service)
+ *
+ *  Two transport modes are reconciled internally per call:
+ *    voice OFF  -> a standalone bk_player owns the DAC source.
+ *    voice ON   -> tone is mixed onto the active voice spk_element
+ *                  via a second bk_player whose output is a
+ *                  ringbuf_port routed back into onboard_speaker.
+ *
+ *  Callers should use the verb-style entry points
+ *  (audio_engine_play / _array / _vfs / _stop / _photo_shutter).
+ *  _init / _deinit are exposed only so an external custom pipeline
+ *  (e.g. the U-disk stereo music pipeline) can release the DAC
+ *  before opening its own onboard_speaker_stream and let the
+ *  audio_engine reclaim it afterwards.
+ * ============================================================ */
+
+typedef struct {
+    char    *uri;
+    uint32_t total_len;     /* 0 => VFS, else ARRAY */
+} audio_engine_play_uri_t;
+
+int  audio_engine_play_stop(void);
+bool audio_engine_play_is_playing(void);
+
+/* DAC ownership control for external pipelines. */
+int  audio_engine_play_init(void);
+int  audio_engine_play_deinit(void);
+
+int  audio_engine_play(const audio_engine_play_uri_t *uri);
+int  audio_engine_play_array(const void *data, uint32_t len,
+                             audio_dec_type_t dec_type);
+
+int  audio_engine_play_vfs(const char *path, audio_dec_type_t dec_type);
+
+/* Convenience hook for the camera capture path; no-op when no asset
+ * is bundled in the firmware. */
+int  audio_engine_play_photo_shutter(void);
 
 #ifdef __cplusplus
 }

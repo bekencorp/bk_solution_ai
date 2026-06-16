@@ -35,6 +35,7 @@ typedef enum
     APP_EVT_AI_THINKING,
     APP_EVT_AI_SPEAKING,
     APP_EVT_AI_IDLE,
+    APP_EVT_PROMPT_TONE_FINISH,
 } app_evt_type_t;
 
 

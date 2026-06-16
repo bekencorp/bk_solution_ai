@@ -4,7 +4,6 @@ set(srcs "")
 if (CONFIG_BK_AUDIO_ENGINE)
 list(APPEND srcs
 	audio_engine.c
-	audio_engine_cli.c
 )
 endif()
 

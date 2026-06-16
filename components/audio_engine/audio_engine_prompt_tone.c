@@ -19,6 +19,7 @@
 #include <components/bk_audio/audio_pipeline/rb_port.h>
 #include <components/bk_audio/audio_streams/onboard_speaker_stream.h>
 #include "audio_engine_prompt_tone.h"
+#include "app_event.h"
 #if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
 #include "bk_posix.h"
 #endif
@@ -170,6 +171,7 @@ static int player_not_playback_event_handler(int data, void *params, void *args)
     {
         LOGD("[%s] PLAYER_EVENT_FINISH\n", __func__);
         gl_wait_play_finish = true;
+        (void)app_event_send_msg(APP_EVT_PROMPT_TONE_FINISH, 0);
     }
     else
     {
