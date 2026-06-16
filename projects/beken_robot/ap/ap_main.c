@@ -16,6 +16,7 @@
 #include "beken_ui.h"
 #include "ui_nav_router.h"
 #include "ui_overlay_swipe.h"
+#include "ui_screenshot.h"
 #include "custom_func.h"
 #include "demo/demo_registry.h"
 #include "page_hooks.h"
@@ -366,6 +367,7 @@ int main(void)
         bk_pages_init_all_hooks();
         bk_robot_lvgl_load_first_page();
         ui_nav_router_cli_init();
+        ui_screenshot_cli_init();
         (void)bk_demos_init_all();
     #endif
 
