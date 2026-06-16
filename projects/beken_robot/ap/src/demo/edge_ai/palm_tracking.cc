@@ -44,6 +44,7 @@ extern "C" {
 #include "ui_overlay_swipe.h"
 
 bk_err_t bk_robot_lvgl_resume_display(void);
+int page_edge_ai_enter(void);
 }
 #endif
 
@@ -113,6 +114,7 @@ static void palm_tracker_axis_cfg_init(bk_aimi_palm_tracker_axis_cfg_t *cfg,
 
 static beken_thread_t s_palm_start_thread = NULL;
 static volatile bool s_palm_started = false;
+static volatile bool s_palm_return_to_edge_ai = false;
 
 #if CONFIG_LVGL
 static beken_thread_t s_palm_exit_thread = NULL;
@@ -541,6 +543,8 @@ int palm_detection_stop(void)
 static void palm_detection_exit_task(void *arg)
 {
     (void)arg;
+    bool return_to_edge_ai = s_palm_return_to_edge_ai;
+    s_palm_return_to_edge_ai = false;
 
     int ret = palm_detection_stop();
     if (ret != 0) {
@@ -559,9 +563,13 @@ static void palm_detection_exit_task(void *arg)
     lv_vendor_start();
 
     lv_vendor_disp_lock();
-    navigate_to_screen((lv_obj_t **)&bk_lv_tool_ui.page_3,
-                       LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
-                       init_page_page_3);
+    if (return_to_edge_ai) {
+        (void)page_edge_ai_enter();
+    } else {
+        navigate_to_screen((lv_obj_t **)&bk_lv_tool_ui.page_3,
+                           LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
+                           init_page_page_3);
+    }
 
     {
         lv_obj_t *active = lv_screen_active();
@@ -636,6 +644,11 @@ extern "C" int palm_tracking_start(void)
     }
 
     return 0;
+}
+
+extern "C" void palm_tracking_set_return_to_edge_ai(bool enable)
+{
+    s_palm_return_to_edge_ai = enable;
 }
 
 extern "C" int palm_tracking_stop(void)

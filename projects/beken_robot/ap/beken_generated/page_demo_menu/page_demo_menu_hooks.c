@@ -26,10 +26,10 @@
 #include "demo/music.h"
 #include "demo/volume.h"
 #include "demo/sound_localization.h"
-#include "demo/palm_tracking.h"
 #include "demo/camera_preview_demo.h"
 #include "demo/udisk.h"
 #include "demo/robot_video.h"
+#include "page_edge_ai.h"
 #include <components/log.h>
 
 #define TAG "page_demo_menu"
@@ -50,7 +50,7 @@ static const bk_demo_start_fn_t s_menu_start_table[PAGE3_MENU_COUNT] = {
     music_start,               /* idx 3: Music playback          -> page_9  */
     volume_start,              /* idx 4: Volume settings         -> page_10 */
     sound_localization_start,  /* idx 5: Sound source localization -> page_5 */
-    palm_tracking_start,       /* idx 6: Palm tracking (overlay)          */
+    page_edge_ai_enter,        /* idx 6: End-side AI submenu              */
     camera_preview_demo_start, /* idx 7: Camera preview (overlay)         */
     udisk_start,               /* idx 8: U-disk (USB MSC)                 */
     robot_video_start,         /* idx 9: Robot video playback    -> page_11 */
@@ -67,7 +67,7 @@ static int s_menu_idx;
  *  y=111  btn_7            btn_5           btn_6
  *         Music           Volume          Sound localization
  *  y=171  btn_8            btn_9           btn_4
- *         Palm tracking   Camera preview  U-disk
+ *         Edge AI         Camera preview  U-disk
  *  y=231  btn_10           reserved        reserved
  *         Robot video      (hidden)        (hidden)
  *

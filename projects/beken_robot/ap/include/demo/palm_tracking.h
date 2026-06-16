@@ -5,10 +5,12 @@
  *
  * Note: start() calls lv_vendor_stop() to pause LVGL; stop() goes
  * through palm_detection_exit_to_menu() which resumes LVGL and
- * navigates back to page_3.
+ * navigates back to page_3 by default.
  */
 #ifndef __BK_DEMO_PALM_TRACKING_H__
 #define __BK_DEMO_PALM_TRACKING_H__
+
+#include <stdbool.h>
 
 #include "demo/demo_iface.h"
 
@@ -19,6 +21,7 @@ extern "C" {
 int palm_tracking_init(void);
 int palm_tracking_start(void);
 int palm_tracking_stop(void);
+void palm_tracking_set_return_to_edge_ai(bool enable);
 
 extern const bk_demo_iface_t g_demo_palm_tracking;
 

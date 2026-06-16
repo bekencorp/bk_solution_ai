@@ -22,7 +22,7 @@
  * lv_screen_active() no longer updates. Before the switch we
  * therefore intercept "S4 double-click" and call
  * palm_detection_exit_to_menu() directly to stop the NN pipeline,
- * resume LVGL and navigate back to page_3.
+ * resume LVGL and navigate back to the configured palm return page.
  */
 #include <common/sys_config.h>
 
@@ -43,7 +43,7 @@ void bk_key_app_notify_ui_nav(uint8_t event)
 #if CONFIG_ADC_KEY
     if (palm_detection_is_active()) {
         if ((key_event_t)event == ADC_KEY_S4_DOUBLE) {
-            LOGI("key S4 double -> exit palm tracking, back to page_3\r\n");
+            LOGI("key S4 double -> exit palm tracking\r\n");
             (void)palm_detection_exit_to_menu();
         }
         return;
