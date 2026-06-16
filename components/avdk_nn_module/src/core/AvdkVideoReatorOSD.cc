@@ -318,13 +318,20 @@ int AvdkVideoReatorOSD::ReadCameraFrame(uint8_t *frame, uint32_t size, uint32_t 
 int AvdkVideoReatorOSD::OpenDisplay()
 {
     avdk_err_t ret = AVDK_ERR_OK;
+    bool display_started_here = false;
 #if CONFIG_VG_LITE_GPU
     bk_gpu_ctlr_handle_t gpu_handle = NULL;
     void *isp_handle = NULL;
 #endif
     LOGI("AvdkVideoReatorOSD::OpenDisplay\n");
-    app_mipi_lcd_turn_off();
-    app_mipi_lcd_turn_on(app_display_board_config_get());
+    if (!app_mipi_lcd_state_get()) {
+        ret = app_mipi_lcd_turn_on(app_display_board_config_get());
+        if (ret != BK_OK) {
+            LOGE("%s, app_mipi_lcd_turn_on failed, ret = %d\n", __func__, ret);
+            return ret;
+        }
+        display_started_here = true;
+    }
 #if CONFIG_VG_LITE_GPU
 
     ret = app_gpu_turn_on(app_gpu_board_config_get());
@@ -365,7 +372,9 @@ error:
         (void)app_gpu_turn_off(gpu_handle);
     }
 #endif
-    app_mipi_lcd_turn_off();
+    if (display_started_here) {
+        app_mipi_lcd_turn_off();
+    }
 
     return ret;
 }
@@ -385,8 +394,6 @@ int AvdkVideoReatorOSD::CloseDisplay()
         (void)app_gpu_turn_off(gpu_handle);
     }
 #endif
-
-    app_mipi_lcd_turn_off();
 
     return 0;
 }

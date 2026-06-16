@@ -94,8 +94,12 @@ extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_360x390;
 #define DEFAULT_MIPI_PANEL (&lcd_device_jd9855_mipi_360x390)
 
 #if CONFIG_LVGL
+extern void lv_gpu_init(uint32_t tess_width, uint32_t tess_height);
+
 #define LVGL_DISP_WIDTH  360
 #define LVGL_DISP_HEIGHT 390
+#define LVGL_COMPRESS_DISP_WIDTH  ((LVGL_DISP_WIDTH + 15) & ~15)
+#define LVGL_COMPRESS_DISP_HEIGHT ((LVGL_DISP_HEIGHT + 3) & ~3)
 
 static bk_display_ctlr_handle_t s_lvgl_dpu_handle = NULL;
 
@@ -121,17 +125,19 @@ static void bk_robot_lvgl_flush_cb(void *args, void *frame_buffer, int (*cb)(voi
 static bk_err_t bk_robot_lvgl_init(bk_display_ctlr_handle_t dpu_handle)
 {
     lv_vnd_config_t cfg = {0};
+    const uint32_t frame_buffer_size = LVGL_COMPRESS_DISP_WIDTH * LVGL_COMPRESS_DISP_HEIGHT;
 
     cfg.width = LVGL_DISP_WIDTH;
     cfg.height = LVGL_DISP_HEIGHT;
     cfg.render_mode = RENDER_PARTIAL_MODE;
     cfg.rotation = ROTATE_90;
-    cfg.frame_buffer[0] = bk_frame_buffer_malloc(MEM_SLAB_HEAP_CODED,
-                              LVGL_DISP_WIDTH * LVGL_DISP_HEIGHT * sizeof(lv_color_t));
-    cfg.frame_buffer[1] = bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED,
-                              LVGL_DISP_WIDTH * LVGL_DISP_HEIGHT * sizeof(lv_color_t));
+    cfg.output_compress = true;
+    cfg.disp_width = LVGL_COMPRESS_DISP_WIDTH;
+    cfg.disp_height = LVGL_COMPRESS_DISP_HEIGHT;
+    cfg.frame_buffer[0] = bk_frame_buffer_malloc(MEM_SLAB_HEAP_CODED, frame_buffer_size);
+    cfg.frame_buffer[1] = bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED, frame_buffer_size);
     if (!cfg.frame_buffer[0] || !cfg.frame_buffer[1]) {
-        LOGE("LVGL frame buffer alloc failed\n");
+        LOGE("LVGL frame buffer malloc failed\n");
         return BK_FAIL;
     }
     s_lvgl_dpu_handle = dpu_handle;
@@ -172,22 +178,27 @@ static void bk_robot_lvgl_load_first_page(void)
 
 bk_err_t bk_robot_lvgl_resume_display(void)
 {
-    (void)media_lcd_panel_close();
-
-    avdk_err_t ret = media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_RGB565, false);
-    if (ret != AVDK_ERR_OK) {
-        LOGE("bk_robot_lvgl_resume_display: media_lcd_panel_open failed %d\n", ret);
-        return BK_FAIL;
-    }
-
     bk_display_ctlr_handle_t new_handle = media_panel_get_dpu_handle();
+
     if (new_handle == NULL) {
-        LOGE("bk_robot_lvgl_resume_display: dpu handle NULL after open\n");
-        return BK_FAIL;
+        avdk_err_t ret = media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true);
+        if (ret != AVDK_ERR_OK) {
+            LOGE("bk_robot_lvgl_resume_display: media_lcd_panel_open failed %d\n", ret);
+            return BK_FAIL;
+        }
+
+        new_handle = media_panel_get_dpu_handle();
+        if (new_handle == NULL) {
+            LOGE("bk_robot_lvgl_resume_display: dpu handle NULL after open\n");
+            return BK_FAIL;
+        }
     }
 
     s_lvgl_dpu_handle = new_handle;
-    LOGI("bk_robot_lvgl_resume_display: dpu handle refreshed %p\n", new_handle);
+    /* Camera/edge preview closes its GPU controller, which also closes the
+     * shared VG-Lite context. Re-open it before LVGL compressed flush resumes. */
+    lv_gpu_init(0, 0);
+    LOGI("bk_robot_lvgl_resume_display: dpu handle %p\n", new_handle);
 
     return BK_OK;
 }
@@ -289,7 +300,7 @@ int main(void)
         bk_frame_buffer_init();
         media_board_power_on(); //power on ai board peripherals
 #if CONFIG_LVGL
-        AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_RGB565, false), TAG, "media lcd panel open error");
+        AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true), TAG, "media lcd panel open error");
         AVDK_RETURN_ON_ERROR(bk_robot_lvgl_init(media_panel_get_dpu_handle()), TAG, "bk robot lvgl init error");
 #else
         //AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true), TAG, "media lcd panel open error");

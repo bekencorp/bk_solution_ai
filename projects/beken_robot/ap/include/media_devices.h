@@ -117,8 +117,8 @@ avdk_err_t media_h264_encoder_stop(void);
 
 /* ---------- Bring-up test thread ----------
  *
- *   MEDIA_TEST_MODE_SPLASH       : flush lcd_image_bk7259_splash_rgb565 to the
- *                                  DPU (panel must be RGB565, decompress=false).
+ *   MEDIA_TEST_MODE_SPLASH       : legacy RGB565 splash test; panel must be
+ *                                  opened as RGB565, decompress=false.
  *   MEDIA_TEST_MODE_H264_WIFI_TX : stand in for the WiFi transmitter -- pop
  *                                  encoded H.264 frames and free them.
  */

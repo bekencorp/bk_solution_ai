@@ -5,14 +5,13 @@
 //
 // Usage (page_3 nav callbacks run on Tmr Svc with ~2 KB stack; APIs return
 // immediately and heavy work runs on internal 16 KB workers):
-//   - camera_preview_start(): lv_vendor_stop -> close RGB565 panel -> open
+//   - camera_preview_start(): lv_vendor_stop -> keep shared
 //     ARGB8888+decompress panel -> open camera -> open GPU; rolls back on fail.
-//   - camera_preview_stop(): close GPU -> close camera -> close panel ->
-//     reopen RGB565 panel -> lv_vendor_start().
+//   - camera_preview_stop(): close GPU -> close camera -> lv_vendor_start().
 //
-// DPU handle: start/stop call media_lcd_panel_close/open and replace the DPU
-// controller. ap_main LVGL flush fetches media_panel_get_dpu_handle() each
-// frame, so callers need not sync LVGL state manually.
+// DPU handle: the compressed DPU is shared with LVGL and kept alive across
+// preview start/stop. ap_main LVGL flush fetches media_panel_get_dpu_handle()
+// each frame, so callers need not sync LVGL state manually.
 //
 // State machine:
 //   IDLE -> STARTING -> RUNNING --+-> STOPPING -> IDLE

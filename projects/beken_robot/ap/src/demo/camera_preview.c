@@ -35,6 +35,8 @@
 
 #include "board_usb_switch.h"
 
+bk_err_t bk_robot_lvgl_resume_display(void);
+
 /* Vision-mode hooks: when the preview is active, we want the ConvoAI
  * agent online (so the captured JPEG can be RTM-uploaded) but the user's
  * voice MUST NOT be sent up -- otherwise the LLM mixes mic-noise with
@@ -208,16 +210,17 @@ bool camera_preview_is_active(void)
     return s_preview_state != PREVIEW_STATE_IDLE;
 }
 
-/* Reopen panel as RGB565 for LVGL (rollback on start/stop failure). */
-static int camera_preview_reopen_lvgl_panel(void)
+/* Keep the shared compressed DPU alive; only open it if a prior failure left it off. */
+static int camera_preview_ensure_lvgl_panel(void)
 {
-    /* close is idempotent when panel already off */
-    (void)media_lcd_panel_close();
+    if (media_panel_get_dpu_handle() != NULL) {
+        return 0;
+    }
 
     if (media_lcd_panel_open(PREVIEW_MIPI_PANEL,
-                             BK_PIXEL_FORMAT_RGB565,
-                             false) != AVDK_ERR_OK) {
-        LOGE("media_lcd_panel_open(RGB565) failed; LVGL won't have a panel\n");
+                             BK_PIXEL_FORMAT_ARGB8888,
+                             true) != AVDK_ERR_OK) {
+        LOGE("media_lcd_panel_open(ARGB8888 decompress) failed; LVGL won't have a panel\n");
         return -1;
     }
     return 0;
@@ -232,6 +235,10 @@ static void camera_preview_overlay_back(void *arg)
 /* Restart LVGL; invalidate full screen after panel swap (partial-render). */
 static void camera_preview_resume_lvgl(void)
 {
+    if (bk_robot_lvgl_resume_display() != BK_OK) {
+        LOGE("camera_preview_resume_lvgl: resume display failed\n");
+    }
+
     lv_vendor_start();
     lv_vendor_disp_lock();
     lv_obj_invalidate(lv_scr_act());
@@ -245,14 +252,7 @@ static void camera_preview_start_task(void *arg)
 
     lv_vendor_stop();
 
-    if (media_lcd_panel_close() != AVDK_ERR_OK) {
-        LOGE("media_lcd_panel_close failed before preview (continue)\n");
-    }
-
-    if (media_lcd_panel_open(PREVIEW_MIPI_PANEL,
-                             BK_PIXEL_FORMAT_ARGB8888,
-                             true) != AVDK_ERR_OK) {
-        LOGE("media_lcd_panel_open(ARGB8888) failed\n");
+    if (camera_preview_ensure_lvgl_panel() != 0) {
         goto err_rollback;
     }
 
@@ -306,7 +306,7 @@ static void camera_preview_start_task(void *arg)
 
 err_rollback:
     ui_overlay_swipe_back_stop();
-    (void)camera_preview_reopen_lvgl_panel();
+    (void)camera_preview_ensure_lvgl_panel();
     camera_preview_resume_lvgl();
     s_preview_state = PREVIEW_STATE_IDLE;
     s_preview_thread = NULL;
@@ -935,7 +935,7 @@ static void camera_preview_stop_task(void *arg)
     if (media_camera_close() != AVDK_ERR_OK) {
         LOGE("media_camera_close failed\n");
     }
-    (void)camera_preview_reopen_lvgl_panel();
+    (void)camera_preview_ensure_lvgl_panel();
 
     camera_preview_resume_lvgl();
 
@@ -1024,7 +1024,7 @@ int camera_preview_stop(void)
         camera_preview_release_photo();
         (void)media_gpu_close();
         (void)media_camera_close();
-        (void)camera_preview_reopen_lvgl_panel();
+        (void)camera_preview_ensure_lvgl_panel();
         camera_preview_resume_lvgl();
         /* SD-NAND volume stays mounted -- see camera_preview_stop_task
          * for the rationale (f_unmount + power_off caused black LCD). */

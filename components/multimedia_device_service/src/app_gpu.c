@@ -36,7 +36,7 @@ static bk_gpu_ctlr_handle_t s_gpu_handle = NULL;
 static gpu_board_config_t *gpu_board_config = NULL;
 
 #if (CONFIG_PSRAM_WRITE_THROUGH)
-static uint32_t s_psram_cover_area;
+static uint32_t s_psram_cover_area = PSRAM_WRITE_THROUGH_AREA_COUNT;
 #endif
 
 /* ---------------------------------------------------------------------------
@@ -66,9 +66,11 @@ static void *bkmm_frame_malloc(uint32_t size)
         return NULL;
     }
 #if (CONFIG_PSRAM_WRITE_THROUGH)
-    if (bk_psram_enable_write_through(s_psram_cover_area, (uint32_t)disp_frame, (uint32_t)((uint8_t *)disp_frame + size)) != BK_OK)
+    if (s_psram_cover_area < PSRAM_WRITE_THROUGH_AREA_COUNT &&
+        bk_psram_enable_write_through(s_psram_cover_area, (uint32_t)disp_frame, (uint32_t)((uint8_t *)disp_frame + size)) != BK_OK)
     {
         LOGE("Failed to enable write through\n");
+        bk_frame_buffer_free(disp_frame);
         return NULL;
     }
 #endif
@@ -78,7 +80,10 @@ static void *bkmm_frame_malloc(uint32_t size)
 static avdk_err_t bkmm_frame_free(void *ptr)
 {
 #if (CONFIG_PSRAM_WRITE_THROUGH)
-    bk_psram_disable_write_through(s_psram_cover_area);
+    if (s_psram_cover_area < PSRAM_WRITE_THROUGH_AREA_COUNT)
+    {
+        bk_psram_disable_write_through(s_psram_cover_area);
+    }
 #endif
     bk_frame_buffer_free(ptr);
     return AVDK_ERR_OK;
@@ -220,11 +225,14 @@ avdk_err_t app_gpu_turn_on(gpu_board_config_t *config)
     os_memset(&gpu_config, 0, sizeof(bk_gpu_ctlr_config_t));
 
 #if (CONFIG_PSRAM_WRITE_THROUGH)
-    s_psram_cover_area = bk_psram_alloc_write_through_channel_with_psram_id(0);
     if (s_psram_cover_area >= PSRAM_WRITE_THROUGH_AREA_COUNT)
     {
-        LOGE("alloc write-through channel failed\n");
-        return AVDK_ERR_GENERIC;
+        s_psram_cover_area = bk_psram_alloc_write_through_channel_with_psram_id(0);
+        if (s_psram_cover_area >= PSRAM_WRITE_THROUGH_AREA_COUNT)
+        {
+            LOGE("alloc write-through channel failed\n");
+            return AVDK_ERR_GENERIC;
+        }
     }
 #endif
 
@@ -288,7 +296,9 @@ avdk_err_t app_gpu_turn_off(bk_gpu_ctlr_handle_t ctlr)
         return AVDK_ERR_GENERIC;
     }
 
-    /* turn_off: drop snapshot flags; buffer freed on panel close / DPU deinit */
+    /* The DPU may still own the last flushed GPU frame after GPU stop.
+     * Keep the write-through channel alive so that delayed DPU release
+     * callbacks can safely run bkmm_frame_free(). */
     app_gpu_drop_snapshot();
 
     ret = bk_gpu_close(ctlr);
@@ -316,15 +326,6 @@ avdk_err_t app_gpu_turn_off(bk_gpu_ctlr_handle_t ctlr)
     {
         s_gpu_handle = NULL;
     }
-
-#if (CONFIG_PSRAM_WRITE_THROUGH)
-    bk_err_t wt_ret = bk_psram_free_write_through_channel((psram_write_through_area_t)s_psram_cover_area);
-    if (wt_ret != BK_OK)
-    {
-        LOGW("free write-through channel failed: %d, area=%d\n", wt_ret, s_psram_cover_area);
-        return AVDK_ERR_GENERIC;
-    }
-#endif
 
     return AVDK_ERR_OK;
 }
