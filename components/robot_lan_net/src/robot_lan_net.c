@@ -27,8 +27,10 @@ typedef struct {
 
 static robot_lan_ctx_t s_lan = {
 };
+#if !CONFIG_NTWK_CTRL_CHAN_JSON
 static char s_ctrl_rx_buf[ROBOT_LAN_CMD_MAX_LEN * 2];
 static uint32_t s_ctrl_rx_len;
+#endif
 
 extern bk_err_t robot_lan_discovery_start_internal(void);
 extern bk_err_t robot_lan_discovery_stop_internal(void);
@@ -39,7 +41,9 @@ static void robot_lan_reset_connection_state(void)
     s_lan.ctrl_connected = false;
     s_lan.video_connected = false;
     s_lan.audio_connected = false;
+#if !CONFIG_NTWK_CTRL_CHAN_JSON
     s_ctrl_rx_len = 0;
+#endif
 }
 
 robot_lan_ctx_t *robot_lan_get_ctx_internal(void)
@@ -60,6 +64,18 @@ void robot_lan_emit_event_internal(robot_lan_event_t event, const char *cmd, siz
     }
 }
 
+#if CONFIG_NTWK_CTRL_CHAN_JSON
+static int robot_lan_ctrl_recv(uint8_t *data, uint32_t length)
+{
+    if (!data || length == 0) {
+        return BK_FAIL;
+    }
+
+    robot_lan_emit_event_internal(ROBOT_LAN_EVT_CMD_RX, (const char *)data, length);
+
+    return length;
+}
+#else
 static void robot_lan_emit_ctrl_line(void)
 {
     uint32_t line_len = s_ctrl_rx_len;
@@ -97,6 +113,7 @@ static int robot_lan_ctrl_recv(uint8_t *data, uint32_t length)
 
     return length;
 }
+#endif
 
 static void robot_lan_bk_trans_event_cb(const bk_trans_event_t *event, void *user_data)
 {
@@ -123,7 +140,9 @@ static void robot_lan_bk_trans_event_cb(const bk_trans_event_t *event, void *use
             s_lan.video_connected &&
             s_lan.audio_connected) {
             s_lan.connected = true;
+#if !CONFIG_NTWK_CTRL_CHAN_JSON
             s_ctrl_rx_len = 0;
+#endif
             robot_lan_emit_event_internal(ROBOT_LAN_EVT_APP_CONNECTED, NULL, 0);
         }
     } else if (event->code == BK_TRANS_EVT_DISCONNECTED ||
