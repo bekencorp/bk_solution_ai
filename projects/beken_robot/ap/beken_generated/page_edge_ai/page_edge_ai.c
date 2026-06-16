@@ -17,8 +17,10 @@
 #include "lvgl.h"
 #include "beken_ui.h"
 #include "event_runtime.h"
+#include "page_hooks.h"
 #include "ui_nav_router.h"
 #include "demo/palm_tracking.h"
+#include "demo/yoloface_tracking.h"
 #include "video_engine.h"
 
 #ifdef ROBOT_TEST
@@ -196,7 +198,8 @@ static void edge_ai_enter_selected(void)
         (void)palm_tracking_start();
         break;
     case 1:
-        edge_ai_show_status("人脸检测功能暂未实现");
+        yoloface_tracking_set_return_to_edge_ai(true);
+        (void)yoloface_tracking_start();
         break;
     case 2:
         edge_ai_show_status("手势识别功能暂未实现");
@@ -305,12 +308,14 @@ int page_edge_ai_enter(void)
                             LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
 
-    s_edge_status = create_label(s_edge_screen, "人脸检测 手势识别 暂未实现",
+    s_edge_status = create_label(s_edge_screen, "手势识别 暂未实现",
                                  0, EDGE_STATUS_Y, EDGE_SCREEN_W, 22,
                                  &lv_font_ali_16, 0x9eb7d9);
 
     s_edge_idx = 0;
     edge_ai_menu_apply_focus();
+    bk_page_attach_right_swipe_gesture(s_edge_screen);
+    bk_page_attach_right_swipe_gesture(panel);
     lv_screen_load(s_edge_screen);
     (void)ui_nav_register_screen(s_edge_screen, &s_edge_ai_nav_ops);
     return 0;
@@ -544,6 +549,7 @@ int page_edge_ai_solution_enter(void)
                                                    NULL);
     }
 
+    bk_page_attach_right_swipe_gesture(s_solution_screen);
     lv_screen_load(s_solution_screen);
     (void)ui_nav_register_screen(s_solution_screen, &s_solution_nav_ops);
     solution_preview_attach();

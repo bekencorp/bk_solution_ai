@@ -5,6 +5,8 @@
 class YolofaceDetectionModel : public AvdkDetectionModel
 {
 public:
+    void setModelFilePath(const char *path);
+
     void resolverLoad(void);
     void resourceLoad(void);
     void resourceUnload(void);

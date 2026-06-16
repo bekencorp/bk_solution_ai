@@ -16,13 +16,12 @@
  * Unmapped events (double-click, etc.) are ignored for now -- extend
  * the switch below as needed.
  *
- * Special case: palm tracking (page_3 -> palm_detection_start) calls
- * lv_vendor_stop() to pause LVGL and takes over the framebuffer. The
- * normal ui_nav_dispatch_event path stops working because
- * lv_screen_active() no longer updates. Before the switch we
- * therefore intercept "S4 double-click" and call
- * palm_detection_exit_to_menu() directly to stop the NN pipeline,
- * resume LVGL and navigate back to the configured palm return page.
+ * Special case: overlay demos (palm tracking, yoloface detection, ...)
+ * call lv_vendor_stop() to pause LVGL and take over the framebuffer.
+ * The normal ui_nav_dispatch_event path stops working because
+ * lv_screen_active() no longer updates. Before the switch we therefore
+ * intercept overlay exit keys and call *_detection_exit_to_menu()
+ * directly to stop the NN pipeline, resume LVGL and navigate back.
  */
 #include <common/sys_config.h>
 
@@ -31,6 +30,7 @@
 #include "ui_nav_router.h"
 #include "ui_nav_events.h"
 #include "palm_detection.h"
+#include "yoloface_detection.h"
 
 #include <key_adapter.h>
 #include <components/log.h>
@@ -38,21 +38,50 @@
 #define TAG "ui_key_bridge"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 
+static bool ui_key_overlay_demo_active(void)
+{
+    return palm_detection_is_active() || yoloface_detection_is_active();
+}
+
+static bool ui_key_overlay_exit_event(key_event_t event)
+{
+    switch (event) {
+#if CONFIG_ADC_KEY
+    case ADC_KEY_S4_DOUBLE:
+        return true;
+#endif
+    default:
+        return false;
+    }
+}
+
+static void ui_key_overlay_exit(void)
+{
+    if (palm_detection_is_active()) {
+        LOGI("exit palm tracking overlay\r\n");
+        (void)palm_detection_exit_to_menu();
+        return;
+    }
+    if (yoloface_detection_is_active()) {
+        LOGI("exit yoloface detection overlay\r\n");
+        (void)yoloface_detection_exit_to_menu();
+    }
+}
+
 void bk_key_app_notify_ui_nav(uint8_t event)
 {
-#if CONFIG_ADC_KEY
-    if (palm_detection_is_active()) {
-        if ((key_event_t)event == ADC_KEY_S4_DOUBLE) {
-            LOGI("key S4 double -> exit palm tracking\r\n");
-            (void)palm_detection_exit_to_menu();
+    key_event_t key = (key_event_t)event;
+
+    if (ui_key_overlay_demo_active()) {
+        if (ui_key_overlay_exit_event(key)) {
+            ui_key_overlay_exit();
         }
         return;
     }
-#endif
 
     ui_nav_event_t nav = UI_NAV_EVENT_COUNT;
 
-    switch ((key_event_t)event) {
+    switch (key) {
 #if CONFIG_ADC_KEY
     case ADC_KEY_S5_SHORT:
         nav = UI_NAV_EVENT_FOCUS_PREV;

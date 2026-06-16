@@ -68,6 +68,12 @@ void bk_page_fire_init(int page_id, bk_lv_ui_t *ui);
 void bk_page_fire_destroy(int page_id, bk_lv_ui_t *ui);
 
 /**
+ * @brief Attach a right-swipe -> UI_NAV_EVENT_SCREEN_PREV handler to
+ *        any screen root (including dynamically created pages).
+ */
+void bk_page_attach_right_swipe_gesture(lv_obj_t *screen);
+
+/**
  * @brief Register all per-page UI hooks under beken_generated/page_*.
  *
  * Each page subdirectory provides a page_<feature>_init_hooks() function

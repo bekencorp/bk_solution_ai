@@ -10,9 +10,13 @@ set(srcs
 
 if (CONFIG_TFLM_YOLOFACE_V1)
 	list(APPEND srcs
-		src/tflm_yoloface_detection/yoloface_detect_model_data.cc
 		src/tflm_yoloface_detection/YolofaceDetectionModel.cc
 	)
+	if (NOT CONFIG_SDCARD)
+		list(APPEND srcs
+			src/tflm_yoloface_detection/yoloface_detect_model_data.cc
+		)
+	endif()
 endif()
 
 if (CONFIG_TFLM_PALM_DETECTION_V1)

@@ -65,6 +65,15 @@ static void bk_page_global_gesture_cb(lv_event_t *e)
     }
 }
 
+void bk_page_attach_right_swipe_gesture(lv_obj_t *screen)
+{
+    if (screen == NULL) {
+        return;
+    }
+
+    lv_obj_add_event_cb(screen, bk_page_global_gesture_cb, LV_EVENT_GESTURE, NULL);
+}
+
 static void bk_page_attach_global_gesture(int page_id, bk_lv_ui_t *ui)
 {
     if (page_id == 1) {
@@ -72,11 +81,7 @@ static void bk_page_attach_global_gesture(int page_id, bk_lv_ui_t *ui)
     }
 
     lv_obj_t *screen = bk_page_screen_by_id(page_id, ui);
-    if (screen == NULL) {
-        return;
-    }
-
-    lv_obj_add_event_cb(screen, bk_page_global_gesture_cb, LV_EVENT_GESTURE, NULL);
+    bk_page_attach_right_swipe_gesture(screen);
 }
 
 bool bk_page_set_init_hook(int page_id, bk_page_init_hook_t hook)

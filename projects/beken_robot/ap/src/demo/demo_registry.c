@@ -29,6 +29,7 @@
 #include "demo/volume.h"
 #include "demo/sound_localization.h"
 #include "demo/palm_tracking.h"
+#include "demo/yoloface_tracking.h"
 #include "demo/camera_preview_demo.h"
 #include "demo/udisk.h"
 #include "demo/robot_video.h"
@@ -42,6 +43,7 @@ static const bk_demo_iface_t * const s_demo_list[] = {
     &g_demo_volume,
     &g_demo_sound_localization,
     &g_demo_palm_tracking,
+    &g_demo_yoloface_tracking,
     &g_demo_camera_preview,
     &g_demo_udisk,
     &g_demo_robot_video,

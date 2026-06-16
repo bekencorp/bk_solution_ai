@@ -32,10 +32,19 @@
  */
 
 #include "YolofaceDetectionModel.h"
+#if !CONFIG_SDCARD
 #include "yoloface_detect_model_data.h"
+#endif
 #include "box.h"
 
 #include <math.h>
+
+/* Default SD-card path used when CONFIG_SDCARD is enabled and no caller has
+ * overridden it via setModelFilePath(). Mirrors the palm-detection convention
+ * ("1:/tflite/<model>.tflite"). */
+#ifndef YOLOFACE_MODEL_SD_PATH
+#define YOLOFACE_MODEL_SD_PATH "1:/tflite/yoloface_int8_vela.tflite"
+#endif
 
 /* ===================== Model architecture (fixed by yoloface .tflite) ===================== */
 constexpr int   kGridSize          = 7;        /* 7x7 grid */
@@ -124,6 +133,11 @@ static int nms_in_place(Box* boxes, int count, float iou_thresh) {
 
 /* ===================== AvdkDetectionModel overrides ===================== */
 
+void YolofaceDetectionModel::setModelFilePath(const char *path)
+{
+    modelFilePath = path;
+}
+
 void YolofaceDetectionModel::resolverLoad(void)
 {
     micro_op_resolver.AddEthosU();
@@ -139,11 +153,24 @@ void YolofaceDetectionModel::resourceLoad(void)
     format = BK_PIXEL_FORMAT_RGB888;
 
     model_type             = AVDK_NN_MODEL_TYPE_NPU;
+#if CONFIG_SDCARD
+    modelLoadType          = AVDK_NN_MODEL_LOAD_TYPE_SD_FILE;
+    model_ram_type         = AVDK_NN_MEM_TYPE_PSRAM_SLAB;
+    model_flash_data       = NULL;
+    model_flash_data_size  = 0;
+    model_data             = NULL;
+    model_data_size        = 0;
+    if (modelFilePath == NULL || modelFilePath[0] == '\0') {
+        modelFilePath = YOLOFACE_MODEL_SD_PATH;
+    }
+#else
+    modelLoadType          = AVDK_NN_MODEL_LOAD_TYPE_FLASH;
     model_ram_type         = AVDK_NN_MEM_TYPE_FALSH;
     model_flash_data       = (uint8_t*)g_yoloface_int8_vela_tflite;
     model_flash_data_size  = YOLOFACE_MODEL_DATA_SIZE;
     model_data             = (uint8_t*)g_yoloface_int8_vela_tflite;
     model_data_size        = YOLOFACE_MODEL_DATA_SIZE;
+#endif
 
     fast_ram_type          = AVDK_NN_MEM_TYPE_HSRAM;
     fast_ram_data_size     = 40 * 1024;
