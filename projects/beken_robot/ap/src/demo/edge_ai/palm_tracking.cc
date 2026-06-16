@@ -58,10 +58,10 @@ static PalmDetectionModel *model = NULL;
  * The bk_servo component is HW-agnostic: PWM channel and GPIO pin are
  * picked here at the application layer and passed in via config structs. */
 #define PALM_SERVO_PWM_CHAN_H   PWM_ID_0
-#define PALM_SERVO_GPIO_ID_H    GPIO_69
+#define PALM_SERVO_GPIO_ID_H    GPIO_23//GPIO_69
 
 #define PALM_SERVO_PWM_CHAN_V   PWM_ID_1
-#define PALM_SERVO_GPIO_ID_V    GPIO_60
+#define PALM_SERVO_GPIO_ID_V    GPIO_22//GPIO_60
 
 /* Per-axis mechanical safe range on this rig:
  *   - H (pan)  can sweep the full 0..180 (no obstruction).
