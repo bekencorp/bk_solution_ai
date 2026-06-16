@@ -318,7 +318,7 @@ int page_edge_ai_enter(void)
                             LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
 
-    s_edge_status = create_label(s_edge_screen, "请选择边缘 AI 功能",
+    s_edge_status = create_label(s_edge_screen, "请选择边缘AI功能",
                                  0, EDGE_STATUS_Y, EDGE_SCREEN_W, 22,
                                  &lv_font_ali_16, 0x9eb7d9);
 
