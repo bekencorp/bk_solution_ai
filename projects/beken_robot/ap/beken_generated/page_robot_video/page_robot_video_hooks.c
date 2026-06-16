@@ -102,6 +102,11 @@ void page_robot_video_init_hooks(void)
 
 int page_robot_video_enter(void)
 {
+    if (bk_lv_tool_ui.page_11 != NULL &&
+        lv_obj_is_valid(bk_lv_tool_ui.page_11)) {
+        destroy_page_page_11(&bk_lv_tool_ui);
+    }
+
     navigate_to_screen((lv_obj_t **)&bk_lv_tool_ui.page_11,
                        LV_SCR_LOAD_ANIM_NONE, 0, 0, false,
                        init_page_page_11);
