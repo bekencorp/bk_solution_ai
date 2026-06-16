@@ -140,6 +140,14 @@ int ntwk_eng_stop(void *user_data);
  */
 int ntwk_eng_send_audio(const uint8_t *data, size_t size, audio_enc_type_t audio_type);
 
+/**
+ * @brief 发送控制通道数据
+ * @param data 控制数据指针
+ * @param size 控制数据大小
+ * @return int 发送结果
+ */
+int ntwk_eng_send_ctrl(const uint8_t *data, size_t size);
+
 
 /**
  * @brief 处理并发送视频帧

@@ -1,6 +1,7 @@
 #include "robot_ctrl_internal.h"
 
 #include <os/str.h>
+#include "bk_trans_api.h"
 #include "robot_video_service.h"
 
 static void robot_ctrl_apply_camera_params(cJSON *params)
@@ -34,11 +35,10 @@ bk_err_t robot_ctrl_handle_camera(const char *method, cJSON *id, cJSON *params)
             robot_ctrl_service_handle_wakeup();
         }
         robot_ctrl_apply_camera_params(params);
-        if (robot_lan_net_start_video_channel() != BK_OK) {
-            return robot_ctrl_send_error(id, -32603, "video channel start failed");
+        if (!bk_trans_is_video_channel_connected()) {
+            return robot_ctrl_send_error(id, -32603, "video channel not connected");
         }
         if (robot_video_service_start(&s_ctrl.solution.video) != BK_OK) {
-            robot_lan_net_stop_video_channel();
             return robot_ctrl_send_error(id, -32603, "camera start failed");
         }
         s_ctrl.video_on = true;
@@ -49,7 +49,6 @@ bk_err_t robot_ctrl_handle_camera(const char *method, cJSON *id, cJSON *params)
 
     if (os_strcmp(method, "robot.camera.turnOff") == 0) {
         robot_video_service_stop();
-        robot_lan_net_stop_video_channel();
         s_ctrl.video_on = false;
         robot_ctrl_reload_idle_timer();
         return robot_ctrl_send_result(id, NULL);

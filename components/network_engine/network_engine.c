@@ -402,6 +402,35 @@ int ntwk_eng_send_audio(const uint8_t *data, size_t size, audio_enc_type_t audio
     return ret;
 }
 
+/**
+ * @brief 发送控制通道数据
+ * @param data 控制数据指针
+ * @param size 控制数据大小
+ * @return int 发送结果
+ */
+int ntwk_eng_send_ctrl(const uint8_t *data, size_t size)
+{
+    if (!g_ntwk_eng_ctx.initialized) {
+        LOGE("%s: NTWK engine not initialized\n", __func__);
+        return -1;
+    }
+
+    if (!data || size == 0) {
+        LOGE("Invalid ctrl data parameters\n");
+        return -2;
+    }
+
+    if (g_ntwk_eng_ctx.network_type != NETWORK_TYPE_BK_TRANS) {
+        LOGW("ctrl channel is only supported by bk_trans backend\n");
+        return -3;
+    }
+
+#if CONFIG_BK_TRANS_EN
+    return bk_trans_ctrl_send((uint8_t *)data, size);
+#else
+    return BK_FAIL;
+#endif
+}
 
 /**
  * @brief 发送视频数据到网络
@@ -440,7 +469,6 @@ int ntwk_eng_send_video(frame_buffer_t *frame)
 
     return ret;
 }
-
 
 /**
  * @brief 获取当前网络传输类型

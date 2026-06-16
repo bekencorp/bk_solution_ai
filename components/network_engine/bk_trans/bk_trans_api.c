@@ -21,9 +21,14 @@ static bool s_bk_trans_connected = false;
 static bool s_bk_trans_inited = false;
 static bool s_ctrl_chan_started = false;
 static bool s_video_chan_started = false;
+static bool s_video_chan_connected = false;
 static bool s_audio_chan_started = false;
+static bool s_audio_chan_connected = false;
 static bool s_config_valid = false;
 static bk_trans_config_t s_config;
+static bk_trans_ctrl_recv_callback_t s_ctrl_recv_cb;
+static bk_trans_event_callback_t s_event_cb;
+static void *s_event_user_data;
 
 static const char *bk_trans_mode_name(bk_trans_mode_t mode)
 {
@@ -158,19 +163,45 @@ static bk_err_t bk_trans_start_channel(chan_type_t chan_type)
     return ret;
 }
 
-static void bk_trans_try_start_media_channels(void)
+static bk_trans_channel_t bk_trans_channel_from_sdk(chan_type_t channel)
 {
-    if (!s_bk_trans_connected) {
+    switch (channel) {
+    case NTWK_TRANS_CHAN_CTRL:
+        return BK_TRANS_CHAN_CTRL;
+    case NTWK_TRANS_CHAN_VIDEO:
+        return BK_TRANS_CHAN_VIDEO;
+    case NTWK_TRANS_CHAN_AUDIO:
+        return BK_TRANS_CHAN_AUDIO;
+    default:
+        return BK_TRANS_CHAN_CTRL;
+    }
+}
+
+static bk_trans_event_code_t bk_trans_event_from_sdk(evt_code_t code)
+{
+    switch (code) {
+    case NTWK_TRANS_EVT_CONNECTED:
+        return BK_TRANS_EVT_CONNECTED;
+    case NTWK_TRANS_EVT_DISCONNECTED:
+        return BK_TRANS_EVT_DISCONNECTED;
+    case NTWK_TRANS_EVT_STOP:
+        return BK_TRANS_EVT_STOP;
+    default:
+        return BK_TRANS_EVT_OTHER;
+    }
+}
+
+static void bk_trans_emit_event(ntwk_trans_event_t *event)
+{
+    bk_trans_event_t trans_event = {0};
+
+    if (!event || !s_event_cb) {
         return;
     }
 
-    if (s_config.start_video) {
-        (void)bk_trans_start_channel(NTWK_TRANS_CHAN_VIDEO);
-    }
-
-    if (s_config.start_audio) {
-        (void)bk_trans_start_channel(NTWK_TRANS_CHAN_AUDIO);
-    }
+    trans_event.channel = bk_trans_channel_from_sdk(event->chan_type);
+    trans_event.code = bk_trans_event_from_sdk(event->code);
+    s_event_cb(&trans_event, s_event_user_data);
 }
 
 static void bk_trans_event_cb(ntwk_trans_event_t *event)
@@ -184,7 +215,6 @@ static void bk_trans_event_cb(ntwk_trans_event_t *event)
     if (event->chan_type == NTWK_TRANS_CHAN_CTRL) {
         if (event->code == NTWK_TRANS_EVT_CONNECTED) {
             s_bk_trans_connected = true;
-            bk_trans_try_start_media_channels();
         } else if (event->code == NTWK_TRANS_EVT_DISCONNECTED
                    || event->code == NTWK_TRANS_EVT_STOP) {
             s_bk_trans_connected = false;
@@ -192,20 +222,43 @@ static void bk_trans_event_cb(ntwk_trans_event_t *event)
                 s_ctrl_chan_started = false;
             }
         }
+        bk_trans_emit_event(event);
         return;
     }
 
-    if (event->chan_type == NTWK_TRANS_CHAN_VIDEO && event->code == NTWK_TRANS_EVT_STOP) {
-        s_video_chan_started = false;
-    } else if (event->chan_type == NTWK_TRANS_CHAN_AUDIO && event->code == NTWK_TRANS_EVT_STOP) {
-        s_audio_chan_started = false;
+    if (event->chan_type == NTWK_TRANS_CHAN_VIDEO) {
+        if (event->code == NTWK_TRANS_EVT_CONNECTED) {
+            s_video_chan_connected = true;
+        } else if (event->code == NTWK_TRANS_EVT_DISCONNECTED ||
+                   event->code == NTWK_TRANS_EVT_STOP) {
+            s_video_chan_connected = false;
+            if (event->code == NTWK_TRANS_EVT_STOP) {
+                s_video_chan_started = false;
+            }
+        }
+    } else if (event->chan_type == NTWK_TRANS_CHAN_AUDIO) {
+        if (event->code == NTWK_TRANS_EVT_CONNECTED) {
+            s_audio_chan_connected = true;
+        } else if (event->code == NTWK_TRANS_EVT_DISCONNECTED ||
+                   event->code == NTWK_TRANS_EVT_STOP) {
+            s_audio_chan_connected = false;
+            if (event->code == NTWK_TRANS_EVT_STOP) {
+                s_audio_chan_started = false;
+            }
+        }
     }
+
+    bk_trans_emit_event(event);
 }
 
 static int bk_trans_ctrl_recv(uint8_t *data, uint32_t length)
 {
     if (!data || length == 0) {
         return BK_FAIL;
+    }
+
+    if (s_ctrl_recv_cb) {
+        return s_ctrl_recv_cb(data, length);
     }
 
     return (int)length;
@@ -234,7 +287,9 @@ static void bk_trans_reset_runtime_state(void)
     s_bk_trans_connected = false;
     s_ctrl_chan_started = false;
     s_video_chan_started = false;
+    s_video_chan_connected = false;
     s_audio_chan_started = false;
+    s_audio_chan_connected = false;
 }
 
 static image_format_t bk_trans_video_format_from_frame(frame_buffer_t *frame)
@@ -267,6 +322,19 @@ bk_err_t bk_trans_pre_config(void *user_data)
     }
 
     LOGI("bk_trans pre_config\n");
+    return BK_OK;
+}
+
+bk_err_t bk_trans_register_ctrl_recv_cb(bk_trans_ctrl_recv_callback_t cb)
+{
+    s_ctrl_recv_cb = cb;
+    return BK_OK;
+}
+
+bk_err_t bk_trans_register_event_cb(bk_trans_event_callback_t cb, void *user_data)
+{
+    s_event_cb = cb;
+    s_event_user_data = user_data;
     return BK_OK;
 }
 
@@ -336,6 +404,18 @@ bk_err_t bk_trans_start(void *user_data)
     if (ret != BK_OK) {
         goto fail;
     }
+    if (s_config.start_video) {
+        ret = bk_trans_start_channel(NTWK_TRANS_CHAN_VIDEO);
+        if (ret != BK_OK) {
+            goto fail;
+        }
+    }
+    if (s_config.start_audio) {
+        ret = bk_trans_start_channel(NTWK_TRANS_CHAN_AUDIO);
+        if (ret != BK_OK) {
+            goto fail;
+        }
+    }
 
     LOGI("bk_trans started mode=%s service=%s\n",
          bk_trans_mode_name(s_config.mode), s_config.service_name);
@@ -392,13 +472,88 @@ int bk_trans_update(void *user_data, void *update_info)
     return BK_OK;
 }
 
+int bk_trans_ctrl_send(uint8_t *data, size_t len)
+{
+    if (!s_bk_trans_inited || !s_bk_trans_connected) {
+        LOGE("%s %d %d\n", __func__, s_bk_trans_inited, s_bk_trans_connected);
+        return BK_FAIL;
+    }
+
+    if (!data || len == 0) {
+        LOGE("Invalid ctrl data parameters: data=%p, len=%zu\n", data, len);
+        return BK_FAIL;
+    }
+
+    return ntwk_trans_ctrl_send(data, (uint32_t)len);
+}
+
+bk_err_t bk_trans_start_video_channel(void)
+{
+    if (!s_bk_trans_inited || !s_bk_trans_connected) {
+        return BK_FAIL;
+    }
+
+    return bk_trans_start_channel(NTWK_TRANS_CHAN_VIDEO);
+}
+
+bk_err_t bk_trans_stop_video_channel(void)
+{
+    if (!s_video_chan_started) {
+        s_video_chan_connected = false;
+        return BK_OK;
+    }
+
+    if (ntwk_trans_chan_stop(NTWK_TRANS_CHAN_VIDEO) != BK_OK) {
+        return BK_FAIL;
+    }
+
+    s_video_chan_started = false;
+    s_video_chan_connected = false;
+    return BK_OK;
+}
+
+bool bk_trans_is_video_channel_connected(void)
+{
+    return s_video_chan_started && s_video_chan_connected;
+}
+
+bk_err_t bk_trans_start_audio_channel(void)
+{
+    if (!s_bk_trans_inited || !s_bk_trans_connected) {
+        return BK_FAIL;
+    }
+
+    return bk_trans_start_channel(NTWK_TRANS_CHAN_AUDIO);
+}
+
+bk_err_t bk_trans_stop_audio_channel(void)
+{
+    if (!s_audio_chan_started) {
+        s_audio_chan_connected = false;
+        return BK_OK;
+    }
+
+    if (ntwk_trans_chan_stop(NTWK_TRANS_CHAN_AUDIO) != BK_OK) {
+        return BK_FAIL;
+    }
+
+    s_audio_chan_started = false;
+    s_audio_chan_connected = false;
+    return BK_OK;
+}
+
+bool bk_trans_is_audio_channel_connected(void)
+{
+    return s_audio_chan_started && s_audio_chan_connected;
+}
+
 int bk_trans_audio_data_send(uint8_t *data_ptr, size_t data_len, audio_enc_type_t audio_type)
 {
     if (!s_bk_trans_inited || !s_bk_trans_connected) {
         return BK_FAIL;
     }
 
-    if (!s_audio_chan_started && bk_trans_start_channel(NTWK_TRANS_CHAN_AUDIO) != BK_OK) {
+    if (!s_audio_chan_connected) {
         return BK_FAIL;
     }
 
@@ -417,7 +572,7 @@ int bk_trans_video_data_send(frame_buffer_t *frame)
         return BK_FAIL;
     }
 
-    if (!s_video_chan_started && bk_trans_start_channel(NTWK_TRANS_CHAN_VIDEO) != BK_OK) {
+    if (!s_video_chan_connected) {
         return BK_FAIL;
     }
 

@@ -1,6 +1,7 @@
 #include "robot_ctrl_internal.h"
 
 #include <os/str.h>
+#include "bk_smart_config.h"
 
 bk_err_t robot_ctrl_service_send_hello(void)
 {
@@ -20,7 +21,7 @@ bk_err_t robot_ctrl_service_send_hello(void)
     cJSON_AddStringToObject(root, "jsonrpc", "2.0");
     cJSON_AddStringToObject(root, "id", "hello");
     cJSON_AddStringToObject(root, "method", "robot.session.hello");
-    cJSON_AddStringToObject(params, "token", robot_lan_net_get_token());
+    cJSON_AddStringToObject(params, "token", bk_sconf_get_agent_identity_token());
     cJSON_AddItemToObject(root, "params", params);
 
     LOGI("send robot.session.hello\n");

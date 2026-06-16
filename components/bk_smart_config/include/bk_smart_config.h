@@ -53,6 +53,12 @@ typedef struct
 } bk_sconf_agent_info_t;
 
 int bk_sconf_get_channel_name(char *chan);
+int bk_sconf_get_agent_uuid(char *uuid, uint16_t max_len);
+int bk_sconf_generate_agent_token(char *token, uint16_t max_len);
+int bk_sconf_save_agent_token(const char *token);
+int bk_sconf_clear_agent_token(void);
+const char *bk_sconf_get_agent_identity_uuid(void);
+const char *bk_sconf_get_agent_identity_token(void);
 int bk_sconf_init(void);
 void bk_sconf_prepare_for_smart_config(void);
 int bk_sconf_start_rtc(void);

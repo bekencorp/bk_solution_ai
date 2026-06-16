@@ -4,6 +4,7 @@
 #include <os/str.h>
 #include <stdlib.h>
 #include <string.h>
+#include "network_engine.h"
 
 static cJSON *json_create_response(cJSON *id)
 {
@@ -94,7 +95,7 @@ bk_err_t robot_ctrl_send_json(cJSON *root)
     framed[len] = '\n';
     framed[len + 1] = '\0';
 
-    ret = (robot_lan_net_send_cmd(framed, len + 1) == BK_OK) ? BK_OK : BK_FAIL;
+    ret = (ntwk_eng_send_ctrl((const uint8_t *)framed, len + 1) == BK_OK) ? BK_OK : BK_FAIL;
     os_free(framed);
     cJSON_free(text);
     return ret;

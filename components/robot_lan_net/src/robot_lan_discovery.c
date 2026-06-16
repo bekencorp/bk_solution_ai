@@ -10,6 +10,7 @@
 #include "cJSON.h"
 #include "lwip/sockets.h"
 #include "lwip/inet.h"
+#include "bk_smart_config.h"
 
 #define TAG "robot_disc"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -60,9 +61,10 @@ static bool robot_lan_parse_broadcast(const char *buf, const char *src_ip, robot
     }
 
     const char *uuid = json_get_string(root, "uuid");
-    if (!uuid || os_strcmp(uuid, robot_lan_net_get_uuid()) != 0) {
+    const char *local_uuid = bk_sconf_get_agent_identity_uuid();
+    if (!uuid || os_strcmp(uuid, local_uuid) != 0) {
         LOGW("ignore App broadcast: uuid mismatch rx=%s local=%s\n",
-             uuid ? uuid : "", robot_lan_net_get_uuid());
+             uuid ? uuid : "", local_uuid);
         cJSON_Delete(root);
         return false;
     }

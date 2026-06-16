@@ -29,11 +29,18 @@
 #define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
 
 static const uint32_t s_factory_volume = 7;
+#if CONFIG_BK_SMART_CONFIG
+#define ROBOT_IDENTITY_STORE_LEN 64
+static uint8_t s_robot_identity_store[ROBOT_IDENTITY_STORE_LEN] = {0};
+#endif
 
 const struct factory_config_t s_platform_config[] = {
     {"sys_initialized", (void *)"1", 1, BK_FALSE, 1},   // first config used to check whether factory config initialized.
     {"volume", (void *)&s_factory_volume, 4, BK_TRUE, 4},
     {"d_agent_info", (void *)"\0", 1, BK_TRUE, 588},
+#if CONFIG_BK_SMART_CONFIG
+    {"robot_identity", (void *)s_robot_identity_store, sizeof(s_robot_identity_store), BK_TRUE, sizeof(s_robot_identity_store)},
+#endif
 };
 
 static const struct factory_config_t *s_user_reg_config = NULL;

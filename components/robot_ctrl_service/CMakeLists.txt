@@ -18,5 +18,5 @@ endif()
 armino_component_register(
     SRCS "${srcs}"
     INCLUDE_DIRS "${incs}"
-    PRIV_REQUIRES bk_common json robot_lan_net robot_video_service audio_engine bk_motor bk_app_event
+    PRIV_REQUIRES bk_common json robot_lan_net bk_smart_config robot_video_service audio_engine bk_motor bk_app_event network_engine
 )

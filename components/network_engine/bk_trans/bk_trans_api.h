@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include "network_engine.h"
 
@@ -20,6 +21,24 @@ typedef enum {
     BK_TRANS_MODE_CS2,
 } bk_trans_mode_t;
 
+typedef enum {
+    BK_TRANS_CHAN_CTRL = 0,
+    BK_TRANS_CHAN_VIDEO,
+    BK_TRANS_CHAN_AUDIO,
+} bk_trans_channel_t;
+
+typedef enum {
+    BK_TRANS_EVT_CONNECTED = 0,
+    BK_TRANS_EVT_DISCONNECTED,
+    BK_TRANS_EVT_STOP,
+    BK_TRANS_EVT_OTHER,
+} bk_trans_event_code_t;
+
+typedef struct {
+    bk_trans_channel_t channel;
+    bk_trans_event_code_t code;
+} bk_trans_event_t;
+
 typedef struct {
     uint32_t magic;
     bk_trans_mode_t mode;
@@ -33,12 +52,24 @@ typedef struct {
     char audio_port[BK_TRANS_PORT_LEN];
 } bk_trans_config_t;
 
+typedef int (*bk_trans_ctrl_recv_callback_t)(uint8_t *data, uint32_t length);
+typedef void (*bk_trans_event_callback_t)(const bk_trans_event_t *event, void *user_data);
+
 bk_err_t bk_trans_set_config(const bk_trans_config_t *config);
+bk_err_t bk_trans_register_ctrl_recv_cb(bk_trans_ctrl_recv_callback_t cb);
+bk_err_t bk_trans_register_event_cb(bk_trans_event_callback_t cb, void *user_data);
 bk_err_t bk_trans_start(void *user_data);
 bk_err_t bk_trans_deinit(void *user_data);
 bk_err_t bk_trans_stop(void *user_data);
 bk_err_t bk_trans_pre_config(void *user_data);
 int bk_trans_update(void *user_data, void *update_info);
+int bk_trans_ctrl_send(uint8_t *data, size_t len);
+bk_err_t bk_trans_start_video_channel(void);
+bk_err_t bk_trans_stop_video_channel(void);
+bool bk_trans_is_video_channel_connected(void);
+bk_err_t bk_trans_start_audio_channel(void);
+bk_err_t bk_trans_stop_audio_channel(void);
+bool bk_trans_is_audio_channel_connected(void);
 int bk_trans_audio_data_send(uint8_t *data_ptr, size_t data_len, audio_enc_type_t audio_type);
 int bk_trans_video_data_send(frame_buffer_t *frame);
 bool bk_trans_is_connected(void);

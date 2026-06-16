@@ -15,6 +15,7 @@
 #include <components/event.h>
 #include <components/netif.h>
 #include <driver/gpio.h>
+#include <driver/trng.h>
 #include "bk_wifi.h"
 #include "bk_wifi_types.h"
 #include "bk_cli.h"
@@ -60,6 +61,9 @@
 
 #define TAG "sconf"
 
+#define BK_SCONF_AGENT_TOKEN_KEY   "robot_identity"
+#define BK_SCONF_AGENT_UUID_LEN    65
+#define BK_SCONF_AGENT_TOKEN_LEN   64
 
 //split packet to upload wifi scan result
 bool g_ble_split_pkt = false;
@@ -69,6 +73,8 @@ static beken_thread_t config_ir_mode_switch_thread_handle = NULL;
 static beken_thread_t s_sconf_cli_mode_thread_handle = NULL;
 static beken_thread_t s_sconf_exit_thread_handle = NULL;
 static const char *s_sconf_start_model_type = "text";
+static char s_agent_token[BK_SCONF_AGENT_TOKEN_LEN];
+static bool s_agent_token_loaded = false;
 
 static volatile bool s_network_provisioned = false;
 
@@ -136,11 +142,101 @@ int bk_sconf_get_channel_name(char *chan)
     return 0;
 }
 
-static uint16_t bk_sconf_send_agent_info(char *payload, uint16_t max_len)
+static bk_err_t bk_sconf_load_agent_token(void)
+{
+    if (s_agent_token_loaded) {
+        return BK_OK;
+    }
+
+    os_memset(&s_agent_token, 0, sizeof(s_agent_token));
+    s_agent_token_loaded = true;
+
+#if CONFIG_BK_FACTORY_CONFIG
+    if (bk_config_read(BK_SCONF_AGENT_TOKEN_KEY, s_agent_token, sizeof(s_agent_token)) == sizeof(s_agent_token)
+        && s_agent_token[0] != '\0') {
+        LOGI("loaded agent token=%s\n", s_agent_token);
+        return BK_OK;
+    }
+#endif
+
+    LOGW("agent token not provisioned\n");
+    return BK_OK;
+}
+
+int bk_sconf_save_agent_token(const char *token)
+{
+    if (!token || token[0] == '\0') {
+        return BK_ERR_PARAM;
+    }
+
+    if (os_strlen(token) >= sizeof(s_agent_token)) {
+        return BK_ERR_PARAM;
+    }
+
+    os_memset(&s_agent_token, 0, sizeof(s_agent_token));
+    os_snprintf(s_agent_token, sizeof(s_agent_token), "%s", token);
+    s_agent_token_loaded = true;
+    LOGI("updated agent token=%s\n", s_agent_token);
+
+#if CONFIG_BK_FACTORY_CONFIG
+    int ret = bk_config_write(BK_SCONF_AGENT_TOKEN_KEY, s_agent_token, sizeof(s_agent_token));
+    if (ret != 0) {
+        LOGW("store agent token ret=%d\n", ret);
+    }
+    bk_config_sync_flash_safely();
+#endif
+
+    return BK_OK;
+}
+
+int bk_sconf_clear_agent_token(void)
+{
+    os_memset(&s_agent_token, 0, sizeof(s_agent_token));
+    s_agent_token_loaded = true;
+    LOGI("cleared agent token\n");
+
+#if CONFIG_BK_FACTORY_CONFIG
+    int ret = bk_config_write(BK_SCONF_AGENT_TOKEN_KEY, s_agent_token, sizeof(s_agent_token));
+    if (ret != 0) {
+        LOGW("clear agent token ret=%d\n", ret);
+    }
+    bk_config_sync_flash_safely();
+#endif
+
+    return BK_OK;
+}
+
+const char *bk_sconf_get_agent_identity_uuid(void)
+{
+    static char agent_uuid[BK_SCONF_AGENT_UUID_LEN];
+
+    int ret = bk_sconf_get_agent_uuid(agent_uuid, sizeof(agent_uuid));
+    if (ret <= 0) {
+        LOGW("get agent uuid failed\r\n");
+        return NULL;
+    }
+
+    return agent_uuid;
+}
+
+const char *bk_sconf_get_agent_identity_token(void)
+{
+    if (s_agent_token[0] == '\0') {
+        bk_sconf_load_agent_token();
+    }
+    return s_agent_token[0] != '\0' ? s_agent_token : "";
+}
+
+int bk_sconf_get_agent_uuid(char *uuid, uint16_t max_len)
 {
     unsigned char uid[32] = {0};
     char uid_str[65] = {0};
-    uint16 len = 0;
+    int len = 0;
+
+    if (!uuid || max_len < sizeof(uid_str)) {
+        LOGW("get agent uuid failed: uuid=%p max_len=%d\r\n", uuid, max_len);
+        return 0;
+    }
 
     //bk_uid_get_data(uid);
     /* BK7259: bk_uid_get_data returns all zeros; use MAC as stable substitute, same length (24 bytes -> 48 hex chars) */
@@ -155,10 +251,69 @@ static uint16_t bk_sconf_send_agent_info(char *payload, uint16_t max_len)
     {
         sprintf(uid_str + i * 2, "%02x", uid[i]);
     }
-    len = os_snprintf(payload, max_len, "{\"channel\":\"%s\"}", uid_str);
-    BK_LOGI(TAG, "ori channel name:%s, %d\r\n", uid_str, len);
+
+    len = os_snprintf(uuid, max_len, "%s", uid_str);
+    if (len <= 0 || len >= max_len) {
+        LOGW("generate agent token failed: uuid=%p max_len=%d\r\n", uuid, max_len);
+        return 0;
+    }
+    BK_LOGI(TAG, "agent uuid:%s, len:%d\r\n", uid_str, len);
     return len;
 }
+
+int bk_sconf_generate_agent_token(char *token, uint16_t max_len)
+{
+    if (!token || max_len < 33) {
+        return BK_ERR_PARAM;
+    }
+
+    uint32_t r0 = bk_rand();
+    uint32_t r1 = bk_rand();
+    uint32_t r2 = bk_rand();
+    uint32_t r3 = bk_rand();
+    int len = os_snprintf(token, max_len, "%08x%08x%08x%08x", r0, r1, r2, r3);
+    if (len <= 0 || len >= max_len) {
+        return BK_FAIL;
+    }
+
+    return len;
+}
+
+static int bk_sconf_build_agent_identity_payload(char *payload, uint16_t max_len)
+{
+    char uuid[65] = {0};
+    char token[65] = {0};
+    int len = 0;
+
+    if (!payload || max_len == 0) {
+        return BK_ERR_PARAM;
+    }
+
+    if (bk_sconf_get_agent_uuid(uuid, sizeof(uuid)) <= 0) {
+        LOGW("get agent uuid failed\r\n");
+        return BK_FAIL;
+    }
+
+    if (bk_sconf_generate_agent_token(token, sizeof(token)) <= 0) {
+        LOGW("generate agent token failed\r\n");
+        return BK_FAIL;
+    }
+
+    if (bk_sconf_save_agent_token(token) != BK_OK) {
+        LOGW("save agent token failed\r\n");
+        return BK_FAIL;
+    }
+
+    len = os_snprintf(payload, max_len, "{\"uuid\":\"%s\",\"token\":\"%s\"}",
+                      uuid, token);
+    if (len <= 0 || len >= max_len) {
+        return BK_FAIL;
+    }
+
+    LOGI("agent identity payload built uuid:%s token:%s len:%d\r\n", uuid, token, len);
+    return len;
+}
+
 static int bk_sconf_wifi_sta_connect(char *ssid, char *key)
 {
     int ssid_len, key_len;
@@ -277,7 +432,7 @@ static int bk_sconf_stop_network_transfer(char *device_id)
     }
 
 #if CONFIG_BK_NETWORK_ENGINE
-    return ntwk_eng_stop(device_id);
+    return ntwk_eng_deinit();
 #else
     LOGW("%s, Network transfer not supported\r\n", __func__);
     return BK_FAIL;
@@ -345,7 +500,9 @@ void bk_sconf_prase_agent_info(char *payload, uint8_t reset)
 int bk_sconf_upate_agent_info(char *device_id, char *update_info)
 {
     //int ret = 0;
+#if CONFIG_BK_NETWORK_ENGINE
     int agent_retry_cnt = 0;
+#endif
 
     LOGI("%s %d, update_info:%s\r\n", __func__, __LINE__, update_info);
 
@@ -661,12 +818,17 @@ void bk_sconf_network_provisioning_status_cb(bk_network_provisioning_status_t st
                 LOGI("netif_idx:%d, ip: %s\n", netif_idx, ip4_config.ip);
                 bk_ble_provisioning_event_notify_with_data(BOARDING_OP_STATION_START, BK_OK, ip4_config.ip, strlen(ip4_config.ip));
 
-                #if CONFIG_STARTUP_AGENT_FROM_BK_SERVER
                 char payload[256] = {0};
-                uint16_t len = 0;
-                len = bk_sconf_send_agent_info(payload, 256);
-                bk_ble_provisioning_event_notify_with_data(BOARDING_OP_SET_AGENT_INFO, 0, payload, len);
-                #endif
+                int len = bk_sconf_build_agent_identity_payload(payload, sizeof(payload));
+                if (len > 0) {
+                    bk_ble_provisioning_event_notify_with_data(BOARDING_OP_SET_AGENT_INFO,
+                                                               0,
+                                                               payload,
+                                                               (uint16_t)len);
+                    LOGI("agent identity returned by BLE: %s\r\n", payload);
+                } else {
+                    LOGW("build agent identity payload failed: %d\r\n", len);
+                }
 
                 LOGI("Network provisioning success, RTC start is controlled by UI\r\n");
             }
@@ -709,6 +871,7 @@ void bk_sconf_erase_smart_config(void)
     LOGI("erase smart config\r\n");
     erase_network_auto_reconnect_info();
     bk_sconf_erase_channel_name();
+    bk_sconf_clear_agent_token();
     s_network_provisioned = false;
     smart_config_running = false;
 
@@ -917,6 +1080,8 @@ int bk_sconf_enter_vision_mode_no_video(void)
 int bk_sconf_exit_ai_mode(int from_vision)
 {
     int ret = BK_OK;
+
+    LOGI("%s from_vision=%d\r\n", __func__, from_vision);
 
     ret = bk_sconf_stop_rtc();
 
