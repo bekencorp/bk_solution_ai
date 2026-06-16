@@ -1,4 +1,4 @@
-SDK_DIR = /home/long.chen/workspace/armino/bk7259_dev_ai/bk_avdk_smp_dev_7259v2_bringup_25W4801
+SDK_DIR ?= $(abspath ../..)
 
 PROJECT_MAKE_FILE := $(SDK_DIR)/tools/build_tools/build_files/project_main.mk
 ifeq ($(wildcard $(PROJECT_MAKE_FILE)),)
