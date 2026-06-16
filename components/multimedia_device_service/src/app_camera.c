@@ -8,6 +8,9 @@
 #include <os/os.h>
 #include <driver/int.h>
 #include <common/bk_err.h>
+#if CONFIG_TP
+#include <driver/drv_tp.h>
+#endif
 
 #include "app_camera.h"
 
@@ -47,6 +50,32 @@ typedef struct {
 static isp_csi_cam_handle_t isp_cam_handle = {0};
 
 static camera_board_config_t *camera_board_config = NULL;
+
+#if CONFIG_TP
+static bool app_camera_tp_suspend(void)
+{
+    if (drv_tp_suspend() != BK_OK)
+    {
+        LOGW("%s, drv_tp_suspend failed\n", __func__);
+        return false;
+    }
+
+    return true;
+}
+
+static void app_camera_tp_resume(bool suspended)
+{
+    if (!suspended)
+    {
+        return;
+    }
+
+    if (drv_tp_resume() != BK_OK)
+    {
+        LOGW("%s, drv_tp_resume failed\n", __func__);
+    }
+}
+#endif
 
 /**
  * @brief Vote MIPI camera AuxLDOs (1.8V iovdd + 1.2V dvdd) on/off.
@@ -88,22 +117,22 @@ int app_isp_camera_turn_off(void)
 
     avdk_err_t ret = AVDK_ERR_OK;
 
-    if (bk_isp_camera_channel_state_get(isp_cam_handle.camera_ctlr_handle, ISP_MP_CHN_ID) == ISP_CHANNEL_STATE_TURN_ON)
-    {
-        ret = bk_isp_camera_channel_close(isp_cam_handle.camera_ctlr_handle, ISP_MP_CHN_ID);
-        if (ret != AVDK_ERR_OK)
-        {
-            LOGE("%s, bk_isp_camera_channel_close MP failed: %d\n", __func__, ret);
-            return ret;
-        }
-    }
-
     if (bk_isp_camera_channel_state_get(isp_cam_handle.camera_ctlr_handle, ISP_SP_CHN_ID) == ISP_CHANNEL_STATE_TURN_ON)
     {
         ret = bk_isp_camera_channel_close(isp_cam_handle.camera_ctlr_handle, ISP_SP_CHN_ID);
         if (ret != AVDK_ERR_OK)
         {
             LOGE("%s, bk_isp_camera_channel_close SP failed: %d\n", __func__, ret);
+            return ret;
+        }
+    }
+
+    if (bk_isp_camera_channel_state_get(isp_cam_handle.camera_ctlr_handle, ISP_MP_CHN_ID) == ISP_CHANNEL_STATE_TURN_ON)
+    {
+        ret = bk_isp_camera_channel_close(isp_cam_handle.camera_ctlr_handle, ISP_MP_CHN_ID);
+        if (ret != AVDK_ERR_OK)
+        {
+            LOGE("%s, bk_isp_camera_channel_close MP failed: %d\n", __func__, ret);
             return ret;
         }
     }
@@ -394,6 +423,9 @@ err:
 int app_isp_mipi_camera_turn_on(const camera_board_config_t *config)
 {
     bk_err_t ret = BK_OK;
+#if CONFIG_TP
+    bool tp_suspended = false;
+#endif
 
     AVDK_RETURN_ON_FALSE((isp_cam_handle.camera_ctlr_handle == NULL), AVDK_ERR_BUSY, TAG, "camera already turned on");
     AVDK_GOTO_ON_FALSE(config, AVDK_ERR_INVAL, err, TAG, "config is null");
@@ -404,13 +436,31 @@ int app_isp_mipi_camera_turn_on(const camera_board_config_t *config)
 
     bk_isp_camera_ctlr_config_t isp_ctlr_config = CAM_CSI_DEFAULT_RAW10_CONFIG(config->mipi.sensor_max_width, config->mipi.sensor_max_height, config->mipi.sensor_fps);
 
+#if CONFIG_TP
+    tp_suspended = app_camera_tp_suspend();
+#endif
+
     ret = app_isp_mipi_sensor_init(config, &isp_ctlr_config);
-    AVDK_RETURN_ON_FALSE(ret == AVDK_ERR_OK, ret, TAG, "app_isp_mipi_sensor_init failed");
+    if (ret != AVDK_ERR_OK)
+    {
+        LOGE("%s error[%d]: app_isp_mipi_sensor_init failed\n", __func__, __LINE__);
+        goto resume_tp;
+    }
 
     ret = app_isp_mipi_camera_mp_turn_on(config, &isp_ctlr_config);
-    AVDK_RETURN_ON_FALSE(ret == AVDK_ERR_OK, ret, TAG, "app_isp_mipi_camera_mp_turn_on failed");
+    if (ret != AVDK_ERR_OK)
+    {
+        LOGE("%s error[%d]: app_isp_mipi_camera_mp_turn_on failed\n", __func__, __LINE__);
+        goto resume_tp;
+    }
 
-    return app_isp_mipi_sensor_start(config);
+    ret = app_isp_mipi_sensor_start(config);
+
+resume_tp:
+#if CONFIG_TP
+    app_camera_tp_resume(tp_suspended);
+#endif
+    return ret;
 
 err:
     return AVDK_ERR_GENERIC;

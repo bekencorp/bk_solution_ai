@@ -26,7 +26,7 @@
 #include "components/bk_uid.h"
 #include <driver/h264.h>
 #include <driver/aon_rtc.h>
-#include <modules/vcenc/vcenc_common.h>
+#include <modules/vcenc/vcenc_types.h>
 #if CONFIG_APP_EVT
 #include "app_event.h"
 #endif
