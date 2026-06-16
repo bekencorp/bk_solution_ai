@@ -21,6 +21,7 @@
 #include "ui_nav_router.h"
 #include "demo/palm_tracking.h"
 #include "demo/yoloface_tracking.h"
+#include "demo/hand_gesture.h"
 #include "video_engine.h"
 
 #ifdef ROBOT_TEST
@@ -188,6 +189,15 @@ static void edge_ai_show_status(const char *text)
     }
 }
 
+static void edge_ai_start_hand_gesture(void)
+{
+    edge_ai_show_status("正在启动手势识别...");
+    hand_gesture_set_return_to_edge_ai(true);
+    if (hand_gesture_start() != 0) {
+        edge_ai_show_status("手势识别启动失败，请稍后重试");
+    }
+}
+
 static void edge_ai_enter_selected(void)
 {
     LOGI("edge AI enter idx=%d\r\n", s_edge_idx);
@@ -202,7 +212,7 @@ static void edge_ai_enter_selected(void)
         (void)yoloface_tracking_start();
         break;
     case 2:
-        edge_ai_show_status("手势识别功能暂未实现");
+        edge_ai_start_hand_gesture();
         break;
     case 3:
     case 4:
@@ -308,7 +318,7 @@ int page_edge_ai_enter(void)
                             LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
 
-    s_edge_status = create_label(s_edge_screen, "手势识别 暂未实现",
+    s_edge_status = create_label(s_edge_screen, "请选择边缘 AI 功能",
                                  0, EDGE_STATUS_Y, EDGE_SCREEN_W, 22,
                                  &lv_font_ali_16, 0x9eb7d9);
 

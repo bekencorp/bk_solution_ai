@@ -30,6 +30,17 @@ if (CONFIG_TFLM_PALM_DETECTION_V1)
 	endif()
 endif()
 
+if (CONFIG_TFLM_HAND_GESTURE_DETECTION_V1)
+	list(APPEND srcs
+		src/tflm_hand_gesture_detection/HandGestureDetectionModel.cc
+	)
+	if (NOT CONFIG_SDCARD)
+		list(APPEND srcs
+			src/tflm_hand_gesture_detection/hand_gesture_detect_model_data.cc
+		)
+	endif()
+endif()
+
 set(priv_req bk_common unity include avdk_utils bk_tflite_micro multimedia_device_service bk_peripheral)
 
 if (CONFIG_SDCARD)

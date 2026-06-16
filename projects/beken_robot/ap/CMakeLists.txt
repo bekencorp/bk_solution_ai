@@ -26,6 +26,7 @@ list(APPEND srcs
     src/demo/sound_localization.c
     src/demo/edge_ai/palm_tracking.cc
     src/demo/edge_ai/yoloface_tracking.cc
+    src/demo/edge_ai/hand_gesture.cc
     src/demo/camera_preview.c
     src/demo/udisk.c
     src/demo/robot_video.c

@@ -31,6 +31,7 @@
 #include "ui_nav_events.h"
 #include "palm_detection.h"
 #include "yoloface_detection.h"
+#include "hand_gesture_detection.h"
 
 #include <key_adapter.h>
 #include <components/log.h>
@@ -40,7 +41,8 @@
 
 static bool ui_key_overlay_demo_active(void)
 {
-    return palm_detection_is_active() || yoloface_detection_is_active();
+    return palm_detection_is_active() || yoloface_detection_is_active()
+        || hand_gesture_detection_is_active();
 }
 
 static bool ui_key_overlay_exit_event(key_event_t event)
@@ -65,6 +67,11 @@ static void ui_key_overlay_exit(void)
     if (yoloface_detection_is_active()) {
         LOGI("exit yoloface detection overlay\r\n");
         (void)yoloface_detection_exit_to_menu();
+        return;
+    }
+    if (hand_gesture_detection_is_active()) {
+        LOGI("exit hand gesture overlay\r\n");
+        (void)hand_gesture_detection_exit_to_menu();
     }
 }
 

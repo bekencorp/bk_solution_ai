@@ -4,6 +4,7 @@ set(srcs "")
 list(APPEND srcs
 	bk_aimi_servo.c
 	bk_aimi_palm_tracker.c
+	bk_hiwonder_hand_servo.c
 )
 
 

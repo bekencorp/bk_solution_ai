@@ -4,6 +4,11 @@
 
 - `palm_tracking.cc` —— palm_detection NN pipeline + 全屏 camera preview 的手掌跟踪 demo。
   对外接口头文件为 `ap/include/demo/palm_tracking.h`。
+- `yoloface_tracking.cc` —— yoloface NN pipeline + 全屏 camera preview 的人脸检测 demo（仅 OSD，无舵机）。
+  对外接口头文件为 `ap/include/demo/yoloface_tracking.h`。
+- `hand_gesture.cc` —— hand_gesture NN pipeline + Hiwonder 6-DOF 手掌舵机控制。
+  对外接口头文件为 `ap/include/demo/hand_gesture.h`。
+  舵机驱动位于 `components/bk_servo/bk_hiwonder_hand_servo.c`。
 
 ## 管脚复用情况
 
@@ -45,3 +50,16 @@
 > 注：GPIO 复用配置以实际 SDK pinmux / board 配置为准，本表仅用于记录当前硬件接线对应关系。
 
 > ⚠️ **复用约束**：I2C0（P70/P71）已被触摸屏占用，**不可分配给舵机（servo）或其他外设**。
+
+### Hiwonder 手掌舵机（手势识别 demo）
+
+| 舵机 ID | GPIO | PWM 通道 |
+| ------- | ---- | -------- |
+| 1       | P55  | PWM8     |
+| 2       | P53  | PWM6     |
+| 3       | P46  | PWM7     |
+| 4       | P44  | PWM5     |
+| 5       | P0   | PWM4     |
+| 6       | P1   | PWM3     |
+
+SD 卡模型路径：`1:/tflite/hand_gesture_detection_vela.tflite`（与 `components/avdk_nn_module/src/tflm_hand_gesture_detection/` 中同名文件一致）。
