@@ -83,6 +83,7 @@
 #if CONFIG_NET_PAN
 #include "bluetooth_storage.h"
 #endif
+#include "lcd/lcd_mipi_jd9855_320x385.h"
 
 #define TAG "ap_main"
 
@@ -90,14 +91,14 @@
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 #define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
 
-extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_360x390;
-#define DEFAULT_MIPI_PANEL (&lcd_device_jd9855_mipi_360x390)
+
+#define DEFAULT_MIPI_PANEL (&lcd_device_jd9855_mipi_320x385)
 
 #if CONFIG_LVGL
 extern void lv_gpu_init(uint32_t tess_width, uint32_t tess_height);
 
-#define LVGL_DISP_WIDTH  360
-#define LVGL_DISP_HEIGHT 390
+#define LVGL_DISP_WIDTH  320
+#define LVGL_DISP_HEIGHT 385
 #define LVGL_COMPRESS_DISP_WIDTH  ((LVGL_DISP_WIDTH + 15) & ~15)
 #define LVGL_COMPRESS_DISP_HEIGHT ((LVGL_DISP_HEIGHT + 3) & ~3)
 
@@ -303,9 +304,9 @@ int main(void)
         AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true), TAG, "media lcd panel open error");
         AVDK_RETURN_ON_ERROR(bk_robot_lvgl_init(media_panel_get_dpu_handle()), TAG, "bk robot lvgl init error");
 #else
-        //AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true), TAG, "media lcd panel open error");
-        AVDK_RETURN_ON_ERROR(media_camera_open(1280, 720, 25, 400, 368), TAG, "media camera open error");
-        //AVDK_RETURN_ON_ERROR(media_gpu_open(400, 368, 90), TAG, "media gpu open error");  //open gpu will display camera image on lcd
+        AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true), TAG, "media lcd panel open error");
+        AVDK_RETURN_ON_ERROR(media_camera_open(1280, 720, 25, 400, 320), TAG, "media camera open error");
+        AVDK_RETURN_ON_ERROR(media_gpu_open(400, 320, 90), TAG, "media gpu open error");  //open gpu will display camera image on lcd
         AVDK_RETURN_ON_ERROR(media_h264_encoder_start(), TAG, "media h264 encoder start error");
         AVDK_RETURN_ON_ERROR(media_test_thread_start(MEDIA_TEST_MODE_H264_WIFI_TX), TAG, "media test thread start error");
 #endif

@@ -30,9 +30,17 @@ extern "C" {
 
 #include "lvgl.h"
 
-/* Display configuration */
-#define SCREEN_WIDTH    360
-#define SCREEN_HEIGHT   390
+/* Display configuration (physical panel scan order) */
+#define SCREEN_WIDTH    320
+#define SCREEN_HEIGHT   385
+/* Logical canvas after ap_main ROTATE_90 */
+#define LOGICAL_SCREEN_WIDTH   385
+#define LOGICAL_SCREEN_HEIGHT  320
+/* Scale Designer coords (390x360 logical) to current logical canvas */
+#define UI_SCALE_X(v)  ((v) * LOGICAL_SCREEN_WIDTH  / 390)
+#define UI_SCALE_Y(v)  ((v) * LOGICAL_SCREEN_HEIGHT / 360)
+/* ~2 mm vertical shift on 385x320 logical canvas (~9.2 px/mm) */
+#define UI_SHIFT_Y_2MM  18
 
 typedef struct
 {

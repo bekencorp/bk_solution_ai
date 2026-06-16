@@ -29,7 +29,7 @@ void init_page_page_8(bk_lv_ui_t *bk_ui)
 
     bk_ui->page_8 = lv_obj_create(NULL);
     lv_obj_set_scrollbar_mode(bk_ui->page_8, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_size(bk_ui->page_8, 360, 390);
+    lv_obj_set_size(bk_ui->page_8, LOGICAL_SCREEN_WIDTH, LOGICAL_SCREEN_HEIGHT);
     lv_obj_set_style_bg_color(bk_ui->page_8, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_8, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 

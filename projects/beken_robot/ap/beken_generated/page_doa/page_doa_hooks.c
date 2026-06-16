@@ -75,20 +75,28 @@ static void page_doa_on_init(bk_lv_ui_t *ui)
     lv_arc_set_range(ui->page_5_arc_1, PAGE5_ARC_RANGE_MIN, PAGE5_ARC_RANGE_MAX);
 
     /* Page size override: ap_main sets ROTATE_90 so the logical screen
-     * is 390x360 (landscape), but Designer wrote lv_obj_set_size(page_5,
-     * 360, 390) for the physical orientation. Override here so page
+     * is 385x320 (landscape), but Designer wrote lv_obj_set_size(page_5,
+     * 320, 385) for the physical orientation. Override here so page
      * local coordinates match the application layer's. */
-    lv_obj_set_size(ui->page_5, 390, 360);
+    lv_obj_set_size(ui->page_5, LOGICAL_SCREEN_WIDTH, LOGICAL_SCREEN_HEIGHT);
 
     lv_obj_set_width(ui->page_5_arc_1, PAGE_5_RING_W);
     lv_obj_set_height(ui->page_5_arc_1, PAGE_5_RING_H);
-    lv_obj_set_x(ui->page_5_arc_1,
-                 (195 - PAGE_5_RING_W / 2) + PAGE_5_FACE_NUDGE_X);
-    lv_obj_set_y(ui->page_5_arc_1,
-                 (180 - PAGE_5_RING_H / 2) + PAGE_5_FACE_NUDGE_Y);
 
-    /* Create central eyes + smile; must precede apply_arrow_state_locked. */
-    page_5_eyes_create(ui->page_5);
+    const lv_coord_t ring_x_base =
+        (LOGICAL_SCREEN_WIDTH / 2 - PAGE_5_RING_W / 2) + PAGE_5_FACE_NUDGE_X;
+    const lv_coord_t ring_y_base =
+        (LOGICAL_SCREEN_HEIGHT / 2 - PAGE_5_RING_H / 2) + PAGE_5_FACE_NUDGE_Y;
+    lv_obj_set_x(ui->page_5_arc_1, ring_x_base);
+    lv_obj_set_y(ui->page_5_arc_1, ring_y_base);
+
+    /* Create central eyes + smile; must precede apply_arrow_state_locked.
+     * Eyes/mouth anchor to the arc's CURRENT (pre-drop) center and are
+     * children of page_5, so the later ring drop leaves them untouched. */
+    page_5_eyes_create(ui->page_5, ui->page_5_arc_1);
+
+    /* Slide only the ring (+ its KNOB) down; the face features stay put. */
+    lv_obj_set_y(ui->page_5_arc_1, ring_y_base + PAGE_5_RING_EXTRA_Y);
 
     apply_arrow_state_locked(ui, initial_deg);
     (void)ui_nav_register_screen(ui->page_5, &page_5_nav_ops);

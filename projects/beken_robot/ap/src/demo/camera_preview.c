@@ -86,10 +86,10 @@ bk_err_t bk_robot_lvgl_resume_display(void);
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 
 /* Panel object from bk_peripheral; extern here to avoid coupling ap_main macros. */
-extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_360x390;
-#define PREVIEW_MIPI_PANEL (&lcd_device_jd9855_mipi_360x390)
+extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_320x385;
+#define PREVIEW_MIPI_PANEL (&lcd_device_jd9855_mipi_320x385)
 
-/* Sensor mode must match gc2053_format_array (csi_gc2053.c). MP still 400x368.
+/* Sensor mode must match gc2053_format_array (csi_gc2053.c). MP still 400x320.
  *
  * GC2053 supported sensor formats (csi_gc2053.c:1020):
  *     1280x720  @ 30 / 25 / 20 fps
@@ -110,7 +110,7 @@ extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_360x390;
 #define PREVIEW_SENSOR_H    720
 #define PREVIEW_SENSOR_FPS  20
 #define PREVIEW_ISP_W       400
-#define PREVIEW_ISP_H       368
+#define PREVIEW_ISP_H       320
 /* 270 deg rotate: GC2053 mount vs jd9855 scan (same as palm_detection). */
 #define PREVIEW_GPU_ROTATE  270
 

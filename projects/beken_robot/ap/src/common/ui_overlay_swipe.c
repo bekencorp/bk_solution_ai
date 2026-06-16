@@ -42,8 +42,8 @@ static volatile bool s_swipe_stop_req;
 static ui_overlay_swipe_back_cb_t s_back_cb;
 static void *s_back_arg;
 static uint32_t s_last_back_ms;
-static int32_t s_tp_raw_w = 360;
-static int32_t s_tp_raw_h = 390;
+static int32_t s_tp_raw_w = 320;
+static int32_t s_tp_raw_h = 385;
 static int s_tp_rotation = ROTATE_NONE;
 
 static int32_t abs_i32(int32_t v)

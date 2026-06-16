@@ -31,39 +31,39 @@
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 
-#define EDGE_SCREEN_W  390
-#define EDGE_SCREEN_H  360
+#define EDGE_SCREEN_W  LOGICAL_SCREEN_WIDTH
+#define EDGE_SCREEN_H  LOGICAL_SCREEN_HEIGHT
 
 #define EDGE_MENU_MAX_COUNT    18
 #define EDGE_MENU_PAGE_SIZE    9
 #define EDGE_MENU_COLS         3
 #define EDGE_MENU_BTN_W        106
 #define EDGE_MENU_BTN_H        58
-#define EDGE_MENU_PANEL_Y      52
-#define EDGE_MENU_PANEL_H      236
+#define EDGE_MENU_PANEL_Y      (46 + UI_SHIFT_Y_2MM)
+#define EDGE_MENU_PANEL_H      187
 #define EDGE_MENU_X0           24
-#define EDGE_MENU_Y0           8
+#define EDGE_MENU_Y0           7
 #define EDGE_MENU_X_GAP        12
 #define EDGE_MENU_Y_GAP        12
-#define EDGE_STATUS_Y          298
+#define EDGE_STATUS_Y          (229 + UI_SHIFT_Y_2MM * 2)
 
-#define SOL_CAMERA_SP_W        256
-#define SOL_CAMERA_SP_H        256
+#define SOL_CAMERA_SP_W        252
+#define SOL_CAMERA_SP_H        252
 #define SOL_CAMERA_VIEW_X      25
-#define SOL_CAMERA_VIEW_Y      22
-#define SOL_CAMERA_VIEW_W      256
-#define SOL_CAMERA_VIEW_H      256
+#define SOL_CAMERA_VIEW_Y      20
+#define SOL_CAMERA_VIEW_W      252
+#define SOL_CAMERA_VIEW_H      252
 #define SOL_TEXT_H             20
 #define SOL_CAMERA_BORDER_W    2
 #define SOL_CAMERA_RADIUS      15
 #define SOL_CAMERA_PANEL_W     (SOL_CAMERA_VIEW_W + SOL_CAMERA_BORDER_W * 2)
 #define SOL_CAMERA_PANEL_H     (SOL_CAMERA_VIEW_H + SOL_TEXT_H + SOL_CAMERA_BORDER_W * 2)
 #define SOL_TEXT_Y             (SOL_CAMERA_VIEW_Y + SOL_CAMERA_VIEW_H)
-#define SOL_BUTTON_X           296
+#define SOL_BUTTON_X           292
 #define SOL_BUTTON_W           82
 #define SOL_BUTTON_H           38
 #define SOL_BUTTON_GAP         18
-#define SOL_BUTTON_Y0          46
+#define SOL_BUTTON_Y0          41
 #define SOL_PREVIEW_FPS        10
 
 static lv_obj_t *s_edge_screen;
@@ -310,7 +310,7 @@ int page_edge_ai_enter(void)
         int row = pos / EDGE_MENU_COLS;
         int col = pos % EDGE_MENU_COLS;
         int x = EDGE_MENU_X0 + col * (EDGE_MENU_BTN_W + EDGE_MENU_X_GAP);
-        int y = page * 216 + row * (EDGE_MENU_BTN_H + EDGE_MENU_Y_GAP);
+        int y = page * 192 + row * (EDGE_MENU_BTN_H + EDGE_MENU_Y_GAP);
         s_edge_buttons[i] = create_menu_button(panel, s_edge_titles[i],
                                                x, y, EDGE_MENU_BTN_W, EDGE_MENU_BTN_H,
                                                &s_edge_button_labels[i]);

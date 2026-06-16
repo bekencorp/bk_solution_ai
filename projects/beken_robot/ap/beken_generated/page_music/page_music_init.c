@@ -47,10 +47,8 @@ void init_page_page_9(bk_lv_ui_t *bk_ui)
 
     bk_ui->page_9 = lv_obj_create(NULL);
     lv_obj_set_scrollbar_mode(bk_ui->page_9, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_size(bk_ui->page_9, 360, 390);
-    lv_obj_set_style_bg_color(bk_ui->page_9, lv_color_hex(0x05070f), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_grad_color(bk_ui->page_9, lv_color_hex(0x121a2e), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_grad_dir(bk_ui->page_9, LV_GRAD_DIR_VER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_size(bk_ui->page_9, LOGICAL_SCREEN_WIDTH, LOGICAL_SCREEN_HEIGHT);
+    lv_obj_set_style_bg_color(bk_ui->page_9, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_9, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(bk_ui->page_9, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 

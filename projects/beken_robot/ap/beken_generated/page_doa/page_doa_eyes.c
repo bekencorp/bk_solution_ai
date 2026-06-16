@@ -10,7 +10,6 @@
 
 #include "lvgl.h"
 #include "lv_vendor.h"
-#include "beken_ui.h"
 
 #include "components/log.h"
 #include "bk_cli.h"
@@ -29,70 +28,40 @@
 /*  Geometry constants                                                        */
 /* ------------------------------------------------------------------------- */
 /*
- * Application-layer logical screen: cfg.rotation = ROTATE_90 swaps
- * horizontal / vertical so the app sees 390 x 360. Center = (195, 180).
- * Face center (ring / eyes / mouth share this anchor) =
- *   logical center + empirical nudge.
+ * Board-tuned reference ring (316x294 on legacy 390x360 canvas). All
+ * feature sizes / offsets are expressed as fractions of the *inner*
+ * drawable area (outer box minus arc stroke) so eyes/mouth stay inside
+ * the visible white ring on any PAGE_5_RING_W/H.
  */
-#define APP_LOGICAL_W   390
-#define APP_LOGICAL_H   360
+#define REF_RING_W               316
+#define REF_RING_H               294
+#define PAGE_5_RING_INNER_W      (PAGE_5_RING_W - PAGE_5_ARC_STROKE)
+#define PAGE_5_RING_INNER_H      (PAGE_5_RING_H - PAGE_5_ARC_STROKE)
 
-#define FACE_CENTER_X   ((APP_LOGICAL_W / 2) + PAGE_5_FACE_NUDGE_X)
-#define FACE_CENTER_Y   ((APP_LOGICAL_H / 2) + PAGE_5_FACE_NUDGE_Y)
-
-/* ----- Eye geometry -----
- * Sclera radius 50 px; horizontal eye-to-eye gap 110 px (pupil center
- * to center). The whole eye row is shifted up by
- * EYE_OFFSET_FROM_FACE_Y (~ 4 mm) from the face center to leave room
- * for the smile underneath. Gaze offset is +/- EYE_GAZE_RADIUS px
- * within the sclera; the value must stay below
- * (EYE_RADIUS - PUPIL_RADIUS) so the pupil never pokes out.
- */
-#define EYE_RADIUS               50
-#define EYE_GAP                  110
-#define EYE_OFFSET_FROM_FACE_Y   (-37)
-#define PUPIL_RADIUS             24
-#define EYE_GAZE_RADIUS          18
+#define EYE_RADIUS               ((PAGE_5_RING_INNER_H * 50 + REF_RING_H / 2) / REF_RING_H)
+#define EYE_GAP                  ((PAGE_5_RING_INNER_W * 110 + REF_RING_W / 2) / REF_RING_W)
+#define EYE_OFFSET_Y             ((PAGE_5_RING_INNER_H * (-37) + REF_RING_H / 2) / REF_RING_H)
+#define PUPIL_RADIUS             ((PAGE_5_RING_INNER_H * 24 + REF_RING_H / 2) / REF_RING_H)
+#define EYE_GAZE_RADIUS          ((PAGE_5_RING_INNER_H * 18 + REF_RING_H / 2) / REF_RING_H)
 
 #define BLINK_PERIOD_MS          3500
-#define BLINK_DURATION_MS        180   /* Single blink "squash + restore" duration. */
+#define BLINK_DURATION_MS        180
 
-/* ----- Smile geometry (outer + inner + top-half mask, three layers) -----
- *   - MOUTH_W / MOUTH_H_TOTAL : outer ellipse/circle bounding box
- *   - MOUTH_INSET             : inner inset from outer on every side
- *   - MOUTH_GAP               : distance from the eye baseline (sclera
- *                               bottom) to the outer top edge
- *   - MOUTH_VISIBLE_H = (MOUTH_H_TOTAL/2) * 2/3 : visible arc height
- *                               (bottom 2/3 of the lower half)
- *   - MOUTH_MASK_H            : how far down from the outer top the
- *                               mask reaches; sized so only
- *                               MOUTH_VISIBLE_H remains visible
- */
-#define MOUTH_W           160
-#define MOUTH_H_TOTAL     160
-#define MOUTH_INSET       10
-/*
- * Smile fine-tune offsets (independent of PAGE_5_FACE_NUDGE_*: lets
- * us nudge just the mouth while keeping eyes / ring fixed):
- *   - MOUTH_GAP      : eye-baseline -> outer-top distance (px). May
- *                      be negative -- that just means the outer top
- *                      sits higher than the eye baseline. The eyes
- *                      are constructed AFTER the three smile objects
- *                      so the mask never overlaps them; the visible
- *                      "bowl" arc still sits below the eyes.
- *   - MOUTH_OFFSET_X : horizontal shift of the smile relative to
- *                      FACE_CENTER_X; only the three smile objects
- *                      move, eyes and ring do not follow.
- *
- * Current values (visually aligned on the board):
- *   - GAP        30 -> -53: total shift up ~ 9 mm (8 mm + 1 mm @
- *                          9.2 px/mm).
- *   - OFFSET_X   = -9    : shift left ~ 1 mm @ 8.5 px/mm.
- */
-#define MOUTH_GAP         (-53)
-#define MOUTH_OFFSET_X    (-9)
-#define MOUTH_VISIBLE_H   ((MOUTH_H_TOTAL / 2) * 2 / 3)
-#define MOUTH_MASK_H      (MOUTH_H_TOTAL - MOUTH_VISIBLE_H)
+/* Original board-tuned smile shape (nicer curvature). */
+#define MOUTH_W                  ((PAGE_5_RING_INNER_W * 160 + REF_RING_W / 2) / REF_RING_W)
+#define MOUTH_H_TOTAL            ((PAGE_5_RING_INNER_H * 160 + REF_RING_H / 2) / REF_RING_H)
+#define MOUTH_INSET              ((PAGE_5_RING_INNER_H * 10 + REF_RING_H / 2) / REF_RING_H)
+/* Original board-tuned mouth position. */
+#define MOUTH_GAP_REF            (-53)
+#define MOUTH_GAP_Y              ((PAGE_5_RING_INNER_H * MOUTH_GAP_REF + REF_RING_H / 2) / REF_RING_H)
+#define MOUTH_VISIBLE_H          ((MOUTH_H_TOTAL / 2) * 2 / 3)
+#define MOUTH_MASK_H             (MOUTH_H_TOTAL - MOUTH_VISIBLE_H)
+
+/* Face-only nudge (eyes + mouth move together, ring stays put). Screen
+ * coords: +X = right, +Y = down. ~8.5 px/mm horizontal, ~9.2 px/mm vertical.
+ *   right 2 mm -> +17 px ; up 1 mm -> -9 px. */
+#define EYE_GROUP_DX             17
+#define EYE_GROUP_DY             (-9)
 
 /* ----- Colors ----- */
 #define COLOR_BG                lv_color_hex(0x000000)
@@ -251,23 +220,27 @@ static void blink_anim_stop(void)
 /*  Create / destroy                                                          */
 /* ------------------------------------------------------------------------- */
 
-void page_5_eyes_create(lv_obj_t *parent)
+void page_5_eyes_create(lv_obj_t *parent, lv_obj_t *ring_arc)
 {
-    if (parent == NULL) {
+    if (parent == NULL || ring_arc == NULL) {
         return;
     }
     page_5_eyes_destroy();    /* Idempotent on repeated calls. */
 
-    const lv_coord_t eye_y  = FACE_CENTER_Y + EYE_OFFSET_FROM_FACE_Y;
-    const lv_coord_t eye_lx = FACE_CENTER_X - EYE_GAP / 2;
-    const lv_coord_t eye_rx = FACE_CENTER_X + EYE_GAP / 2;
+    /* Anchor to the live arc widget (same box hooks just configured). */
+    const lv_coord_t ring_x  = lv_obj_get_x(ring_arc);
+    const lv_coord_t ring_y  = lv_obj_get_y(ring_arc);
+    const lv_coord_t ring_w  = lv_obj_get_width(ring_arc);
+    const lv_coord_t ring_h  = lv_obj_get_height(ring_arc);
+    const lv_coord_t ring_cx = ring_x + ring_w / 2 + EYE_GROUP_DX;
+    const lv_coord_t ring_cy = ring_y + ring_h / 2 + EYE_GROUP_DY;
 
-    /* mouth_top = eye baseline + MOUTH_GAP. Total outer height is
-     * MOUTH_H_TOTAL, of which the lower MOUTH_VISIBLE_H stays visible
-     * while the top is covered to BG by the mask. MOUTH_OFFSET_X only
-     * shifts mouth_left / mask / inner -- eyes never follow. */
-    const lv_coord_t mouth_top    = eye_y + EYE_RADIUS + MOUTH_GAP;
-    const lv_coord_t mouth_left   = FACE_CENTER_X - MOUTH_W / 2 + MOUTH_OFFSET_X;
+    const lv_coord_t eye_y  = ring_cy + EYE_OFFSET_Y;
+    const lv_coord_t eye_lx = ring_cx - EYE_GAP / 2;
+    const lv_coord_t eye_rx = ring_cx + EYE_GAP / 2;
+
+    const lv_coord_t mouth_top  = eye_y + EYE_RADIUS + MOUTH_GAP_Y;
+    const lv_coord_t mouth_left = ring_cx - MOUTH_W / 2;
     const lv_coord_t mouth_in_top = mouth_top + MOUTH_INSET;
     const lv_coord_t mouth_in_lx  = mouth_left + MOUTH_INSET;
 
@@ -308,8 +281,8 @@ void page_5_eyes_create(lv_obj_t *parent)
     apply_gaze_locked(s_last_gaze_deg);
     blink_anim_start();
 
-    LOGI("eyes+mouth created: face=(%d,%d) eye_y=%d mouth_top=%d\r\n",
-         FACE_CENTER_X, FACE_CENTER_Y, eye_y, mouth_top);
+    LOGI("eyes+mouth created: ring=(%d,%d %dx%d) cx=%d eye_y=%d mouth_top=%d\r\n",
+         ring_x, ring_y, ring_w, ring_h, ring_cx, eye_y, mouth_top);
 }
 
 void page_5_eyes_destroy(void)

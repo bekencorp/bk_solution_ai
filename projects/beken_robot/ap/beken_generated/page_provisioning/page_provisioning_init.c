@@ -33,7 +33,7 @@ void init_page_page_4(bk_lv_ui_t *bk_ui)
 
     bk_ui->page_4 = lv_obj_create(NULL);
     lv_obj_set_scrollbar_mode(bk_ui->page_4, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_size(bk_ui->page_4, 390, 360);
+    lv_obj_set_size(bk_ui->page_4, LOGICAL_SCREEN_WIDTH, LOGICAL_SCREEN_HEIGHT);
     lv_obj_set_style_bg_color(bk_ui->page_4, lv_color_hex(0x07111f), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_4, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_grad_dir(bk_ui->page_4, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -43,9 +43,9 @@ void init_page_page_4(bk_lv_ui_t *bk_ui)
     bk_ui->page_4_status_card = lv_obj_create(bk_ui->page_4);
     lv_obj_set_scrollbar_mode(bk_ui->page_4_status_card, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_x(bk_ui->page_4_status_card, 20);
-    lv_obj_set_y(bk_ui->page_4_status_card, 48);
-    lv_obj_set_width(bk_ui->page_4_status_card, 320);
-    lv_obj_set_height(bk_ui->page_4_status_card, 86);
+    lv_obj_set_y(bk_ui->page_4_status_card, 43);
+    lv_obj_set_width(bk_ui->page_4_status_card, 316);
+    lv_obj_set_height(bk_ui->page_4_status_card, 76);
     lv_obj_set_style_bg_color(bk_ui->page_4_status_card, lv_color_hex(0x101b2b), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_4_status_card, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_grad_dir(bk_ui->page_4_status_card, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -61,7 +61,7 @@ void init_page_page_4(bk_lv_ui_t *bk_ui)
     lv_label_set_long_mode(bk_ui->page_4_label_status, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_x(bk_ui->page_4_label_status, 16);
     lv_obj_set_y(bk_ui->page_4_label_status, 14);
-    lv_obj_set_width(bk_ui->page_4_label_status, 288);
+    lv_obj_set_width(bk_ui->page_4_label_status, 284);
     lv_obj_set_height(bk_ui->page_4_label_status, 24);
     lv_obj_set_style_text_color(bk_ui->page_4_label_status, lv_color_hex(0x66d9ff), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(bk_ui->page_4_label_status, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -73,8 +73,8 @@ void init_page_page_4(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_4_label_hint, "State: READY");
     lv_label_set_long_mode(bk_ui->page_4_label_hint, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_x(bk_ui->page_4_label_hint, 16);
-    lv_obj_set_y(bk_ui->page_4_label_hint, 48);
-    lv_obj_set_width(bk_ui->page_4_label_hint, 288);
+    lv_obj_set_y(bk_ui->page_4_label_hint, 43);
+    lv_obj_set_width(bk_ui->page_4_label_hint, 284);
     lv_obj_set_height(bk_ui->page_4_label_hint, 24);
     lv_obj_set_style_text_color(bk_ui->page_4_label_hint, lv_color_hex(0xd4d9e3), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(bk_ui->page_4_label_hint, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -87,9 +87,9 @@ void init_page_page_4(bk_lv_ui_t *bk_ui)
     lv_label_set_long_mode(bk_ui->page_4_button_1_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_4_button_1_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_x(bk_ui->page_4_button_1, 20);
-    lv_obj_set_y(bk_ui->page_4_button_1, 150);
-    lv_obj_set_width(bk_ui->page_4_button_1, 320);
-    lv_obj_set_height(bk_ui->page_4_button_1, 54);
+    lv_obj_set_y(bk_ui->page_4_button_1, 133);
+    lv_obj_set_width(bk_ui->page_4_button_1, 316);
+    lv_obj_set_height(bk_ui->page_4_button_1, 48);
     lv_obj_set_style_bg_color(bk_ui->page_4_button_1, lv_color_hex(0x1677ff), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_4_button_1, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_grad_dir(bk_ui->page_4_button_1, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -117,8 +117,8 @@ void init_page_page_4(bk_lv_ui_t *bk_ui)
     lv_label_set_long_mode(bk_ui->page_4_button_2_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_4_button_2_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_x(bk_ui->page_4_button_2, 20);
-    lv_obj_set_y(bk_ui->page_4_button_2, 216);
-    lv_obj_set_width(bk_ui->page_4_button_2, 150);
+    lv_obj_set_y(bk_ui->page_4_button_2, 192);
+    lv_obj_set_width(bk_ui->page_4_button_2, 148);
     lv_obj_set_height(bk_ui->page_4_button_2, 48);
     lv_obj_set_style_bg_color(bk_ui->page_4_button_2, lv_color_hex(0x2a3a4f), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_4_button_2, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -146,9 +146,9 @@ void init_page_page_4(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_4_button_3_label, "恢复出厂设置");
     lv_label_set_long_mode(bk_ui->page_4_button_3_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_4_button_3_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_4_button_3, 190);
-    lv_obj_set_y(bk_ui->page_4_button_3, 216);
-    lv_obj_set_width(bk_ui->page_4_button_3, 150);
+    lv_obj_set_x(bk_ui->page_4_button_3, 188);
+    lv_obj_set_y(bk_ui->page_4_button_3, 192);
+    lv_obj_set_width(bk_ui->page_4_button_3, 148);
     lv_obj_set_height(bk_ui->page_4_button_3, 48);
     lv_obj_set_style_bg_color(bk_ui->page_4_button_3, lv_color_hex(0xa83232), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_4_button_3, 255, LV_PART_MAIN | LV_STATE_DEFAULT);

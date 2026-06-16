@@ -59,7 +59,7 @@ static YolofaceDetectionModel *s_model = NULL;
  * boxes are reported in, and the ISP secondary path is auto-sized to it by
  * AvdkVideoReatorOSD::OpenISPCamera(). */
 #define YOLOFACE_DISPLAY_W   400
-#define YOLOFACE_DISPLAY_H   368
+#define YOLOFACE_DISPLAY_H   320
 
 /* Same offload rationale as palm tracking: the start-up path (sensor probe,
  * ISP init, C++ object construction, thread creation, ...) is heavy and deep,

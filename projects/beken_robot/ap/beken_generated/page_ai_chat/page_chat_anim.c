@@ -34,6 +34,7 @@
 
 #include "lvgl.h"
 #include "lv_vendor.h"
+#include "beken_ui.h"
 
 #include <components/log.h>
 
@@ -56,17 +57,17 @@
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 
 /* ============================================================================
- *  Layout constants (logical 390x360 screen, post 90-degree rotation)
+ *  Layout constants (logical screen, post 90-degree rotation)
  * ==========================================================================*/
 
-#define APP_LOGICAL_W     390
-#define APP_LOGICAL_H     360
+#define APP_LOGICAL_W     LOGICAL_SCREEN_WIDTH
+#define APP_LOGICAL_H     LOGICAL_SCREEN_HEIGHT
 
 #define CORE_CX           (APP_LOGICAL_W / 2)
-#define CORE_CY           168
+#define CORE_CY           132
 #define CORE_DIAM         50
 
-#define STATUS_Y          54
+#define STATUS_Y          48
 #define STATUS_FONT_H     22
 
 /* EQ bars: bottom-anchored, height grows upward. */
@@ -78,16 +79,16 @@
  * lower edge of the core (=193) plus a small visual margin. 130px keeps
  * roughly 10px clearance to the core while filling ~36% of the screen
  * vertically so the bars feel substantial rather than decorative. */
-#define EQ_BAR_PEAK_H     130
-#define EQ_BOTTOM_MARGIN  28
+#define EQ_BAR_PEAK_H     115
+#define EQ_BOTTOM_MARGIN  25
 #define EQ_BOTTOM_Y       (APP_LOGICAL_H - EQ_BOTTOM_MARGIN)
 #define EQ_TIMER_PERIOD_MS 33   /* ~30Hz refresh */
 #define EQ_LERP_NUM        3    /* cur_h += (target - cur_h) * 3/10 */
 #define EQ_LERP_DEN        10
 
 /* Viewfinder frame (vision mode only) */
-#define FRAME_W           260
-#define FRAME_H           160
+#define FRAME_W           257
+#define FRAME_H           142
 #define FRAME_LEFT        ((APP_LOGICAL_W - FRAME_W) / 2)
 #define FRAME_TOP         (CORE_CY - FRAME_H / 2)
 #define FRAME_BOTTOM      (FRAME_TOP + FRAME_H)

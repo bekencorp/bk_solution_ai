@@ -24,7 +24,7 @@ void init_page_page_1(bk_lv_ui_t *bk_ui)
 
     bk_ui->page_1 = lv_obj_create(NULL);
     lv_obj_set_scrollbar_mode(bk_ui->page_1, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_size(bk_ui->page_1, 390, 360);
+    lv_obj_set_size(bk_ui->page_1, LOGICAL_SCREEN_WIDTH, LOGICAL_SCREEN_HEIGHT);
     lv_obj_set_style_bg_color(bk_ui->page_1, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_1, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_grad_dir(bk_ui->page_1, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -33,7 +33,7 @@ void init_page_page_1(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_1_label_1, "BK7259机器人方案");
     lv_label_set_long_mode(bk_ui->page_1_label_1, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_x(bk_ui->page_1_label_1, 21);
-    lv_obj_set_y(bk_ui->page_1_label_1, 262);
+    lv_obj_set_y(bk_ui->page_1_label_1, 225 + UI_SHIFT_Y_2MM);
     lv_obj_set_width(bk_ui->page_1_label_1, 319);
     lv_obj_set_height(bk_ui->page_1_label_1, 47);
     lv_obj_set_style_bg_color(bk_ui->page_1_label_1, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -67,8 +67,8 @@ void init_page_page_1(bk_lv_ui_t *bk_ui)
     lv_image_set_src(bk_ui->page_1_image_3, &beken_logo_blue_321x147_RGB565A8_NONE);
     lv_image_set_pivot(bk_ui->page_1_image_3, 50, 50);
     lv_image_set_rotation(bk_ui->page_1_image_3, 0);
-    lv_obj_set_x(bk_ui->page_1_image_3, 35);
-    lv_obj_set_y(bk_ui->page_1_image_3, 80);
+    lv_obj_set_x(bk_ui->page_1_image_3, 32);
+    lv_obj_set_y(bk_ui->page_1_image_3, 71);
     lv_obj_set_width(bk_ui->page_1_image_3, 321);
     lv_obj_set_height(bk_ui->page_1_image_3, 147);
     lv_obj_set_style_bg_color(bk_ui->page_1_image_3, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);

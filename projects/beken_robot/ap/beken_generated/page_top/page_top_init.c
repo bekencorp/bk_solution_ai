@@ -33,7 +33,7 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
 
     bk_ui->page_2 = lv_obj_create(NULL);
     lv_obj_set_scrollbar_mode(bk_ui->page_2, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_size(bk_ui->page_2, 390, 360);
+    lv_obj_set_size(bk_ui->page_2, LOGICAL_SCREEN_WIDTH, LOGICAL_SCREEN_HEIGHT);
     lv_obj_set_style_bg_color(bk_ui->page_2, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_2, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_grad_dir(bk_ui->page_2, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -43,8 +43,8 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
     lv_image_set_src(bk_ui->page_2_image_2, &wifi_1_23x24_RGB565A8_NONE);
     lv_image_set_pivot(bk_ui->page_2_image_2, 50, 50);
     lv_image_set_rotation(bk_ui->page_2_image_2, 0);
-    lv_obj_set_x(bk_ui->page_2_image_2, 53);
-    lv_obj_set_y(bk_ui->page_2_image_2, 10);
+    lv_obj_set_x(bk_ui->page_2_image_2, 52);
+    lv_obj_set_y(bk_ui->page_2_image_2, 9);
     lv_obj_set_width(bk_ui->page_2_image_2, 23);
     lv_obj_set_height(bk_ui->page_2_image_2, 24);
     lv_obj_set_style_bg_color(bk_ui->page_2_image_2, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -76,8 +76,8 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
     lv_bar_set_start_value(bk_ui->page_2_bar_1, 0, LV_ANIM_ON);
     lv_bar_set_value(bk_ui->page_2_bar_1, 0, LV_ANIM_ON);
     lv_bar_set_mode(bk_ui->page_2_bar_1, LV_BAR_MODE_NORMAL);
-    lv_obj_set_x(bk_ui->page_2_bar_1, 255);
-    lv_obj_set_y(bk_ui->page_2_bar_1, 17);
+    lv_obj_set_x(bk_ui->page_2_bar_1, 252);
+    lv_obj_set_y(bk_ui->page_2_bar_1, 15);
     lv_obj_set_width(bk_ui->page_2_bar_1, 50);
     lv_obj_set_height(bk_ui->page_2_bar_1, 10);
     lv_obj_set_style_anim_duration(bk_ui->page_2_bar_1, 1000, 0);
@@ -109,7 +109,7 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
     lv_label_set_long_mode(bk_ui->page_2_button_1_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_2_button_1_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_x(bk_ui->page_2_button_1, 25);
-    lv_obj_set_y(bk_ui->page_2_button_1, 245);
+    lv_obj_set_y(bk_ui->page_2_button_1, 218 + UI_SHIFT_Y_2MM);
     lv_obj_set_width(bk_ui->page_2_button_1, 100);
     lv_obj_set_height(bk_ui->page_2_button_1, 40);
     lv_obj_set_style_bg_color(bk_ui->page_2_button_1, lv_color_hex(0x2d75b9), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -141,8 +141,8 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
     lv_label_set_text(bk_ui->page_2_button_3_label, "示例模式");
     lv_label_set_long_mode(bk_ui->page_2_button_3_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(bk_ui->page_2_button_3_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_x(bk_ui->page_2_button_3, 246);
-    lv_obj_set_y(bk_ui->page_2_button_3, 246);
+    lv_obj_set_x(bk_ui->page_2_button_3, 243);
+    lv_obj_set_y(bk_ui->page_2_button_3, 218 + UI_SHIFT_Y_2MM);
     lv_obj_set_width(bk_ui->page_2_button_3, 100);
     lv_obj_set_height(bk_ui->page_2_button_3, 40);
     lv_obj_add_state(bk_ui->page_2_button_3, LV_STATE_DISABLED);
@@ -174,8 +174,8 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
     lv_image_set_src(bk_ui->page_2_image_1, &beken_logo_blue_321x147_RGB565A8_NONE);
     lv_image_set_pivot(bk_ui->page_2_image_1, 50, 50);
     lv_image_set_rotation(bk_ui->page_2_image_1, 0);
-    lv_obj_set_x(bk_ui->page_2_image_1, 35);
-    lv_obj_set_y(bk_ui->page_2_image_1, 80);
+    lv_obj_set_x(bk_ui->page_2_image_1, 32);
+    lv_obj_set_y(bk_ui->page_2_image_1, 71);
     lv_obj_set_width(bk_ui->page_2_image_1, 321);
     lv_obj_set_height(bk_ui->page_2_image_1, 147);
     lv_obj_set_style_bg_color(bk_ui->page_2_image_1, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);

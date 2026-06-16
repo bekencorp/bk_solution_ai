@@ -31,7 +31,7 @@ bk_lv_ui_t bk_lv_tool_ui = {0};
  */
 int beken_get_screen_width(void)
 {
-    return SCREEN_WIDTH;
+    return LOGICAL_SCREEN_WIDTH;
 }
 
 /**
@@ -40,7 +40,7 @@ int beken_get_screen_width(void)
  */
 int beken_get_screen_height(void)
 {
-    return SCREEN_HEIGHT;
+    return LOGICAL_SCREEN_HEIGHT;
 }
 
 /**

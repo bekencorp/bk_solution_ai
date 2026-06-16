@@ -22,7 +22,7 @@
 // Other states: all APIs are safe no-ops.
 //
 // Photo capture (dual path):
-//   1) Display: MP 400x368 -> GPU -> DPU snapshot freeze (UI freeze).
+//   1) Display: MP 400x320 -> GPU -> DPU snapshot freeze (UI freeze).
 //   2) HD: SP 1280x720 NV12 -> UNCODED PSRAM slab -> HW JPEG -> PSRAM_HEAP
 //      for LVM / RTC.
 //

@@ -162,7 +162,7 @@ static void detection_box_cb(Box *boxes, int count)
     /* Draw ALL detected palms. The user can still see secondary palms on the
      * OSD even though the servo only follows the largest one.
      * src = model input size (256x256), dst = display canvas size (1088x1088). */
-    box_detection_path_build(boxes, count, count, 0, model->getWidth(), model->getHeight(), 400, 368);
+    box_detection_path_build(boxes, count, count, 0, model->getWidth(), model->getHeight(), 400, 320);
 
     /* Drive both servos from the chosen box's center. Each axis runs the
      * same stateless tracker step with its own cfg, then commits the new
@@ -208,7 +208,7 @@ void plam_detection_config(void)
     camera_board.isp.mp_enable = true;
     camera_board.isp.mp_flexa = true;
     camera_board.isp.mp_width = 400;
-    camera_board.isp.mp_height = 368;
+    camera_board.isp.mp_height = 320;
     camera_board.isp.mp_format = BK_PIXEL_FORMAT_NV12;
     camera_board.isp.sp_enable = false;
     camera_board.isp.sp_flexa = false;
@@ -225,15 +225,15 @@ void plam_detection_config(void)
     gpu_board.flexa.enable = true;
     gpu_board.flexa.degree = 270;
     gpu_board.flexa.src_width = 400;
-    gpu_board.flexa.src_height = 368;
+    gpu_board.flexa.src_height = 320;
     gpu_board.flexa.dst_width = 400;
-    gpu_board.flexa.dst_height = 368;
+    gpu_board.flexa.dst_height = 320;
     gpu_board.flexa.src_format = BK_PIXEL_FORMAT_NV12;
     gpu_board.flexa.dst_format = BK_PIXEL_FORMAT_ARGB8888;
     gpu_board.flexa.dst_compress = true;
     gpu_board.flexa.scale = false;
     gpu_board.flexa.tess_width = 400 / 4;
-    gpu_board.flexa.tess_height = 368 / 4;
+    gpu_board.flexa.tess_height = 320 / 4;
 
     /* Board config for Multimedia config */
     app_camera_board_config_set(&camera_board);

@@ -23,11 +23,10 @@
  *
  * Screen-coord caveat (affects every constant below):
  *   ap_main.c sets cfg.rotation = ROTATE_90, so LVGL swaps
- *   horizontal / vertical and the application sees a 390 x 360
- *   landscape canvas with center at (195, 180). page_5 is also resized
- *   to 390 x 360 so page-local coordinates match the screen. All
- *   PAGE_5_FACE_NUDGE_X/_Y and PAGE_5_RING_W/_H are measured against
- *   that landscape canvas.
+ *   horizontal / vertical and the application sees LOGICAL_SCREEN_WIDTH x
+ *   LOGICAL_SCREEN_HEIGHT landscape canvas. page_5 is also resized to match
+ *   so page-local coordinates match the screen. All PAGE_5_FACE_NUDGE_X/_Y
+ *   and PAGE_5_RING_W/_H are measured against that landscape canvas.
  *
  * Design tradeoffs:
  *   - Gaze offset is a small (<= EYE_GAZE_RADIUS px) pupil translation
@@ -60,13 +59,21 @@ extern "C" {
  *   horizontal: ~8.5 px / mm
  *   vertical:   ~9.2 px / mm
  *
- * Empirically-tuned constants, verified on hardware:
- *   X: shift right ~3 mm  -> +25 px
- *   Y: shift up    ~3 mm  -> -28 px
+ * Empirically-tuned constants, verified on hardware (385x320 logical):
+ *   X: shift right ~3 mm  -> +22 px
+ *   Y: shift up    ~3 mm  -> -25 px  (scaled from legacy -28 @ 360h)
  * Board coords: +X = right, -Y = up.
  */
-#define PAGE_5_FACE_NUDGE_X  25
-#define PAGE_5_FACE_NUDGE_Y  (-28)
+/* Face read slightly low-left on hardware; nudged ~1 mm up-left
+ * (X 22->14 = left, Y -12->-20 = up). +X=right, -Y=up (board-verified). */
+#define PAGE_5_FACE_NUDGE_X  14
+#define PAGE_5_FACE_NUDGE_Y  (-20)
+
+/* Ring-only vertical drop: the white arc (and its KNOB) move down by this
+ * many px AFTER eyes/mouth are placed, so the face features stay put while
+ * just the ring slides down. +Y = down on screen, ~9.2 px/mm vertical:
+ *   was 4 mm down (+37); ring nudged up 2 mm -> net +19 px. */
+#define PAGE_5_RING_EXTRA_Y  19
 
 /* ----------------------------------------------------------------------
  *  Ring bounding box (the white arc the KNOB rides along)
@@ -74,14 +81,18 @@ extern "C" {
 /*
  * Designer default was 248 x 220 (visibly smaller than the face). The
  * customer asked the whole face to scale up; we add ~8 mm of diameter
- * on each axis:
- *   horizontal +68 px ~ +8 mm  ->  248 + 68 = 316
- *   vertical   +74 px ~ +8 mm  ->  220 + 74 = 294
+ * on each axis, then scale for 385x320 logical canvas:
+ *   horizontal 316 * 385/390 -> 312
+ *   vertical   294 * 320/360 -> 261
  * The ring and page_5_eyes share the same FACE_CENTER + FACE_NUDGE so
  * these two constants resize / shift the whole composition concentric.
  */
+/* Restored to the original board ring size so eyes/mouth reproduce the
+ * original layout 1:1 (ring == REF_RING_W/H in page_doa_eyes.c). */
 #define PAGE_5_RING_W  316
 #define PAGE_5_RING_H  294
+/* Must match page_doa_init.c lv_arc MAIN arc_width */
+#define PAGE_5_ARC_STROKE  12
 
 /* ----------------------------------------------------------------------
  *  Public API
@@ -99,8 +110,11 @@ extern "C" {
  * Z-order: the smile mask is large enough to overlap the eyes, so the
  * three smile lv_objs are created BEFORE the eyes; the later-created
  * eyes naturally float on top.
+ *
+ * @param ring_arc  page_5_arc_1 after hooks resize / reposition it; eyes
+ *                  and mouth are laid out inside this widget bounds.
  */
-void page_5_eyes_create(lv_obj_t *parent);
+void page_5_eyes_create(lv_obj_t *parent, lv_obj_t *ring_arc);
 
 /**
  * @brief Destroy all primitives and stop the blink animation.
