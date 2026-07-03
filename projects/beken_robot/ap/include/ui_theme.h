@@ -97,6 +97,7 @@ void ui_theme_set_row_focus(lv_obj_t *row, const char *title,
                             bool focused);
 void ui_theme_set_button_focus(lv_obj_t *button, ui_theme_button_kind_t kind,
                                bool focused);
+void ui_theme_create_popup(const char *text);
 
 #ifdef __cplusplus
 }

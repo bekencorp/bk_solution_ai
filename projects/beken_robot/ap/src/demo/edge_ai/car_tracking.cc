@@ -39,6 +39,7 @@ extern "C" {
 #include "beken_ui.h"
 #include "event_runtime.h"
 #include "ui_overlay_swipe.h"
+#include "ui_theme.h"
 
 bk_err_t bk_robot_lvgl_resume_display(void);
 int page_edge_ai_enter(void);
@@ -537,6 +538,9 @@ static void car_detection_start_task(void *arg)
     int ret = BK_OK;
     bool camera_opened = false;
     bool display_open_attempted = false;
+#if CONFIG_LVGL
+    bool model_init_failed = false;
+#endif
 
 #if CONFIG_LVGL
     lv_vendor_stop();
@@ -567,6 +571,11 @@ static void car_detection_start_task(void *arg)
     ret = s_video_reator->init();
     if (ret != BK_OK) {
         bk_printf("car_detection_start_task: init failed (%d)\n", ret);
+#if CONFIG_LVGL
+        if (ret == -1) {
+            model_init_failed = true;
+        }
+#endif
         goto fail;
     }
 
@@ -654,6 +663,9 @@ fail:
     }
     lv_vendor_disp_unlock();
     s_car_lvgl_stopped = false;
+    if (model_init_failed) {
+        ui_theme_create_popup("Model file not exist!");
+    }
 #endif
 
     s_car_started = false;

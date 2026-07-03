@@ -3,9 +3,13 @@
  * @brief Shared LVGL visual theme implementation.
  */
 #include "ui_theme.h"
+#include "lv_vendor.h"
 
 #include <stddef.h>
 #include <stdint.h>
+
+static lv_obj_t *s_ui_theme_message_popup = NULL;
+static lv_timer_t *s_ui_theme_message_popup_timer = NULL;
 
 static void clear_obj_style(lv_obj_t *obj)
 {
@@ -372,4 +376,97 @@ void ui_theme_set_button_focus(lv_obj_t *button, ui_theme_button_kind_t kind,
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_opa(button, focused ? LV_OPA_40 : LV_OPA_20,
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
+}
+
+static void ui_theme_message_popup_destroy(void)
+{
+    if (s_ui_theme_message_popup_timer != NULL) {
+        lv_timer_delete(s_ui_theme_message_popup_timer);
+        s_ui_theme_message_popup_timer = NULL;
+    }
+
+    if (s_ui_theme_message_popup != NULL && lv_obj_is_valid(s_ui_theme_message_popup)) {
+        lv_obj_del(s_ui_theme_message_popup);
+    }
+    s_ui_theme_message_popup = NULL;
+}
+
+static void ui_theme_message_popup_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    s_ui_theme_message_popup_timer = NULL;
+    ui_theme_message_popup_destroy();
+}
+
+static void ui_theme_message_popup_event_cb(lv_event_t *event)
+{
+    (void)event;
+    ui_theme_message_popup_destroy();
+}
+
+void ui_theme_create_popup(const char *text)
+{
+    lv_vendor_disp_lock();
+
+    ui_theme_message_popup_destroy();
+
+    lv_obj_t *active = lv_screen_active();
+    if (active == NULL) {
+        lv_vendor_disp_unlock();
+        return;
+    }
+
+    lv_obj_t *overlay = lv_obj_create(active);
+    int screen_w = lv_obj_get_width(active);
+    int screen_h = lv_obj_get_height(active);
+    if (screen_w <= 0) {
+        screen_w = lv_obj_get_style_width(active, LV_PART_MAIN);
+    }
+    if (screen_h <= 0) {
+        screen_h = lv_obj_get_style_height(active, LV_PART_MAIN);
+    }
+    if (screen_w <= 0) {
+        screen_w = 480;
+    }
+    if (screen_h <= 0) {
+        screen_h = 320;
+    }
+
+    lv_obj_remove_style_all(overlay);
+    lv_obj_set_size(overlay, screen_w, screen_h);
+    lv_obj_set_pos(overlay, 0, 0);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(overlay, ui_theme_message_popup_event_cb, LV_EVENT_PRESSED, NULL);
+
+    lv_obj_t *card = lv_obj_create(overlay);
+    lv_obj_set_size(card, 300, 72);
+    lv_obj_center(card);
+    lv_obj_set_style_radius(card, 18, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x1b2f4f), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(card, lv_color_hex(0x7dfcff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(card, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_color(card, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(card, 16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(card, LV_OPA_30, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(card, ui_theme_message_popup_event_cb, LV_EVENT_PRESSED, NULL);
+
+    lv_obj_t *label = lv_label_create(card);
+    lv_label_set_text(label, (text != NULL) ? text : "");
+    lv_obj_set_style_text_color(label, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(label, &lv_font_ali_25, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_center(label);
+
+    s_ui_theme_message_popup = overlay;
+    s_ui_theme_message_popup_timer = lv_timer_create(ui_theme_message_popup_timer_cb, 3000, NULL);
+    if (s_ui_theme_message_popup_timer != NULL) {
+        lv_timer_set_repeat_count(s_ui_theme_message_popup_timer, 1);
+    }
+
+    lv_obj_invalidate(active);
+    lv_vendor_disp_unlock();
 }

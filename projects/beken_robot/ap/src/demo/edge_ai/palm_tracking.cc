@@ -42,6 +42,7 @@ extern "C" {
 #include "beken_ui.h"
 #include "event_runtime.h"
 #include "ui_overlay_swipe.h"
+#include "ui_theme.h"
 
 bk_err_t bk_robot_lvgl_resume_display(void);
 int page_edge_ai_enter(void);
@@ -254,6 +255,9 @@ static void palm_detection_start_task(void *arg)
     int ret = BK_OK;
     bool camera_opened = false;
     bool display_open_attempted = false;
+#if CONFIG_LVGL
+    bool model_init_failed = false;
+#endif
     bk_aimi_servo_config_t servo_cfg_h;
     bk_aimi_servo_config_t servo_cfg_v;
 
@@ -323,6 +327,11 @@ static void palm_detection_start_task(void *arg)
     ret = video_reator->init();
     if (ret != BK_OK) {
         bk_printf("palm_detection_start_task: init failed (%d)\n", ret);
+#if CONFIG_LVGL
+        if (ret == -1) {
+            model_init_failed = true;
+        }
+#endif
         goto fail;
     }
 
@@ -409,6 +418,9 @@ fail:
         }
     }
     lv_vendor_disp_unlock();
+    if (model_init_failed) {
+        ui_theme_create_popup("Model file not exist!");
+    }
 #endif
 
     s_palm_started = false;
