@@ -3,6 +3,7 @@ set(srcs
     src/app_camera.c
     src/app_display.c
     src/app_gpu.c
+    src/bk_camera_lvgl_blend.c
 )
 
 if(CONFIG_MULTIMEDIA_H264_ENCODE)
@@ -12,7 +13,7 @@ if(CONFIG_MULTIMEDIA_H264_ENCODE)
     )
 endif()
 
-set(priv_req bk_common bk_pm media_service bk_peripheral avdk_driver)
+set(priv_req bk_common bk_pm media_service bk_peripheral avdk_driver lvgl)
 
 armino_component_register(SRCS "${srcs}" INCLUDE_DIRS "${incs}" PRIV_REQUIRES "${priv_req}")
 

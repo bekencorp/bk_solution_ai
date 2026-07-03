@@ -19,6 +19,8 @@
 #define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
 
 extern bk_gpu_ctlr_handle_t app_gpu_handle_get(void);
+extern avdk_err_t app_gpu_lock(void);
+extern avdk_err_t app_gpu_unlock(void);
 
 
 /**
@@ -135,6 +137,10 @@ int box_detection_path_build(Box *boxes, int count, int buffer_count, int rotate
         int ymin = (int)(fymin + 0.5f);
         int xmax = (int)(fxmax + 0.5f);
         int ymax = (int)(fymax + 0.5f);
+        if (xmin >= dst_width)   xmin = dst_width - 1;
+        if (ymin >= dst_height)  ymin = dst_height - 1;
+        if (xmax >= dst_width)   xmax = dst_width - 1;
+        if (ymax >= dst_height)  ymax = dst_height - 1;
 
         LOGI("box_detection_path_build[%d]: rot=%d src=%dx%d dst=%dx%d -> (%d,%d)-(%d,%d)\n",
              i, rot, src_width, src_height, dst_width, dst_height,
@@ -151,15 +157,40 @@ int box_detection_path_build(Box *boxes, int count, int buffer_count, int rotate
         .cmd = cmd_buff,
         .data = dat_buff,
         .size = cmd_size,
-        .color = 0x00FF00
+        .color = 0xFF00FF00
     };
 
-    bk_gpu_draw_path_build(app_gpu_handle_get(), &path_set);
+    bk_gpu_ctlr_handle_t gpu_handle = app_gpu_handle_get();
+    if (gpu_handle == NULL || app_gpu_lock() != AVDK_ERR_OK) {
+        LOGW("box_detection_path_build: gpu lock failed\n");
+        return -1;
+    }
+
+    avdk_err_t ret = bk_gpu_draw_path_build(gpu_handle, &path_set);
+    if (app_gpu_unlock() != AVDK_ERR_OK) {
+        LOGW("box_detection_path_build: gpu unlock failed\n");
+    }
+    if (ret != AVDK_ERR_OK) {
+        LOGW("box_detection_path_build: draw path failed %d\n", ret);
+        return -1;
+    }
 
     return 0;
 }
 
 void box_detection_path_clear(void)
 {
-    bk_gpu_draw_path_clear(app_gpu_handle_get());
+    bk_gpu_ctlr_handle_t gpu_handle = app_gpu_handle_get();
+    if (gpu_handle == NULL || app_gpu_lock() != AVDK_ERR_OK) {
+        LOGW("box_detection_path_clear: gpu lock failed\n");
+        return;
+    }
+
+    avdk_err_t ret = bk_gpu_draw_path_clear(gpu_handle);
+    if (app_gpu_unlock() != AVDK_ERR_OK) {
+        LOGW("box_detection_path_clear: gpu unlock failed\n");
+    }
+    if (ret != AVDK_ERR_OK) {
+        LOGW("box_detection_path_clear: draw path clear failed %d\n", ret);
+    }
 }

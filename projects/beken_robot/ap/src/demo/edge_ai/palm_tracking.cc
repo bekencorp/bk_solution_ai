@@ -232,8 +232,8 @@ void plam_detection_config(void)
     gpu_board.flexa.dst_format = BK_PIXEL_FORMAT_ARGB8888;
     gpu_board.flexa.dst_compress = true;
     gpu_board.flexa.scale = false;
-    gpu_board.flexa.tess_width = 400 / 4;
-    gpu_board.flexa.tess_height = 320 / 4;
+    gpu_board.flexa.tess_width = 400 / 2;
+    gpu_board.flexa.tess_height = 320 / 2;
 
     /* Board config for Multimedia config */
     app_camera_board_config_set(&camera_board);

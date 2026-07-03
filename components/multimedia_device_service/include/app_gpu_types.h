@@ -24,6 +24,8 @@ typedef struct
         bk_pixel_format_t dst_format;
         bool scale;
         bool dst_compress;
+        void (*frame_done)(void *frame, uint32_t frame_size, void *args);
+        void *frame_done_args;
     } flexa;
 } gpu_board_config_t;
 

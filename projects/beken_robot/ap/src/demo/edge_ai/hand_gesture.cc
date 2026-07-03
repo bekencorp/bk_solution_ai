@@ -143,8 +143,8 @@ static void hand_gesture_detection_config(void)
     gpu_board.flexa.dst_format = BK_PIXEL_FORMAT_ARGB8888;
     gpu_board.flexa.dst_compress = true;
     gpu_board.flexa.scale = false;
-    gpu_board.flexa.tess_width = HAND_GESTURE_DISPLAY_W / 4;
-    gpu_board.flexa.tess_height = HAND_GESTURE_DISPLAY_H / 4;
+    gpu_board.flexa.tess_width = HAND_GESTURE_DISPLAY_W / 2;
+    gpu_board.flexa.tess_height = HAND_GESTURE_DISPLAY_H / 2;
 
     app_camera_board_config_set(&camera_board);
     app_gpu_board_config_set(&gpu_board);

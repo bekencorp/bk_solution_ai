@@ -24,6 +24,9 @@ int yoloface_tracking_init(void);
 int yoloface_tracking_start(void);
 int yoloface_tracking_stop(void);
 void yoloface_tracking_set_return_to_edge_ai(bool enable);
+void yoloface_tracking_set_lvgl_camera_blend(bool enable);
+bool yoloface_detection_is_active(void);
+int yoloface_detection_exit_to_menu(void);
 
 extern const bk_demo_iface_t g_demo_yoloface_tracking;
 

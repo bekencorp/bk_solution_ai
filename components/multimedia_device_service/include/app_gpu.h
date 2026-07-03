@@ -19,6 +19,9 @@ avdk_err_t app_gpu_turn_off(bk_gpu_ctlr_handle_t ctlr);
 int app_gpu_board_config_set(gpu_board_config_t *config);
 gpu_board_config_t *app_gpu_board_config_get(void);
 bk_gpu_ctlr_handle_t app_gpu_handle_get(void);
+avdk_err_t app_gpu_frame_free(void *ptr);
+avdk_err_t app_gpu_lock(void);
+avdk_err_t app_gpu_unlock(void);
 
 /* ---------------------------------------------------------------------------
  * Snapshot / freeze hooks for camera preview "take photo" feature.

@@ -19,6 +19,10 @@
 #include "driver/isp.h"
 #include <driver/isp_types.h>
 
+#if CONFIG_LVGL
+#include "lv_vendor.h"
+#endif
+
 #if (CONFIG_PSRAM_WRITE_THROUGH)
 #include <driver/psram_types.h>
 #include <driver/psram.h>
@@ -87,6 +91,42 @@ static avdk_err_t bkmm_frame_free(void *ptr)
 #endif
     bk_frame_buffer_free(ptr);
     return AVDK_ERR_OK;
+}
+
+avdk_err_t app_gpu_frame_free(void *ptr)
+{
+    return bkmm_frame_free(ptr);
+}
+
+avdk_err_t app_gpu_lock(void)
+{
+#if (CONFIG_VG_LITE_GPU) && CONFIG_LVGL
+    if (s_gpu_handle == NULL)
+    {
+        LOGW("%s, gpu handle is NULL\n", __func__);
+        return AVDK_ERR_INVAL;
+    }
+
+    return lv_vendor_gpu_lock() ? AVDK_ERR_OK : AVDK_ERR_GENERIC;
+#else
+    return AVDK_ERR_UNSUPPORTED;
+#endif
+}
+
+avdk_err_t app_gpu_unlock(void)
+{
+#if (CONFIG_VG_LITE_GPU) && CONFIG_LVGL
+    if (s_gpu_handle == NULL)
+    {
+        LOGW("%s, gpu handle is NULL\n", __func__);
+        return AVDK_ERR_INVAL;
+    }
+
+    lv_vendor_gpu_unlock(true);
+    return AVDK_ERR_OK;
+#else
+    return AVDK_ERR_UNSUPPORTED;
+#endif
 }
 
 /* Snapshot uses bk_frame_buffer_malloc (not bkmm_frame_malloc/write-through). */
@@ -207,6 +247,8 @@ avdk_err_t app_gpu_turn_on(gpu_board_config_t *config)
 {
 #if (CONFIG_VG_LITE_GPU)
     bk_gpu_ctlr_config_t gpu_config;
+    bk_gpu_ctlr_handle_t gpu_handle = NULL;
+    avdk_err_t ret = AVDK_ERR_OK;
     isp_control_t *isp_control = (isp_control_t *)app_isp_handle_get();
     if (isp_control == NULL)
     {
@@ -255,30 +297,45 @@ avdk_err_t app_gpu_turn_on(gpu_board_config_t *config)
     gpu_config.frame_free = bkmm_frame_free;
     gpu_config.flexa_line_done = NULL;
     gpu_config.flexa_line_done_args = NULL;
-    gpu_config.frame_done = bkmm_frame_complete;
-    gpu_config.frame_done_args = NULL;
+    if (config->flexa.frame_done) {
+        gpu_config.frame_done = config->flexa.frame_done;
+        gpu_config.frame_done_args = config->flexa.frame_done_args;
+    } else {
+        gpu_config.frame_done = bkmm_frame_complete;
+        gpu_config.frame_done_args = NULL;
+    }
 
-    avdk_err_t ret = bk_gpu_ctlr_new(&s_gpu_handle, &gpu_config);
+    ret = bk_gpu_ctlr_new(&gpu_handle, &gpu_config);
     if (ret != BK_OK)
     {
         LOGW("bk_gpu_ctlr_new failed: %d\n", ret);
         return AVDK_ERR_GENERIC;
     }
 
-    ret = bk_gpu_init(s_gpu_handle);
+    ret = bk_gpu_init(gpu_handle);
     if (ret != BK_OK)
     {
         LOGW("bk_gpu_init failed: %d\n", ret);
-        return AVDK_ERR_GENERIC;
+        goto error_delete;
     }
 
-    ret = bk_gpu_open(s_gpu_handle);
+    ret = bk_gpu_open(gpu_handle);
     if (ret != BK_OK)
     {
         LOGW("bk_gpu_open failed: %d\n", ret);
-        return AVDK_ERR_GENERIC;
+        goto error_deinit;
     }
+    s_gpu_handle = gpu_handle;
+#if CONFIG_LVGL
+    lv_vendor_gpu_handle_set(gpu_handle);
+#endif
     return AVDK_ERR_OK;
+
+error_deinit:
+    (void)bk_gpu_deinit(gpu_handle);
+error_delete:
+    (void)bk_gpu_delete(gpu_handle);
+    return AVDK_ERR_GENERIC;
 #else
     LOGE("CONFIG_VG_LITE_GPU not enabled, GPU pipeline unavailable\n");
     (void)config;
@@ -325,6 +382,9 @@ avdk_err_t app_gpu_turn_off(bk_gpu_ctlr_handle_t ctlr)
     if (ctlr == s_gpu_handle)
     {
         s_gpu_handle = NULL;
+#if CONFIG_LVGL
+        lv_vendor_gpu_handle_set(NULL);
+#endif
     }
 
     return AVDK_ERR_OK;

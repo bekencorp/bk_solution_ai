@@ -69,6 +69,7 @@
 
 #include "board_usb_switch.h"
 #include "camera_preview.h"
+#include "bk_camera_lvgl_blend.h"
 
 #if CONFIG_LVGL
 #include "wifi_status_ui.h"
@@ -106,7 +107,7 @@ extern void lv_gpu_init(uint32_t tess_width, uint32_t tess_height);
 
 static bk_display_ctlr_handle_t s_lvgl_dpu_handle = NULL;
 
-static void bk_robot_lvgl_flush_cb(void *args, void *frame_buffer, int (*cb)(void *args))
+static void bk_robot_lvgl_flush_to_display(void *args, void *frame_buffer, int (*cb)(void *args))
 {
     bk_display_ctlr_handle_t *slot = (bk_display_ctlr_handle_t *)args;
 
@@ -123,6 +124,18 @@ static void bk_robot_lvgl_flush_cb(void *args, void *frame_buffer, int (*cb)(voi
         return;
     }
     bk_display_flush(dpu, frame_buffer, cb);
+}
+
+static void bk_robot_lvgl_flush_cb(void *args, void *frame_buffer, int (*cb)(void *args))
+{
+    if (bk_camera_lvgl_blend_is_active()) {
+        if (bk_camera_lvgl_blend_update_lvgl_frame(frame_buffer, cb) != BK_OK) {
+            bk_robot_lvgl_flush_to_display(args, frame_buffer, cb);
+        }
+        return;
+    }
+
+    bk_robot_lvgl_flush_to_display(args, frame_buffer, cb);
 }
 
 static bk_err_t bk_robot_lvgl_init(bk_display_ctlr_handle_t dpu_handle)
