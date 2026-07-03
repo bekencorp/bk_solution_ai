@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "robot_ctrl_service"
 config BK_ROBOT_CTRL_SERVICE
     bool "Enable BK7259 robot control service"

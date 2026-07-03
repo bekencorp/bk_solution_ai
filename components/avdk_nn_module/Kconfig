@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "AVDK NN Module"
 
 	config TFLM_YOLOFACE_V1

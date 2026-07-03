@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "Audio Engine"
 	config BK_AUDIO_ENGINE
 		bool "enable audio engine"

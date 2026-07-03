@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "countdown"
 	  config COUNTDOWN
         bool "Enable COUNTDOWN"

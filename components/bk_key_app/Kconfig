@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "key_app"
     config USR_KEY_CFG_EN
         bool "Enable user-defined KEY config for each project"

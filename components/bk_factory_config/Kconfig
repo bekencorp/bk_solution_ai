@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "BK Factory Config"
 	  config BK_FACTORY_CONFIG
         bool "Enable BK factory config"

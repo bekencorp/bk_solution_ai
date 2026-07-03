@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "Multimedia device service (camera/display/gpu/h264 helpers)"
     config MULTIMEDIA_DEVICE_SERVICE
         bool "Enable multimedia_device_service helpers"

@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "BK Smart Config"
 	config BK_SMART_CONFIG
 		bool "Enable beken sramt config module"

@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "robot_lan_net"
     config BK_ROBOT_LAN_NET
         bool "Enable BK7259 robot LAN network"

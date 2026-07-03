@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "net_transfer"
 	config BK_NETWORK_ENGINE
 		bool "Enable BEKEN Network Transfer"

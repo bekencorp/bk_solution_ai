@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "app_event"
 	  config APP_EVT
         bool "Enable APP_EVT"

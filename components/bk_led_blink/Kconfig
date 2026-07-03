@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "led_blink"
 	  config LED_BLINK
         bool "Enable LED_BLINK"

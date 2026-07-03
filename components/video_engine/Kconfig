@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "video_engine"
 
 	config BK_VIDEO_ENGINE

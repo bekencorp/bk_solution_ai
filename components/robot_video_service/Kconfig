@@ -1,3 +1,4 @@
+# KCONFIG_GROUP: Solution & Product
 menu "robot_video_service"
     config BK_ROBOT_VIDEO_SERVICE
         bool "Enable BK7259 robot video service"
