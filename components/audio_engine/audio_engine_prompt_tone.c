@@ -85,6 +85,22 @@ static bk_err_t vfs_unmount_sd0_fatfs(void)
 {
     return BK_OK;
 }
+
+static bk_err_t vfs_check_prompt_file(const char *path)
+{
+    struct stat statbuf;
+
+    if (!path) {
+        return BK_FAIL;
+    }
+
+    if (stat(path, &statbuf) != BK_OK) {
+        LOGE("prompt tone file missing: %s\n", path);
+        return BK_FAIL;
+    }
+
+    return BK_OK;
+}
 #endif
 
 static int player_not_playback_port_state_notify_handler(int state, void *port_info, void *user_data)
@@ -346,6 +362,12 @@ bk_err_t audio_engine_prompt_tone_start(audio_engine_prompt_tone_handle_t prompt
     if (BK_OK != vfs_mount_sd0_fatfs())
     {
         LOGE("%s, %d, vfs mount fail\n", __func__, __LINE__);
+        return BK_FAIL;
+    }
+
+    if (BK_OK != vfs_check_prompt_file(uri_info->uri))
+    {
+        vfs_unmount_sd0_fatfs();
         return BK_FAIL;
     }
 #endif

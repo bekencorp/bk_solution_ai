@@ -33,6 +33,24 @@
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 #define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
 
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+static int audio_engine_vfs_file_exists(const char *path)
+{
+    struct stat statbuf;
+
+    if (!path) {
+        return BK_FAIL;
+    }
+
+    if (stat(path, &statbuf) != BK_OK) {
+        LOGE("vfs audio file missing: %s\n", path);
+        return BK_FAIL;
+    }
+
+    return BK_OK;
+}
+#endif
+
 /*
  * ------------------------------------------------------------------------
  *  Sound-source-direction -> on-screen arrow angle (page_5)
@@ -806,6 +824,10 @@ int audio_engine_play_vfs(const char *path, audio_dec_type_t dec_type)
 {
 #if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
     if (ae_play_vfs_mount(path) != BK_OK) {
+        return BK_FAIL;
+    }
+    if (audio_engine_vfs_file_exists(path) != BK_OK) {
+        ae_play_vfs_unmount();
         return BK_FAIL;
     }
 #endif
