@@ -30,6 +30,7 @@
 #include "demo/sound_localization.h"
 #include "demo/palm_tracking.h"
 #include "demo/yoloface_tracking.h"
+#include "demo/car_tracking.h"
 #include "demo/hand_gesture.h"
 #include "demo/camera_preview_demo.h"
 #include "demo/udisk.h"
@@ -47,6 +48,7 @@ static const bk_demo_iface_t * const s_demo_list[] = {
     &g_demo_palm_tracking,
     &g_demo_yoloface_tracking,
     &g_demo_hand_gesture,
+    &g_demo_car_tracking,
     &g_demo_camera_preview,
     &g_demo_udisk,
     &g_demo_robot_video,

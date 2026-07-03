@@ -6,6 +6,8 @@
   对外接口头文件为 `ap/include/demo/palm_tracking.h`。
 - `yoloface_tracking.cc` —— yoloface NN pipeline + 全屏 camera preview 的人脸检测 demo（仅 OSD，无舵机）。
   对外接口头文件为 `ap/include/demo/yoloface_tracking.h`。
+- `car_tracking.cc` —— hand_gesture NN pipeline + 全屏 camera preview 的小车跟随 demo。
+对外接口头文件为 `ap/include/demo/car_tracking.h`。
 - `hand_gesture.cc` —— hand_gesture NN pipeline + Hiwonder 6-DOF 手掌舵机控制。
   对外接口头文件为 `ap/include/demo/hand_gesture.h`。
   舵机驱动位于 `components/bk_servo/bk_hiwonder_hand_servo.c`。

@@ -31,6 +31,7 @@
 #include "demo/sound_localization.h"
 #include "demo/palm_tracking.h"
 #include "demo/yoloface_tracking.h"
+#include "demo/car_tracking.h"
 #include "demo/hand_gesture.h"
 #include "demo/camera_preview_demo.h"
 #include "demo/udisk.h"
@@ -74,7 +75,7 @@ static int home_enter(void)
     return 0;
 }
 
-#define DEMO_CENTER_MAX_ITEMS 6
+#define DEMO_CENTER_MAX_ITEMS 7
 
 static lv_obj_t *s_demo_center_screen;
 static lv_obj_t *s_demo_center_panel;
@@ -90,13 +91,13 @@ static int demo_center_show_category(int category);
 /* ------------------------------------------------------------------ */
 /* End-side AI sub-menu.                                               */
 /* ------------------------------------------------------------------ */
-static const char *const s_edge_items[UI_LANG_COUNT][6] = {
-    { "命令词识别", "声源定位", "手掌跟随", "人脸检测", "手势识别", "方案示例" },
-    { "Keyword ASR", "Sound Locate", "Palm Follow", "Face Detect", "Gesture", "Solution" },
+static const char *const s_edge_items[UI_LANG_COUNT][7] = {
+    { "命令词识别", "声源定位", "手掌跟随", "人脸检测", "手势识别", "小车跟随", "方案示例" },
+    { "Keyword ASR", "Sound Locate", "Palm Follow", "Face Detect", "Gesture", "Car Follow", "Solution" },
 };
-static const char *const s_edge_descs[UI_LANG_COUNT][6] = {
-    { "语音控制", "方向定位", "摄像头跟随", "人脸检测", "手势识别", "摄像头预览" },
-    { "Voice", "Direction", "Camera", "Face", "Hand", "Camera blend" },
+static const char *const s_edge_descs[UI_LANG_COUNT][7] = {
+    { "语音控制", "方向定位", "摄像头跟随", "人脸检测", "手势识别", "小车跟随", "摄像头预览" },
+    { "Voice", "Direction", "Camera", "Face", "Hand", "Car", "Camera blend" },
 };
 static const ui_theme_icon_kind_t s_edge_icons[] = {
     UI_THEME_ICON_ASR,
@@ -104,6 +105,7 @@ static const ui_theme_icon_kind_t s_edge_icons[] = {
     UI_THEME_ICON_PALM,
     UI_THEME_ICON_FACE,
     UI_THEME_ICON_GESTURE,
+    UI_THEME_ICON_CAR,
     UI_THEME_ICON_CAMERA,
 };
 #define EDGE_ITEM_COUNT ((int)(sizeof(s_edge_items[0]) / sizeof(s_edge_items[0][0])))
@@ -136,6 +138,10 @@ static void edge_on_select(int index, void *user_data)
         (void)hand_gesture_start();
         break;
     case 5:
+        car_tracking_set_return_to_edge_ai(true);
+        (void)car_tracking_start();
+        break;
+    case 6:
         yoloface_tracking_set_return_to_edge_ai(true);
         yoloface_tracking_set_lvgl_camera_blend(true);
         (void)page_edge_ai_solution_enter();

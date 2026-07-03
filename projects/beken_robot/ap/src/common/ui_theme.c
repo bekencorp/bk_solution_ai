@@ -157,6 +157,7 @@ static const char *icon_text(ui_theme_icon_kind_t kind)
     case UI_THEME_ICON_PALM:     return "PAL";
     case UI_THEME_ICON_FACE:     return LV_SYMBOL_EYE_OPEN;
     case UI_THEME_ICON_GESTURE:  return "GES";
+    case UI_THEME_ICON_CAR:      return "CAR";
     case UI_THEME_ICON_CHAT:     return "AI";
     case UI_THEME_ICON_VISION:   return LV_SYMBOL_EYE_OPEN;
     case UI_THEME_ICON_CAMERA:   return LV_SYMBOL_IMAGE;
