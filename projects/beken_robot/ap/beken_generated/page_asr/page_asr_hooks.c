@@ -28,7 +28,7 @@
 
 /* ----------------------------------------------------------------------
  * Page widgets (created on top of the page_8 root which Designer leaves
- * empty for us) and animation state.
+ * empty for us) and recognition state.
  * -------------------------------------------------------------------- */
 static lv_timer_t *s_anim_timer;
 static lv_obj_t *s_label_state;
@@ -38,6 +38,9 @@ static lv_obj_t *s_label_action;
 static uint32_t s_recognized_start_ms;
 static uint32_t s_spinner_kick_ms;
 static bool s_recognized_active;
+static bool s_action_text_is_cn = true;
+static int32_t s_action_text_letter_space;
+static int32_t s_action_text_x = 88;
 static char s_action_text[32] = "前进";
 
 static void apply_listening_view(void)
@@ -57,6 +60,8 @@ static void apply_listening_view(void)
         s_spinner_kick_ms = lv_tick_get();
     }
     if (s_label_action) {
+        lv_obj_set_style_text_opa(s_label_action, LV_OPA_COVER,
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_add_flag(s_label_action, LV_OBJ_FLAG_HIDDEN);
     }
 }
@@ -73,7 +78,20 @@ static void apply_recognized_view(void)
         lv_obj_add_flag(s_spinner, LV_OBJ_FLAG_HIDDEN);
     }
     if (s_label_action) {
+        if (s_action_text_is_cn) {
+            lv_obj_set_style_text_font(s_label_action, &lv_font_zh_demo_56,
+                                       LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_pos(s_label_action, s_action_text_x, 124);
+        } else {
+            lv_obj_set_style_text_font(s_label_action, &lv_font_ali_30,
+                                       LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_pos(s_label_action, 44, 140);
+        }
+        lv_obj_set_style_text_letter_space(s_label_action, s_action_text_letter_space,
+                                           LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_label_set_text(s_label_action, s_action_text);
+        lv_obj_set_style_text_opa(s_label_action, LV_OPA_COVER,
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_clear_flag(s_label_action, LV_OBJ_FLAG_HIDDEN);
     }
 }
@@ -85,9 +103,37 @@ static void on_phrase_recognized(const char *phrase)
     }
     if ((strcmp(phrase, "nihaobaotong") == 0) || (strcmp(phrase, "nihaobotong") == 0)) {
         snprintf(s_action_text, sizeof(s_action_text), "%s", ui_tr(STR_ASR_HELLO));
+        s_action_text_is_cn = true;
+        s_action_text_letter_space = 0;
+        s_action_text_x = 88;
     } else if (strcmp(phrase, "zaijianbotong") == 0) {
         snprintf(s_action_text, sizeof(s_action_text), "%s", ui_tr(STR_ASR_BYE));
+        s_action_text_is_cn = true;
+        s_action_text_letter_space = 0;
+        s_action_text_x = 88;
+    } else if (strcmp(phrase, "qianjin") == 0) {
+        snprintf(s_action_text, sizeof(s_action_text), "前进");
+        s_action_text_is_cn = true;
+        s_action_text_letter_space = 8;
+        s_action_text_x = 104;
+    } else if (strcmp(phrase, "houtui") == 0) {
+        snprintf(s_action_text, sizeof(s_action_text), "后退");
+        s_action_text_is_cn = true;
+        s_action_text_letter_space = 8;
+        s_action_text_x = 104;
+    } else if (strcmp(phrase, "zuozhuanwan") == 0) {
+        snprintf(s_action_text, sizeof(s_action_text), "左转弯");
+        s_action_text_is_cn = true;
+        s_action_text_letter_space = 0;
+        s_action_text_x = 88;
+    } else if (strcmp(phrase, "youzhuanwan") == 0) {
+        snprintf(s_action_text, sizeof(s_action_text), "右转弯");
+        s_action_text_is_cn = true;
+        s_action_text_letter_space = 0;
+        s_action_text_x = 88;
     } else {
+        apply_listening_view();
+        s_recognized_active = false;
         return;
     }
     apply_recognized_view();
@@ -105,6 +151,12 @@ static void anim_timer_cb(lv_timer_t *timer)
     if (s_recognized_active && lv_tick_elaps(s_recognized_start_ms) >= 8000) {
         apply_listening_view();
         s_recognized_active = false;
+    }
+    if (s_recognized_active && s_label_action) {
+        lv_opa_t text_opa = ((lv_tick_elaps(s_recognized_start_ms) / 500) % 2) ?
+                            LV_OPA_40 : LV_OPA_COVER;
+        lv_obj_set_style_text_opa(s_label_action, text_opa,
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
     }
     if (!s_recognized_active && s_spinner && lv_tick_elaps(s_spinner_kick_ms) >= 3000) {
         lv_spinner_set_anim_params(s_spinner, 1200, 90);
@@ -159,7 +211,7 @@ static void asr_build_widgets(bk_lv_ui_t *ui)
     lv_obj_set_pos(s_label_hint, 48, 88);
 
     s_label_action = lv_label_create(ui->page_8);
-    lv_obj_set_style_text_color(s_label_action, lv_color_hex(0xff3b30),
+    lv_obj_set_style_text_color(s_label_action, lv_color_hex(0x3bff9a),
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(s_label_action, &lv_font_zh_demo_56,
                                LV_PART_MAIN | LV_STATE_DEFAULT);

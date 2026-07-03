@@ -32,8 +32,8 @@ static const char *const s_tr[STR_ID_COUNT][UI_LANG_COUNT] = {
     [STR_PROV_BTN_DELETE]  = { "删除配网",              "Delete" },
 
     [STR_ASR_LISTENING]    = { "聆听中...",             "Listening..." },
-    [STR_ASR_HINT]         = { "你可以说: 前进 后退 向左转 向右转",
-                               "Say: Forward Back Left Right" },
+    [STR_ASR_HINT]         = { "你可以说 前进 后退 左转弯 右转弯",
+                               "Say Forward Back Left Right" },
     [STR_ASR_RECOGNIZED]   = { "已识别",                "Recognized" },
     [STR_ASR_HELLO]        = { "你好博通",              "Hello Beken" },
     [STR_ASR_BYE]          = { "再见博通",              "Bye Beken" },

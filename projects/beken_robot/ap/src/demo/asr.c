@@ -25,29 +25,96 @@
 #define TAG "asr_demo"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 
-/* 0:none, 1:nihaobotong, 2:zaijianbotong */
-static volatile int s_phrase_trigger;
+static volatile bool s_phrase_pending;
+static char s_phrase_text[32];
+
+#if CONFIG_BEKEN_KWS
+/* Keep this display-only table aligned with bk_kws_word_t in bk_kws_asr.h.
+ * The UI demo intentionally avoids including the ASR service private header. */
+enum {
+    ASR_KWS_NONE = 0,
+    ASR_KWS_ARMINO,
+    ASR_KWS_BYEBYE,
+    ASR_KWS_JINRUBIAODING,
+    ASR_KWS_WANCHENGBIAODING,
+    ASR_KWS_DAKASHEXIANG,
+    ASR_KWS_GUANBISHEXIANG,
+    ASR_KWS_SHANGXIADUNQI,
+    ASR_KWS_ZUOYOUYAOBAI,
+    ASR_KWS_QIANHOUBAIDONG,
+    ASR_KWS_YAOTOUHUANGNAO,
+    ASR_KWS_SHENLANYAO,
+    ASR_KWS_DAZHAOHU,
+    ASR_KWS_NAOYANGYANG,
+    ASR_KWS_ZUOZHUANWAN,
+    ASR_KWS_YOUZHUANWAN,
+    ASR_KWS_QIANJIN,
+    ASR_KWS_HOUTUI,
+    ASR_KWS_ZUOXIA,
+    ASR_KWS_AONAO,
+    ASR_KWS_BAOBAO,
+    ASR_KWS_SAJIAO,
+    ASR_KWS_YOUYONG,
+    ASR_KWS_SHENGQI,
+    ASR_KWS_QIQIU,
+    ASR_KWS_MAX_WORDS,
+};
+
+static const char *asr_kws_word_label(uint32_t word)
+{
+    switch (word) {
+    case ASR_KWS_ARMINO: return "nihaobotong";
+    case ASR_KWS_BYEBYE: return "zaijianbotong";
+    case ASR_KWS_JINRUBIAODING: return "jinrubiaoding";
+    case ASR_KWS_WANCHENGBIAODING: return "wanchengbiaoding";
+    case ASR_KWS_DAKASHEXIANG: return "dakaShexiang";
+    case ASR_KWS_GUANBISHEXIANG: return "guanbishexiang";
+    case ASR_KWS_SHANGXIADUNQI: return "shangxiadunqi";
+    case ASR_KWS_ZUOYOUYAOBAI: return "zuoyouyaobai";
+    case ASR_KWS_QIANHOUBAIDONG: return "qianhoubaidong";
+    case ASR_KWS_YAOTOUHUANGNAO: return "yaotouhuangnao";
+    case ASR_KWS_SHENLANYAO: return "shenlanyao";
+    case ASR_KWS_DAZHAOHU: return "dazhaohu";
+    case ASR_KWS_NAOYANGYANG: return "naoyangyang";
+    case ASR_KWS_ZUOZHUANWAN: return "zuozhuanwan";
+    case ASR_KWS_YOUZHUANWAN: return "youzhuanwan";
+    case ASR_KWS_QIANJIN: return "qianjin";
+    case ASR_KWS_HOUTUI: return "houtui";
+    case ASR_KWS_ZUOXIA: return "zuoxia";
+    case ASR_KWS_AONAO: return "aonao";
+    case ASR_KWS_BAOBAO: return "baobao";
+    case ASR_KWS_SAJIAO: return "sajiao";
+    case ASR_KWS_YOUYONG: return "youyong";
+    case ASR_KWS_SHENGQI: return "shengqi";
+    case ASR_KWS_QIQIU: return "qiqiu";
+    default: return NULL;
+    }
+}
+#endif
+
+static void asr_set_phrase_text(const char *text)
+{
+    if (text == NULL) {
+        return;
+    }
+    snprintf(s_phrase_text, sizeof(s_phrase_text), "%s", text);
+    s_phrase_pending = true;
+}
 
 bool asr_consume_phrase_trigger(char *buf, int buf_len)
 {
-    int trigger = s_phrase_trigger;
-    if (buf == NULL || buf_len <= 0 || trigger == 0) {
+    if (buf == NULL || buf_len <= 0 || !s_phrase_pending) {
         return false;
     }
-    if (trigger == 1) {
-        snprintf(buf, buf_len, "nihaobotong");
-    } else if (trigger == 2) {
-        snprintf(buf, buf_len, "zaijianbotong");
-    } else {
-        return false;
-    }
-    s_phrase_trigger = 0;
+    snprintf(buf, buf_len, "%s", s_phrase_text);
+    s_phrase_pending = false;
     return true;
 }
 
 void asr_reset_phrase_trigger(void)
 {
-    s_phrase_trigger = 0;
+    s_phrase_pending = false;
+    s_phrase_text[0] = '\0';
 }
 
 int asr_start_service(void)
@@ -57,6 +124,12 @@ int asr_start_service(void)
         LOGI("ASR restore audio engine failed\r\n");
         return -1;
     }
+#if CONFIG_BEKEN_KWS
+    if (AUDIO_ENGINE_SUCCESS != audio_engine_asr_switch_model(AUDIO_ENGINE_KWS_MODEL_CMDS)) {
+        LOGI("page8 switch kws cmd model failed\r\n");
+        return -1;
+    }
+#endif
     return (AUDIO_ENGINE_SUCCESS == audio_engine_asr_start()) ? 0 : -1;
 #else
     return 0;
@@ -69,6 +142,9 @@ int asr_stop_service(void)
     if (!audio_engine_is_running()) {
         return 0;
     }
+#if CONFIG_BEKEN_KWS
+    (void)audio_engine_asr_switch_model(AUDIO_ENGINE_KWS_MODEL_WAKEUP);
+#endif
     return (AUDIO_ENGINE_SUCCESS == audio_engine_stop()) ? 0 : -1;
 #else
     return 0;
@@ -83,9 +159,13 @@ static void asr_phrase_evt_cb(app_evt_msg_t *msg, void *user_data)
         return;
     }
     if (msg->event == APP_EVT_ASR_NIHAOBOTONG) {
-        s_phrase_trigger = 1;
+        asr_set_phrase_text("nihaobotong");
     } else if (msg->event == APP_EVT_ASR_ZAIJIANBOTONG) {
-        s_phrase_trigger = 2;
+        asr_set_phrase_text("zaijianbotong");
+#if CONFIG_BEKEN_KWS
+    } else if (msg->event == APP_EVT_ASR_KWS_LABEL) {
+        asr_set_phrase_text(asr_kws_word_label(msg->param));
+#endif
     }
 }
 #endif
@@ -96,6 +176,8 @@ int asr_init(void)
     (void)app_event_register_handler(APP_EVT_ASR_NIHAOBOTONG,
                                      asr_phrase_evt_cb, NULL);
     (void)app_event_register_handler(APP_EVT_ASR_ZAIJIANBOTONG,
+                                     asr_phrase_evt_cb, NULL);
+    (void)app_event_register_handler(APP_EVT_ASR_KWS_LABEL,
                                      asr_phrase_evt_cb, NULL);
 #endif
     return 0;

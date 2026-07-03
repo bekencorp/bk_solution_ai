@@ -16,6 +16,17 @@ menu "BEKEN GENIE demo Configuration"
             in page_N_init.c (navigation hooks, ui_nav_register_screen, etc.) are compiled.
             Disable only if you need a build without that custom code.
 
+    config BEKEN_KWS_MODEL_FROM_UDISK
+        bool "Load Beken KWS model from U-disk/SD-NAND file"
+        depends on BEKEN_KWS
+        default n
+        help
+            When enabled, the beken_robot solution loads KWS .tflite models
+            from 1:/kws_model/ at runtime and the built-in model arrays are
+            not compiled into the kws_model library, saving flash space.
+
+            When disabled, KWS uses SDK built-in model arrays.
+
     menu "Board: SD-NAND / USB Switch"
         config BOARD_SD_NAND_ENABLE
             bool "Enable on-board SD-NAND (U14 MKDV4GCL-ABB on SDIO1)"

@@ -72,6 +72,8 @@ static void page_doa_on_init(bk_lv_ui_t *ui)
     int initial_deg = 90;
 
     lv_arc_set_range(ui->page_5_arc_1, PAGE5_ARC_RANGE_MIN, PAGE5_ARC_RANGE_MAX);
+    /* The blue ball is the arc knob. It is driven by DOA updates only, not by touch. */
+    lv_obj_clear_flag(ui->page_5_arc_1, LV_OBJ_FLAG_CLICKABLE);
 
     /* Page size override: ap_main sets ROTATE_90 so the logical screen
      * is 385x320 (landscape), but Designer wrote lv_obj_set_size(page_5,

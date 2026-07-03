@@ -213,6 +213,12 @@ int sound_localization_start_service(void)
             return -1;
         }
     }
+#if CONFIG_BEKEN_KWS
+    if (AUDIO_ENGINE_SUCCESS != audio_engine_asr_switch_model(AUDIO_ENGINE_KWS_MODEL_WAKEUP)) {
+        LOGI("page5 switch kws wakeup model failed\r\n");
+        return -1;
+    }
+#endif
     return (AUDIO_ENGINE_SUCCESS == audio_engine_asr_start()) ? 0 : -1;
 #else
     return 0;
