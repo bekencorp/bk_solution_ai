@@ -175,7 +175,6 @@ void page_11_set_video_connected(void);
 /* declare image */
 LV_IMAGE_DECLARE(beken_logo_blue_321x147_RGB565A8_NONE);
 LV_IMAGE_DECLARE(beken_logo_blue_336x149_RGB565A8_NONE);
-LV_IMAGE_DECLARE(wifi_1_23x24_RGB565A8_NONE);
 
 /* declare fonts */
 LV_FONT_DECLARE(lv_font_ali_25);

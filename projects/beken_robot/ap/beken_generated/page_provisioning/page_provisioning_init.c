@@ -19,6 +19,7 @@
 #include "page_hooks.h"
 #include "ui_theme.h"
 #include "ui_i18n.h"
+#include "demo/provisioning.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -40,12 +41,31 @@ void init_page_page_4(bk_lv_ui_t *bk_ui)
     bk_ui->page_4_label_desc = ui_theme_create_subtitle(bk_ui->page_4, ui_tr(STR_PROV_SUBTITLE));
 
     bk_ui->page_4_status_card = ui_theme_create_card(bk_ui->page_4, 22, 74, 341, 124, 26, true);
-    (void)ui_theme_create_text(bk_ui->page_4_status_card, ui_tr(STR_PROV_DEVICE_NAME), 19, 18, 160,
-                               &lv_font_ali_16, UI_THEME_COLOR_MUTED,
-                               LV_TEXT_ALIGN_LEFT);
+
+    /* Caption line shows the device name inline after the "Device Name" label,
+     * e.g. "当前设备名 bk_robot_80D6D6", so the phone app can find the device as
+     * soon as this page opens. The name is derived from the BT MAC and is
+     * constant. The label part stays muted; the device name is recolored to the
+     * theme primary so it stands out from the caption. */
+    char prov_devname[24] = {0};
+    char prov_caption[80];
+    lv_obj_t *prov_cap_label = ui_theme_create_text(bk_ui->page_4_status_card, "",
+                                                    19, 18, 303,
+                                                    &lv_font_ali_16, UI_THEME_COLOR_MUTED,
+                                                    LV_TEXT_ALIGN_LEFT);
+    lv_label_set_recolor(prov_cap_label, true);
+    (void)provisioning_get_ble_name(prov_devname, sizeof(prov_devname));
+    if (prov_devname[0] != '\0') {
+        snprintf(prov_caption, sizeof(prov_caption), "%s #%06x %s#",
+                 ui_tr(STR_PROV_DEVICE_NAME),
+                 (unsigned)(UI_THEME_COLOR_PRIMARY & 0xFFFFFFu), prov_devname);
+    } else {
+        snprintf(prov_caption, sizeof(prov_caption), "%s", ui_tr(STR_PROV_DEVICE_NAME));
+    }
+    lv_label_set_text(prov_cap_label, prov_caption);
 
     bk_ui->page_4_label_status = ui_theme_create_text(bk_ui->page_4_status_card,
-                                                      "Wi-Fi: BK-Robot",
+                                                      "",
                                                       19, 50, 303,
                                                       &lv_font_ali_25,
                                                       UI_THEME_COLOR_PRIMARY,

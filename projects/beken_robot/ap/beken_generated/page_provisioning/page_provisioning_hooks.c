@@ -25,6 +25,11 @@
 #include "ui_nav_router.h"
 #include <components/log.h>
 
+#if CONFIG_APP_EVT
+#include "lv_vendor.h"
+#include "app_event.h"
+#endif
+
 #define TAG "page_provisioning"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 
@@ -33,11 +38,11 @@
 static int s_menu_idx;
 static ui_touch_tap_state_t s_button_tap_state;
 
-/* Latched state text for the non-connected case. The connected case is
- * derived live from the Wi-Fi link, so provisioning success (which arrives
- * asynchronously on another task) is reflected without an explicit callback. */
+/* Latched state text for the non-connected case. Updated by the network
+ * app_event callback (provisioning / reconnect progress and failure); the
+ * connected case is derived live from the Wi-Fi link when a *_SUCCESS event
+ * arrives. */
 static const char *s_state_text = "State: WAIT_PROVISIONING";
-static lv_timer_t *s_status_timer;
 
 static lv_obj_t *menu_btn(bk_lv_ui_t *ui, int idx)
 {
@@ -69,51 +74,140 @@ static void apply_menu_focus(bk_lv_ui_t *ui)
 }
 
 /*
- * Refresh both the SSID and State lines from the live Wi-Fi link status.
- * ASCII only so it never depends on CJK glyph coverage. When the STA is
- * connected we show the SSID and "CONNECTED"; otherwise we fall back to the
- * latched s_state_text (READY / PROVISIONING / DELETED / RESETTING).
+ * Fill the connection/name value line and the State line. ASCII only so it
+ * never depends on CJK glyph coverage.
+ *
+ * The value line is the connection (bearer) line. The device can be
+ * provisioned/connected over several bearers (Wi-Fi / BT PAN / 4G LTE); they
+ * all render in this same slot with a bearer prefix:
+ *   - Wi-Fi connected  -> "Wi-Fi: <ssid>"          (wired today)
+ *   - BT PAN connected -> "PAN: <name>"            (reserved, see TODO)
+ *   - 4G LTE connected -> "LTE: <operator/apn>"    (reserved, see TODO)
+ * When no bearer is up yet, this line stays empty. The BLE device name the
+ * phone app scans for is shown on the caption line instead (built once in
+ * init_page_page_4() from provisioning_get_ble_name()), not here.
+ *
+ * This performs the wifi link-status query (an IPC round-trip to the CP core)
+ * and touches NO LVGL objects, so it is safe to call without the display lock.
  */
-static void update_status(bk_lv_ui_t *ui)
+static void compute_status(char *status_line, size_t status_sz,
+                           char *hint_line, size_t hint_sz)
 {
     char ssid[33];
-    char ble_name[32];
-    char line[48];
+
+    if (provisioning_get_ssid(ssid, sizeof(ssid)) == 0) {
+        snprintf(status_line, status_sz, "Wi-Fi: %s", ssid);
+        snprintf(hint_line, hint_sz, "%s", "State: CONNECTED");
+    /*
+     * TODO: BT PAN / 4G LTE bearers render in this same slot once their
+     * link-status getters are available, e.g.:
+     *
+     * } else if (provisioning_get_pan_name(pan, sizeof(pan)) == 0) {
+     *     snprintf(status_line, status_sz, "PAN: %s", pan);
+     *     snprintf(hint_line, hint_sz, "%s", "State: CONNECTED");
+     * } else if (provisioning_get_lte_info(lte, sizeof(lte)) == 0) {
+     *     snprintf(status_line, status_sz, "LTE: %s", lte);
+     *     snprintf(hint_line, hint_sz, "%s", "State: CONNECTED");
+     */
+    } else {
+        status_line[0] = '\0';
+        snprintf(hint_line, hint_sz, "%s", s_state_text);
+    }
+}
+
+/* Write the pre-computed lines onto the page_4 labels. The caller MUST already
+ * hold lv_vendor_disp_lock() (both the page init hook and the button-click
+ * callback run under it; the app_event path takes it explicitly). */
+static void apply_status_locked(bk_lv_ui_t *ui,
+                                const char *status_line, const char *hint_line)
+{
+    if (ui == NULL) {
+        return;
+    }
+    if (ui->page_4_label_status != NULL && lv_obj_is_valid(ui->page_4_label_status)) {
+        lv_label_set_text(ui->page_4_label_status, status_line);
+    }
+    if (ui->page_4_label_hint != NULL && lv_obj_is_valid(ui->page_4_label_hint)) {
+        lv_label_set_text(ui->page_4_label_hint, hint_line);
+    }
+}
+
+/* One-shot refresh used from contexts that already hold the display lock
+ * (page init hook, button-click callback). */
+static void update_status(bk_lv_ui_t *ui)
+{
+    char status_line[48];
+    char hint_line[32];
 
     if (ui == NULL) {
         return;
     }
-    if (provisioning_get_ssid(ssid, sizeof(ssid)) == 0) {
-        if (ui->page_4_label_status != NULL) {
-            snprintf(line, sizeof(line), "Wi-Fi: %s", ssid);
-            lv_label_set_text(ui->page_4_label_status, line);
-        }
-        if (ui->page_4_label_hint != NULL) {
-            lv_label_set_text(ui->page_4_label_hint, "State: CONNECTED");
-        }
-    } else if (provisioning_get_ble_name(ble_name, sizeof(ble_name)) == 0) {
-        if (ui->page_4_label_status != NULL) {
-            snprintf(line, sizeof(line), "BLE: %s", ble_name);
-            lv_label_set_text(ui->page_4_label_status, line);
-        }
-        if (ui->page_4_label_hint != NULL) {
-            lv_label_set_text(ui->page_4_label_hint, s_state_text);
-        }
-    } else {
-        if (ui->page_4_label_status != NULL) {
-            lv_label_set_text(ui->page_4_label_status, "Wi-Fi: BK-Robot");
-        }
-        if (ui->page_4_label_hint != NULL) {
-            lv_label_set_text(ui->page_4_label_hint, s_state_text);
-        }
-    }
+    compute_status(status_line, sizeof(status_line), hint_line, sizeof(hint_line));
+    apply_status_locked(ui, status_line, hint_line);
 }
 
-static void status_timer_cb(lv_timer_t *timer)
+#if CONFIG_APP_EVT
+/*
+ * Event-driven status refresh: replaces the old 1 Hz lv_timer poll (which
+ * issued a STA_GET_LINK_STATUS IPC every second and flooded the WDRV log).
+ * The smart-config core emits these events across the provisioning / reconnect
+ * lifecycle, so the page updates only when the link state actually changes.
+ *
+ * Runs on the app_event task (NOT the LVGL task), so we query the link status
+ * first and then take the display lock only to write the labels.
+ */
+static void net_status_evt_cb(app_evt_msg_t *msg, void *user_data)
 {
-    (void)timer;
-    update_status(&bk_lv_tool_ui);
+    char status_line[48];
+    char hint_line[32];
+
+    (void)user_data;
+    if (msg == NULL) {
+        return;
+    }
+
+    switch (msg->event) {
+    case APP_EVT_NETWORK_PROVISIONING:
+        s_state_text = "State: PROVISIONING";
+        break;
+    case APP_EVT_RECONNECT_NETWORK:
+        s_state_text = "State: RECONNECTING";
+        break;
+    case APP_EVT_NETWORK_PROVISIONING_FAIL:
+    case APP_EVT_RECONNECT_NETWORK_FAIL:
+        s_state_text = "State: FAILED";
+        break;
+    case APP_EVT_NETWORK_PROVISIONING_SUCCESS:
+    case APP_EVT_RECONNECT_NETWORK_SUCCESS:
+        /* Connected: the SSID branch in compute_status() overrides the hint. */
+        break;
+    default:
+        return;
+    }
+
+    compute_status(status_line, sizeof(status_line), hint_line, sizeof(hint_line));
+
+    lv_vendor_disp_lock();
+    apply_status_locked(&bk_lv_tool_ui, status_line, hint_line);
+    lv_vendor_disp_unlock();
 }
+
+static void register_net_status_events(void)
+{
+    static bool registered;
+
+    if (registered) {
+        return;
+    }
+    (void)app_event_register_handler(APP_EVT_NETWORK_PROVISIONING, net_status_evt_cb, NULL);
+    (void)app_event_register_handler(APP_EVT_NETWORK_PROVISIONING_SUCCESS, net_status_evt_cb, NULL);
+    (void)app_event_register_handler(APP_EVT_NETWORK_PROVISIONING_FAIL, net_status_evt_cb, NULL);
+    (void)app_event_register_handler(APP_EVT_RECONNECT_NETWORK, net_status_evt_cb, NULL);
+    (void)app_event_register_handler(APP_EVT_RECONNECT_NETWORK_SUCCESS, net_status_evt_cb, NULL);
+    (void)app_event_register_handler(APP_EVT_RECONNECT_NETWORK_FAIL, net_status_evt_cb, NULL);
+    registered = true;
+}
+#endif /* CONFIG_APP_EVT */
 
 static void on_focus_prev(bk_lv_ui_t *ui)
 {
@@ -247,20 +341,10 @@ static void page_provisioning_on_init(bk_lv_ui_t *ui)
     apply_menu_focus(ui);
     register_button_clicks(ui);
     (void)ui_nav_register_screen(ui->page_4, &page_4_nav_ops);
-
-    /* Poll the live Wi-Fi link so asynchronous provisioning success (which is
-     * reported on other tasks) is reflected on the page without a callback. */
-    if (s_status_timer == NULL) {
-        s_status_timer = lv_timer_create(status_timer_cb, 1000, NULL);
-    }
 }
 
 static void page_provisioning_on_destroy(bk_lv_ui_t *ui)
 {
-    if (s_status_timer != NULL) {
-        lv_timer_del(s_status_timer);
-        s_status_timer = NULL;
-    }
     (void)provisioning_stop();
     ui_nav_unregister_screen(ui->page_4);
 }
@@ -269,6 +353,11 @@ void page_provisioning_init_hooks(void)
 {
     (void)bk_page_set_init_hook(4, page_provisioning_on_init);
     (void)bk_page_set_destroy_hook(4, page_provisioning_on_destroy);
+#if CONFIG_APP_EVT
+    /* Called once at startup, after app_event_init(): subscribe to the network
+     * lifecycle events so the page refreshes on change instead of polling. */
+    register_net_status_events();
+#endif
 }
 
 int page_provisioning_enter(void)

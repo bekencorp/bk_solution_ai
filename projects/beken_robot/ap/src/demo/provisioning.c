@@ -7,20 +7,23 @@
 #include "demo/provisioning.h"
 
 #include <string.h>
+#include <stdio.h>
+#include <stdint.h>
 
 #ifdef ROBOT_TEST
 
 #include "audio_engine.h"
 #include <components/log.h>
+#include <components/system.h>
 #include "bk_wifi.h"
 #include "bk_wifi_types.h"
 
-#if CONFIG_BLUETOOTH
-#include <components/bluetooth/bk_dm_gap_ble.h>
-#endif
-
 #if CONFIG_BK_SMART_CONFIG
 #include "bk_smart_config.h"
+#endif
+
+#if CONFIG_BK_BLE_PROVISIONING
+#include "bk_network_provisioning.h"
 #endif
 
 #if CONFIG_BT
@@ -29,6 +32,29 @@
 
 #define TAG "prov_demo"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
+
+/* Compose the provisioning device name (what the phone app scans for) using the
+ * rule "bk_robot_XXXXXX" derived from the Bluetooth MAC. This is the single
+ * source of truth: provisioning_init() pushes it into the BLE provisioning
+ * component via bk_ble_provisioning_set_adv_name(), and the UI reads the same
+ * string through provisioning_get_ble_name(), so both stay in sync. */
+static int provisioning_build_device_name(char *buf, int len)
+{
+    uint8_t mac[6] = {0};
+
+    if (buf == NULL || len <= 0) {
+        return -1;
+    }
+    buf[0] = '\0';
+
+    if (bk_get_mac(mac, MAC_TYPE_BLUETOOTH) != BK_OK) {
+        return -1;
+    }
+
+    (void)snprintf(buf, (size_t)len, "bk_robot_%02X%02X%02X", mac[3], mac[4], mac[5]);
+    buf[len - 1] = '\0';
+    return buf[0] != '\0' ? 0 : -1;
+}
 
 void provisioning_trigger_smart_config(void)
 {
@@ -96,25 +122,24 @@ int provisioning_get_ssid(char *buf, int len)
 
 int provisioning_get_ble_name(char *buf, int len)
 {
-    if (buf == NULL || len <= 0) {
-        return -1;
-    }
-    buf[0] = '\0';
-
-#if CONFIG_BLUETOOTH
-    uint32_t size = (uint32_t)len;
-    if (bk_ble_gap_get_device_name(buf, &size) != BK_ERR_BLE_SUCCESS) {
-        buf[0] = '\0';
-        return -1;
-    }
-    buf[len - 1] = '\0';
-    return buf[0] != '\0' ? 0 : -1;
-#else
-    return -1;
-#endif
+    return provisioning_build_device_name(buf, len);
 }
 
-int provisioning_init(void) { return 0; }
+int provisioning_init(void)
+{
+    /* Push our device name into the BLE provisioning component so it advertises
+     * exactly the name the UI shows. Done once at boot, before provisioning is
+     * ever started, so the name is correct on the very first attempt. */
+#if CONFIG_BK_BLE_PROVISIONING
+    char name[32];
+
+    if (provisioning_build_device_name(name, sizeof(name)) == 0) {
+        bk_ble_provisioning_set_adv_name(name);
+        LOGI("configured provisioning device name: %s\r\n", name);
+    }
+#endif
+    return 0;
+}
 
 extern int page_provisioning_enter(void);
 

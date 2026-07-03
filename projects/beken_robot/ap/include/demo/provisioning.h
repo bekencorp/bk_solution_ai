@@ -32,11 +32,16 @@ void provisioning_factory_reset(void);
 int provisioning_get_ssid(char *buf, int len);
 
 /**
- * @brief Get the current BLE provisioning device name.
+ * @brief Get the BLE provisioning device name (what the phone app scans for).
+ *
+ * The name follows the "bk_robot_XXXXXX" rule and is the single source of truth:
+ * provisioning_init() also pushes this exact string into the BLE provisioning
+ * component (bk_ble_provisioning_set_adv_name()), so the advertised name and the
+ * name shown in the UI always match.
  *
  * @param buf  output buffer for the device name (always NUL-terminated).
  * @param len  size of @p buf in bytes.
- * @return 0 when a non-empty BLE name is available; -1 otherwise.
+ * @return 0 when a non-empty name is available; -1 otherwise.
  */
 int provisioning_get_ble_name(char *buf, int len);
 
