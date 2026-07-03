@@ -138,14 +138,21 @@ void AvdkVideoReatorOSD::WorkerThread()
 
 int AvdkVideoReatorOSD::init()
 {
+    return init(true);
+}
+
+int AvdkVideoReatorOSD::init(bool init_model)
+{
     LOGI("AvdkVideoReatorOSD::init\n");
 
-    detection_model->LogEnable(true);
-    int ret = detection_model->init();
-    if (ret != BK_OK)
-    {
-        LOGE("detection model init fail, ret: %d\n", ret);
-        return ret;
+    if (init_model) {
+        detection_model->LogEnable(true);
+        int ret = detection_model->init();
+        if (ret != BK_OK)
+        {
+            LOGE("detection model init fail, ret: %d\n", ret);
+            return ret;
+        }
     }
 
     if (BK_PIXEL_FORMAT_RGB888 == detection_model->getFormat())

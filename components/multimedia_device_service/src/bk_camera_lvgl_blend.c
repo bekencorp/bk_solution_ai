@@ -24,6 +24,7 @@
 typedef struct {
     bool active;
     bool stopping;
+    bool suspended;
     bk_camera_lvgl_blend_config_t config;
     lv_camera_blend_async_handle_t async_handle;
     beken_mutex_t box_mutex;
@@ -248,15 +249,21 @@ bool bk_camera_lvgl_blend_is_active(void)
     return s_blend.active;
 }
 
+void bk_camera_lvgl_blend_set_suspended(bool suspended)
+{
+    s_blend.suspended = suspended;
+}
+
 bk_err_t bk_camera_lvgl_blend_push_camera_frame(void *frame, uint32_t frame_size)
 {
     if (frame == NULL) {
         return BK_ERR_PARAM;
     }
 
-    if (!s_blend.active || s_blend.stopping || s_blend.async_handle == NULL) {
+    if (!s_blend.active || s_blend.stopping || s_blend.suspended ||
+        s_blend.async_handle == NULL) {
         app_gpu_frame_free(frame);
-        return BK_FAIL;
+        return s_blend.suspended ? BK_OK : BK_FAIL;
     }
 
     lv_camera_blend_camera_frame_t camera = {
@@ -282,6 +289,10 @@ bk_err_t bk_camera_lvgl_blend_push_camera_frame(void *frame, uint32_t frame_size
 bk_err_t bk_camera_lvgl_blend_update_lvgl_frame(void *frame, int (*release_cb)(void *args))
 {
     if (!s_blend.active || s_blend.async_handle == NULL || frame == NULL) {
+        return BK_FAIL;
+    }
+
+    if (s_blend.suspended) {
         return BK_FAIL;
     }
 

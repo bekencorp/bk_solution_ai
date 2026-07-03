@@ -79,6 +79,7 @@ public:
      * @return BK_OK on success, negative or non-zero error code on failure.
      */
     int init();
+    int init(bool init_model);
 
     int start();
     int stop();

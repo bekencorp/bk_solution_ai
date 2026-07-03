@@ -28,6 +28,7 @@ typedef struct {
 bk_err_t bk_camera_lvgl_blend_start(const bk_camera_lvgl_blend_config_t *config);
 bk_err_t bk_camera_lvgl_blend_stop(void);
 bool bk_camera_lvgl_blend_is_active(void);
+void bk_camera_lvgl_blend_set_suspended(bool suspended);
 
 bk_err_t bk_camera_lvgl_blend_push_camera_frame(void *frame, uint32_t frame_size);
 bk_err_t bk_camera_lvgl_blend_update_lvgl_frame(void *frame, int (*release_cb)(void *args));

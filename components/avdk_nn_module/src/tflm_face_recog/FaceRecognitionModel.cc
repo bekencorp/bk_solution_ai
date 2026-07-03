@@ -143,10 +143,8 @@ static bool gpu_align_rgb112(uint8_t *src_frame,
                              const float matrix[6],
                              uint8_t *dst_data)
 {
-    bk_gpu_ctlr_handle_t gpu_handle = app_gpu_handle_get();
-    avdk_err_t ret = bk_gpu_ioctl(gpu_handle, BK_GPU_IOCTL_LOCK, nullptr);
-    if (ret != AVDK_ERR_OK) {
-        MicroPrintf("FaceRecognition GPU lock failed ret=%d handle=%p\r\n", ret, gpu_handle);
+    if (app_gpu_handle_get() == nullptr || app_gpu_lock() != AVDK_ERR_OK) {
+        MicroPrintf("FaceRecognition GPU lock failed\r\n");
         return false;
     }
 
@@ -209,9 +207,8 @@ exit:
     vg_lite_free_without_free_data(&dst);
     vg_lite_free_without_free_data(&src);
 
-    ret = bk_gpu_ioctl(gpu_handle, BK_GPU_IOCTL_UNLOCK, nullptr);
-    if (ret != AVDK_ERR_OK) {
-        MicroPrintf("FaceRecognition GPU unlock failed ret=%d handle=%p\r\n", ret, gpu_handle);
+    if (app_gpu_unlock() != AVDK_ERR_OK) {
+        MicroPrintf("FaceRecognition GPU unlock failed\r\n");
         ok = false;
     }
     return ok;
@@ -221,8 +218,15 @@ FaceRecognitionModel::FaceRecognitionModel()
     : detector_(new FaceDetectionRuntime()),
       verifier_(new FaceVerifyRuntime()),
       verify_model_file_path_(nullptr),
-      verify_result_callback_(nullptr)
+      verify_result_callback_(nullptr),
+      enroll_result_callback_(nullptr),
+      verify_enabled_(false)
 {
+    name = "FaceRecognitionModel";
+    width = kDetectInputW;
+    height = kDetectInputH;
+    format = BK_PIXEL_FORMAT_RGB888;
+    model_type = AVDK_NN_MODEL_TYPE_NPU;
 }
 
 FaceRecognitionModel::~FaceRecognitionModel()
@@ -252,6 +256,16 @@ void FaceRecognitionModel::setVerifyModelFilePath(const char *path)
 void FaceRecognitionModel::setVerifyResultCallback(faceVerifyResultCallbackT cb)
 {
     verify_result_callback_ = cb;
+}
+
+void FaceRecognitionModel::setEnrollResultCallback(faceEnrollResultCallbackT cb)
+{
+    enroll_result_callback_ = cb;
+}
+
+void FaceRecognitionModel::setVerifyEnabled(bool enable)
+{
+    verify_enabled_ = enable;
 }
 
 int FaceRecognitionModel::init(void)
@@ -346,17 +360,27 @@ int FaceRecognitionModel::run(uint8_t *data, uint32_t size, bk_pixel_format_t pi
     (void)size;
     (void)pixel_format;
 
+#define FACE_RECOG_NOTIFY_ENROLL_FAIL()                                      \
+    do {                                                                     \
+        if (verify_enabled_ && enroll_result_callback_ != nullptr) {          \
+            enroll_result_callback_(nullptr, nullptr, 0);                     \
+        }                                                                    \
+    } while (0)
+
     const unsigned long long run_start_us = bk_aon_rtc_get_us();
     if (data == nullptr || detector_ == nullptr || verifier_ == nullptr) {
+        FACE_RECOG_NOTIFY_ENROLL_FAIL();
         return 0;
     }
     if (!ensureDetectorInterpreter()) {
+        FACE_RECOG_NOTIFY_ENROLL_FAIL();
         return 0;
     }
 
     TfLiteTensor *input = pinterpreter->input(0);
     if (input == nullptr || input->type != kTfLiteInt8) {
         MicroPrintf("FaceRecognition invalid detector input tensor\r\n");
+        FACE_RECOG_NOTIFY_ENROLL_FAIL();
         return 0;
     }
 
@@ -367,6 +391,7 @@ int FaceRecognitionModel::run(uint8_t *data, uint32_t size, bk_pixel_format_t pi
     unsigned long long verify_us = 0;
     if (!bgrx_to_rgb_int8_simd(data, input->data.int8, kDetectInputW, kDetectInputH)) {
         MicroPrintf("FaceRecognition detector input prepare failed\r\n");
+        FACE_RECOG_NOTIFY_ENROLL_FAIL();
         return 0;
     }
     input_prepare_us = bk_aon_rtc_get_us() - start_us;
@@ -375,6 +400,7 @@ int FaceRecognitionModel::run(uint8_t *data, uint32_t size, bk_pixel_format_t pi
         MEM_SLAB_HEAP_UNCODED, sizeof(FaceDetection) * kMaxFaceDetections);
     if (detections == nullptr) {
         MicroPrintf("FaceRecognition alloc detections failed\r\n");
+        FACE_RECOG_NOTIFY_ENROLL_FAIL();
         return 0;
     }
     start_us = bk_aon_rtc_get_us();
@@ -414,12 +440,21 @@ int FaceRecognitionModel::run(uint8_t *data, uint32_t size, bk_pixel_format_t pi
     }
     onBoxDetectionCallback(box_count > 0 ? s_face_out_boxes : NULL, box_count);
 
+    if (!verify_enabled_ && verify_result_callback_ == nullptr) {
+        bk_frame_buffer_free(detections);
+        return 1;
+    }
+    MicroPrintf("FaceRecognition: verify/enroll frame begin\r\n");
+
     float affine[6];
     if (!estimate_similarity_transform(detections[0].keypoints,
                                        kArcfaceDst,
                                        kFaceDetectKeypointCount,
                                        affine)) {
         MicroPrintf("FaceRecognition estimate affine failed\r\n");
+        if (verify_enabled_ && enroll_result_callback_ != nullptr) {
+            enroll_result_callback_(nullptr, nullptr, 0);
+        }
         bk_frame_buffer_free(detections);
         return 0;
     }
@@ -428,11 +463,15 @@ int FaceRecognitionModel::run(uint8_t *data, uint32_t size, bk_pixel_format_t pi
                                                              kAlignedFaceBytes);
     if (aligned_rgb == nullptr) {
         MicroPrintf("FaceRecognition alloc aligned RGB112 failed\r\n");
+        if (verify_enabled_ && enroll_result_callback_ != nullptr) {
+            enroll_result_callback_(nullptr, nullptr, 0);
+        }
         bk_frame_buffer_free(detections);
         return 0;
     }
 
     start_us = bk_aon_rtc_get_us();
+    MicroPrintf("FaceRecognition: align begin\r\n");
     bool align_ok = gpu_align_rgb112(data,
                                      kDetectInputW,
                                      kDetectInputH,
@@ -440,7 +479,11 @@ int FaceRecognitionModel::run(uint8_t *data, uint32_t size, bk_pixel_format_t pi
                                      affine,
                                      aligned_rgb);
     align_us = bk_aon_rtc_get_us() - start_us;
+    MicroPrintf("FaceRecognition: align end ok=%d us=%llu\r\n", align_ok, align_us);
     if (!align_ok) {
+        if (verify_enabled_ && enroll_result_callback_ != nullptr) {
+            enroll_result_callback_(nullptr, nullptr, 0);
+        }
         bk_frame_buffer_free(aligned_rgb);
         bk_frame_buffer_free(detections);
         return 0;
@@ -450,6 +493,9 @@ int FaceRecognitionModel::run(uint8_t *data, uint32_t size, bk_pixel_format_t pi
         MEM_SLAB_HEAP_UNCODED, sizeof(FaceVerifyResult));
     if (result == nullptr) {
         MicroPrintf("FaceRecognition alloc verify result failed\r\n");
+        if (verify_enabled_ && enroll_result_callback_ != nullptr) {
+            enroll_result_callback_(nullptr, nullptr, 0);
+        }
         bk_frame_buffer_free(aligned_rgb);
         bk_frame_buffer_free(detections);
         return 0;
@@ -458,23 +504,35 @@ int FaceRecognitionModel::run(uint8_t *data, uint32_t size, bk_pixel_format_t pi
 
     releaseDetectorInterpreter();
     start_us = bk_aon_rtc_get_us();
+    MicroPrintf("FaceRecognition: verify begin\r\n");
     bool verify_ok = verifier_->extract(aligned_rgb,
                                         kAlignedFaceBytes,
                                         result);
     verify_us = bk_aon_rtc_get_us() - start_us;
+    MicroPrintf("FaceRecognition: verify end ok=%d us=%llu\r\n", verify_ok, verify_us);
     verifier_->releaseInterpreter();
-    bk_frame_buffer_free(detections);
-    bk_frame_buffer_free(aligned_rgb);
 
     if (!verify_ok) {
+        if (verify_enabled_ && enroll_result_callback_ != nullptr) {
+            enroll_result_callback_(nullptr, nullptr, 0);
+        }
+        bk_frame_buffer_free(detections);
+        bk_frame_buffer_free(aligned_rgb);
         bk_frame_buffer_free(result);
         return 0;
+    }
+
+    if (verify_enabled_ && enroll_result_callback_ != nullptr) {
+        MicroPrintf("FaceRecognition: enroll callback\r\n");
+        enroll_result_callback_(result, aligned_rgb, kAlignedFaceBytes);
     }
 
     if (verify_result_callback_ != nullptr) {
         verify_result_callback_(result);
     }
 
+    bk_frame_buffer_free(detections);
+    bk_frame_buffer_free(aligned_rgb);
     bk_frame_buffer_free(result);
     MicroPrintf("FaceRecognition: input=%llu us, detect=%llu us, align=%llu us, verify=%llu us, total=%llu us\r\n",
                 input_prepare_us,
@@ -482,5 +540,6 @@ int FaceRecognitionModel::run(uint8_t *data, uint32_t size, bk_pixel_format_t pi
                 align_us,
                 verify_us,
                 bk_aon_rtc_get_us() - run_start_us);
+#undef FACE_RECOG_NOTIFY_ENROLL_FAIL
     return 1;
 }
