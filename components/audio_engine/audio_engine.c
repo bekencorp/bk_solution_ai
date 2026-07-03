@@ -167,6 +167,7 @@ static const float g_volume_gain[SPK_VOLUME_LEVEL] = {
 typedef int (*ae_op_fn_t)(void);
 
 static beken_thread_t      s_worker_thread;
+static beken_mutex_t       s_worker_lock;
 static beken_semaphore_t   s_worker_done_sem;
 static ae_op_fn_t          s_worker_fn;
 static volatile int        s_worker_rc;
@@ -189,15 +190,24 @@ static bool ae_in_worker(void)
     return s_in_worker;
 }
 
-static int ae_worker_run(ae_op_fn_t fn)
+static int ae_worker_lock_init(void)
+{
+    if (s_worker_lock != NULL) {
+        return 0;
+    }
+
+    if (rtos_init_mutex(&s_worker_lock) != BK_OK) {
+        LOGE("ae_worker: mutex init fail; running inline\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int ae_worker_run_locked(ae_op_fn_t fn)
 {
     if (fn == NULL) {
         return -1;
-    }
-    /* Inline execute when already on the worker so internal cross-calls
-     * (stop -> cleanup) do not recurse the dispatch and deadlock. */
-    if (s_in_worker) {
-        return fn();
     }
 
     if (s_worker_done_sem == NULL &&
@@ -218,6 +228,30 @@ static int ae_worker_run(ae_op_fn_t fn)
     }
     rtos_get_semaphore(&s_worker_done_sem, BEKEN_NEVER_TIMEOUT);
     return s_worker_rc;
+}
+
+static int ae_worker_run(ae_op_fn_t fn)
+{
+    int rc;
+
+    if (fn == NULL) {
+        return -1;
+    }
+    /* Inline execute when already on the worker so internal cross-calls
+     * (stop -> cleanup) do not recurse the dispatch and deadlock. */
+    if (s_in_worker) {
+        return fn();
+    }
+
+    if (ae_worker_lock_init() != 0) {
+        return fn();
+    }
+
+    rtos_lock_mutex(&s_worker_lock);
+    rc = ae_worker_run_locked(fn);
+    rtos_unlock_mutex(&s_worker_lock);
+
+    return rc;
 }
 
 /*
@@ -1896,6 +1930,7 @@ static int audio_engine_asr_start_inner(void)
 
         if (BK_OK != bk_asr_init(&asr_cfg, g_audio_engine.asr_handle)) {
             LOGE("asr init fail\n");
+            g_audio_engine.asr_handle = NULL;
             (void)audio_engine_asr_stop();
             return AUDIO_ENGINE_ERR_ASR_INIT;
         }
@@ -2015,12 +2050,22 @@ static int audio_engine_start_worker_entry(void)
 
 int audio_engine_start(audio_engine_cfg_t *cfg)
 {
+    int rc;
+
     if (ae_in_worker()) {
         return audio_engine_start_inner(cfg);
     }
+
+    if (ae_worker_lock_init() != 0) {
+        return audio_engine_start_inner(cfg);
+    }
+
+    rtos_lock_mutex(&s_worker_lock);
     s_worker_start_cfg = cfg;
-    int rc = ae_worker_run(audio_engine_start_worker_entry);
+    rc = ae_worker_run_locked(audio_engine_start_worker_entry);
     s_worker_start_cfg = NULL;
+    rtos_unlock_mutex(&s_worker_lock);
+
     return rc;
 }
 
