@@ -24,7 +24,6 @@
 #include <modules/wifi.h>
 #include "modules/wifi_types.h"
 #include "components/bk_uid.h"
-#include <driver/h264.h>
 #include <driver/aon_rtc.h>
 #include <modules/vcenc/vcenc_types.h>
 #if CONFIG_APP_EVT
@@ -60,15 +59,7 @@ agora_rtc_agent_info_t *agora_rtc_agent_info;
 
 static bool bk_agora_is_h264_key_frame(uint32_t h264_type)
 {
-    if (h264_type == VCENC_OUT_IFRAME) {
-        return true;
-    }
-
-    if (h264_type & (1U << H264_NAL_I_FRAME)) {
-        return true;
-    }
-
-    return false;
+    return (h264_type == (uint32_t)VCENC_OUT_IFRAME);
 }
 
 static uint8_t bk_agora_audio_codec_type_mapping(audio_enc_type_t codec_type)

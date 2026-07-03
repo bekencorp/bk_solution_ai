@@ -16,7 +16,7 @@
 #include <modules/wifi.h>
 #include "modules/wifi_types.h"
 #include "components/bk_uid.h"
-#include <driver/h264.h>
+#include <modules/vcenc/vcenc_types.h>
 #if CONFIG_APP_EVT
 #include "app_event.h"
 #endif
@@ -271,8 +271,7 @@ int bk_byte_rtc_video_data_send(frame_buffer_t *frame)
     info.stream_type = VIDEO_STREAM_HIGH;
     if (frame->fmt == PIXEL_FMT_H264)
     {
-        /* Check if it's an I-frame (only send I-frames) */
-        if ((frame->h264_type & (1 << H264_NAL_I_FRAME)) == 0)
+        if (frame->h264_type != (uint32_t)VCENC_OUT_IFRAME)
         {
             // LOGD("%s: skip non-I frame\n", __func__);
             return BK_OK;
