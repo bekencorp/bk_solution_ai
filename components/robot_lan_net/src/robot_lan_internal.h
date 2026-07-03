@@ -9,8 +9,10 @@ typedef struct {
     bool ctrl_connected;
     bool video_connected;
     bool audio_connected;
+    bool connecting;
     bool discovery_running;
     beken_thread_t discovery_thread;
+    beken_mutex_t lock;
     robot_lan_app_info_t app;
     robot_lan_event_cb_t event_cb;
     void *event_user_data;

@@ -19,9 +19,23 @@ typedef enum {
     ROBOT_CTRL_STATE_AUDIO_TALKING,
 } robot_ctrl_state_t;
 
+#define ROBOT_AUDIO_CONFIG_VALUE_LEN 16
+
+typedef struct {
+    bool aec;
+    char mic_type[ROBOT_AUDIO_CONFIG_VALUE_LEN];
+    uint32_t record_sample_rate;
+    char record_fmt[ROBOT_AUDIO_CONFIG_VALUE_LEN];
+    uint32_t play_sample_rate;
+    char play_fmt[ROBOT_AUDIO_CONFIG_VALUE_LEN];
+    char spk_type[ROBOT_AUDIO_CONFIG_VALUE_LEN];
+    bool asr;
+} robot_audio_config_t;
+
 typedef struct {
     robot_lan_transport_mode_t mode;
     robot_video_config_t video;
+    robot_audio_config_t audio;
     uint16_t motion_speed;
 } robot_solution_config_t;
 

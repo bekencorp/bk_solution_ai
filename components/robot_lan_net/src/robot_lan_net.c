@@ -46,6 +46,46 @@ static void robot_lan_reset_connection_state(void)
 #endif
 }
 
+static void robot_lan_lock(void)
+{
+    if (s_lan.lock) {
+        rtos_lock_mutex(&s_lan.lock);
+    }
+}
+
+static void robot_lan_unlock(void)
+{
+    if (s_lan.lock) {
+        rtos_unlock_mutex(&s_lan.lock);
+    }
+}
+
+static bool robot_lan_same_app_locked(const robot_lan_app_info_t *app)
+{
+    return app &&
+           s_lan.app.cmd_port == app->cmd_port &&
+           s_lan.app.video_port == app->video_port &&
+           s_lan.app.audio_up_port == app->audio_up_port &&
+           s_lan.app.audio_down_port == app->audio_down_port &&
+           s_lan.app.mode == app->mode &&
+           os_strcmp(s_lan.app.app_ip, app->app_ip) == 0;
+}
+
+static bk_err_t robot_lan_net_stop_all_internal(bool clear_connecting)
+{
+    robot_lan_discovery_stop_internal();
+    robot_lan_reset_connection_state();
+    if (clear_connecting) {
+        s_lan.connecting = false;
+    }
+
+    if (ntwk_eng_get_network_type() == NETWORK_TYPE_BK_TRANS) {
+        ntwk_eng_deinit();
+    }
+
+    return BK_OK;
+}
+
 robot_lan_ctx_t *robot_lan_get_ctx_internal(void)
 {
     return &s_lan;
@@ -140,6 +180,7 @@ static void robot_lan_bk_trans_event_cb(const bk_trans_event_t *event, void *use
             s_lan.video_connected &&
             s_lan.audio_connected) {
             s_lan.connected = true;
+            s_lan.connecting = false;
 #if !CONFIG_NTWK_CTRL_CHAN_JSON
             s_ctrl_rx_len = 0;
 #endif
@@ -159,7 +200,10 @@ static void robot_lan_bk_trans_event_cb(const bk_trans_event_t *event, void *use
 
         if (s_lan.connected) {
             robot_lan_reset_connection_state();
+            s_lan.connecting = false;
             robot_lan_emit_event_internal(ROBOT_LAN_EVT_APP_DISCONNECTED, NULL, 0);
+        } else if (s_lan.connecting) {
+            s_lan.connecting = false;
         }
     }
 }
@@ -217,6 +261,10 @@ bk_err_t robot_lan_net_init(void)
     }
 
     os_memset(&s_lan, 0, sizeof(s_lan));
+    if (rtos_init_mutex(&s_lan.lock) != BK_OK) {
+        LOGE("init LAN mutex failed\n");
+        return BK_FAIL;
+    }
 #if CONFIG_BK_FACTORY_CONFIG
     if (bk_config_read(ROBOT_LAN_SESSION_KEY, &session, sizeof(session)) == sizeof(session)
         && session.magic == ROBOT_LAN_SESSION_MAGIC
@@ -237,6 +285,10 @@ bk_err_t robot_lan_net_init(void)
 bk_err_t robot_lan_net_deinit(void)
 {
     robot_lan_net_stop_all();
+    if (s_lan.lock) {
+        rtos_deinit_mutex(&s_lan.lock);
+        s_lan.lock = NULL;
+    }
     os_memset(&s_lan, 0, sizeof(s_lan));
     return BK_OK;
 }
@@ -257,14 +309,13 @@ bk_err_t robot_lan_net_stop_discovery(void)
 
 bk_err_t robot_lan_net_stop_all(void)
 {
-    robot_lan_discovery_stop_internal();
-    robot_lan_reset_connection_state();
+    bk_err_t ret;
 
-    if (ntwk_eng_get_network_type() == NETWORK_TYPE_BK_TRANS) {
-        ntwk_eng_deinit();
-    }
+    robot_lan_lock();
+    ret = robot_lan_net_stop_all_internal(true);
+    robot_lan_unlock();
 
-    return BK_OK;
+    return ret;
 }
 
 bk_err_t robot_lan_net_set_event_callback(robot_lan_event_cb_t cb, void *user_data)
@@ -283,7 +334,19 @@ bk_err_t robot_lan_net_connect_app_servers(const robot_lan_app_info_t *app)
         return BK_ERR_PARAM;
     }
 
-    robot_lan_net_stop_all();
+    robot_lan_lock();
+    if (s_lan.connecting || s_lan.connected) {
+        LOGI("ignore App broadcast while %s%s\r\n",
+             s_lan.connecting ? "connecting" : "connected",
+             robot_lan_same_app_locked(app) ? " to same App" : "");
+        robot_lan_unlock();
+        return BK_OK;
+    }
+
+    robot_lan_net_stop_all_internal(false);
+    s_lan.connecting = true;
+    robot_lan_unlock();
+
     robot_lan_fill_bk_trans_config(&config, app);
     bk_trans_register_event_cb(robot_lan_bk_trans_event_cb, NULL);
     bk_trans_register_ctrl_recv_cb(robot_lan_ctrl_recv);
@@ -291,12 +354,18 @@ bk_err_t robot_lan_net_connect_app_servers(const robot_lan_app_info_t *app)
     ret = bk_trans_set_config(&config);
     if (ret != BK_OK) {
         LOGE("set bk_trans config failed ret=%d\n", ret);
+        robot_lan_lock();
+        s_lan.connecting = false;
+        robot_lan_unlock();
         return ret;
     }
 
     ret = ntwk_eng_bk_trans_init();
     if (ret != BK_OK) {
         LOGE("init network engine bk_trans failed ret=%d\n", ret);
+        robot_lan_lock();
+        s_lan.connecting = false;
+        robot_lan_unlock();
         return ret;
     }
 
@@ -304,6 +373,9 @@ bk_err_t robot_lan_net_connect_app_servers(const robot_lan_app_info_t *app)
     if (ret != BK_OK) {
         LOGE("start network engine bk_trans failed ret=%d\n", ret);
         ntwk_eng_deinit();
+        robot_lan_lock();
+        s_lan.connecting = false;
+        robot_lan_unlock();
         return ret;
     }
 

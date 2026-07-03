@@ -175,7 +175,7 @@ static bk_err_t robot_ctrl_handle_request(cJSON *root)
     }
 
     if (strncmp(method, "robot.audio.", 12) == 0) {
-        return robot_ctrl_handle_audio(method, id);
+        return robot_ctrl_handle_audio(method, id, params);
     }
 
     return robot_ctrl_send_error(id, -32601, "method not found");

@@ -42,6 +42,7 @@ bk_err_t robot_ctrl_send_json(cJSON *root);
 bk_err_t robot_ctrl_send_error(cJSON *id, int code, const char *message);
 bk_err_t robot_ctrl_send_result(cJSON *id, cJSON *result);
 int robot_ctrl_json_int(cJSON *item, int fallback);
+void robot_ctrl_apply_audio_config(cJSON *audio, robot_audio_config_t *cfg);
 
 void robot_ctrl_default_solution(robot_solution_config_t *solution);
 void robot_ctrl_notify_video_connected(void);
@@ -58,7 +59,7 @@ bk_err_t robot_ctrl_handle_power(const char *method, cJSON *id, cJSON *params);
 bk_err_t robot_ctrl_handle_solution(const char *method, cJSON *id, cJSON *params);
 bk_err_t robot_ctrl_handle_camera(const char *method, cJSON *id, cJSON *params);
 bk_err_t robot_ctrl_handle_motion(const char *method, cJSON *id, cJSON *params);
-bk_err_t robot_ctrl_handle_audio(const char *method, cJSON *id);
+bk_err_t robot_ctrl_handle_audio(const char *method, cJSON *id, cJSON *params);
 
 #ifdef __cplusplus
 }
