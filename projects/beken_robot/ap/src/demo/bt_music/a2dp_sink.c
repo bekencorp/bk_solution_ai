@@ -34,6 +34,7 @@
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 
 #define CODEC_AUDIO_SBC 0x00U
+#define A2DP_SPK_ENABLE_TIMEOUT_MS 1000U
 
 enum
 {
@@ -352,6 +353,16 @@ static void a2dp_sink_demo_task(void *arg)
                 LOGI("AVRCP CT play status changed: %s(0x%x)\n",
                      a2dp_sink_play_status_to_str(play_status),
                      play_status);
+                /* Mirror phone-side play/pause so UI + rhythm stay in sync. */
+                if (play_status == BK_AVRCP_PLAYBACK_PLAYING)
+                {
+                    bt_music_on_stream_start();
+                }
+                else if (play_status == BK_AVRCP_PLAYBACK_PAUSED ||
+                         play_status == BK_AVRCP_PLAYBACK_STOPPED)
+                {
+                    bt_music_on_stream_stop();
+                }
             }
             break;
 
@@ -762,7 +773,11 @@ void a2dp_sink_demo_audio_spk_enable(uint8_t enable)
     if (a2dp_sink_queue_push(BT_AUDIO_USER_START_MSG, &enable, sizeof(enable), BEKEN_NO_WAIT) == BK_OK &&
         s_audio_player_en_sema)
     {
-        rtos_get_semaphore(&s_audio_player_en_sema, BEKEN_WAIT_FOREVER);
+        int ret = rtos_get_semaphore(&s_audio_player_en_sema, A2DP_SPK_ENABLE_TIMEOUT_MS);
+        if (ret != BK_OK)
+        {
+            LOGW("%s wait audio player vote timeout ret=%d\n", __func__, ret);
+        }
     }
     LOGI("%s end\n", __func__);
 }

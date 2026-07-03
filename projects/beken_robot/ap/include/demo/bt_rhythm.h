@@ -31,10 +31,14 @@ int  bt_rhythm_init(void);
 /** Tear down the control thread and release the servo PWM channels. */
 void bt_rhythm_deinit(void);
 
-/** Enable/disable the dancing motion. When disabled the hand parks at neutral
- *  and audio analysis is skipped (cheap). */
+/** Enable/disable the rhythm engine (audio analysis + UI pose mirror). Tracks
+ *  "playing on an active page", not the claw button. Parks the hand when off. */
 void bt_rhythm_set_enabled(bool enable);
 bool bt_rhythm_is_enabled(void);
+
+/** Gate only the physical hand (claw button); the engine/UI keep running. */
+void bt_rhythm_set_hand_output(bool enable);
+bool bt_rhythm_hand_output_enabled(void);
 
 /**
  * @brief Feed one A2DP media payload to the analyzer.

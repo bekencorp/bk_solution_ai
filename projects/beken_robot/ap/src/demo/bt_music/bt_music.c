@@ -34,6 +34,7 @@
 
 /* Implemented in beken_generated/page_bt_music/page_bt_music.c. */
 int page_bt_music_enter(void);
+void page_bt_music_show_low_mem_hint(void);
 
 #define TAG "bt_music"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -46,14 +47,14 @@ int page_bt_music_enter(void);
 #define BT_MUSIC_START_MIN_HEAP  (36U * 1024U)
 
 typedef enum {
-    BT_MUSIC_EVT_CONNECT_TOGGLE = 0,
-    BT_MUSIC_EVT_PAIRING,
+    BT_MUSIC_EVT_PAIRING = 0,
     BT_MUSIC_EVT_VOL_UP,
     BT_MUSIC_EVT_VOL_DOWN,
     BT_MUSIC_EVT_PLAY_PAUSE,
     BT_MUSIC_EVT_NEXT,
     BT_MUSIC_EVT_PREV,
     BT_MUSIC_EVT_DANCE_TOGGLE,
+    BT_MUSIC_EVT_STOP_AUDIO,
 } bt_music_evt_type_t;
 
 typedef struct {
@@ -66,21 +67,17 @@ static beken_thread_t s_thread;
 static bool s_dance_user_enabled = true;
 static bool s_page_active;
 static bool s_render_ready;
-static uint8_t s_playing;
+static bool s_playing;
 static lv_timer_t *s_page_enter_timer = NULL;
 #if CONFIG_BT
 static uint8_t s_bt_ready;       /* classic BT stack brought up */
-static uint8_t s_bt_connected;
 #endif
 
 static void bt_music_apply_rhythm_state(void)
 {
-    /* User intent and playback state are separate:
-     *   - play/pause controls the phone/audio stream only;
-     *   - claw on/off controls whether the hand is allowed to move.
-     * The hand actually moves only while a stream is playing. */
-    bt_rhythm_set_enabled(s_page_active && s_render_ready &&
-                          s_playing && s_dance_user_enabled);
+    /* Engine follows playback (UI keeps animating); claw gates only the hand. */
+    bt_rhythm_set_enabled(s_page_active && s_render_ready && s_playing);
+    bt_rhythm_set_hand_output(s_dance_user_enabled);
 }
 
 /* ---------------- one-time classic-BT bring-up ---------------- */
@@ -134,14 +131,6 @@ static void bt_music_handle(const bt_music_evt_t *evt)
 {
     switch (evt->type) {
 #if CONFIG_BT
-    case BT_MUSIC_EVT_CONNECT_TOGGLE:
-        if (s_bt_connected) {
-            a2dp_sink_demo_try_disconnect_current();
-        } else {
-            a2dp_sink_demo_try_connect();
-        }
-        s_bt_connected = !s_bt_connected;
-        break;
     case BT_MUSIC_EVT_PAIRING:
         bk_bt_enter_pairing_mode(1);
         break;
@@ -173,9 +162,18 @@ static void bt_music_handle(const bt_music_evt_t *evt)
         bt_music_apply_rhythm_state();
         break;
 #if CONFIG_BT
-    default:
+    case BT_MUSIC_EVT_STOP_AUDIO:
+        if (evt->arg != 0) {
+            /* Keep phone/robot state consistent when leaving the page: the BT
+             * link stays connected, but the remote stream is paused instead of
+             * silently continuing while the speaker/rhythm are stopped locally. */
+            bk_avrcp_ct_pause();
+        }
+        a2dp_sink_demo_audio_spk_enable(0);
         break;
 #endif
+    default:
+        break;
     }
 }
 
@@ -271,6 +269,7 @@ int bt_music_start(void)
         LOGW("bt_music start blocked, iram free=%u min=%u\n",
              (unsigned)heap_before_bt,
              (unsigned)rtos_get_minimum_free_heap_size());
+        page_bt_music_show_low_mem_hint();
         return -1;
     }
 
@@ -282,13 +281,18 @@ int bt_music_start(void)
     s_dance_user_enabled = true;
     s_playing = false;
 
+#if CONFIG_BT
+    if (!a2dp_sink_demo_is_connected()) {
+        bt_music_post(BT_MUSIC_EVT_PAIRING, 0);
+    }
+#endif
     bt_music_schedule_page_enter();
     return 0;
 }
 
 int bt_music_stop(void)
 {
-    uint8_t was_playing = s_playing;
+    bool was_playing = s_playing;
 
     if (s_page_enter_timer != NULL) {
         lv_timer_delete(s_page_enter_timer);
@@ -298,13 +302,7 @@ int bt_music_stop(void)
     s_render_ready = false;
     s_playing = false;
 #if CONFIG_BT
-    if (was_playing) {
-        /* Keep phone/robot state consistent when leaving the page: the BT link
-         * stays connected, but the remote stream is paused instead of silently
-         * continuing while the speaker/rhythm are stopped locally. */
-        bk_avrcp_ct_pause();
-    }
-    a2dp_sink_demo_audio_spk_enable(0);
+    bt_music_post(BT_MUSIC_EVT_STOP_AUDIO, was_playing);
 #endif
     bt_rhythm_deinit();
     return 0;
@@ -315,11 +313,9 @@ void bt_music_next(void)         { bt_music_post(BT_MUSIC_EVT_NEXT, 0); }
 void bt_music_prev(void)         { bt_music_post(BT_MUSIC_EVT_PREV, 0); }
 void bt_music_vol_up(void)       { bt_music_post(BT_MUSIC_EVT_VOL_UP, 0); }
 void bt_music_vol_down(void)     { bt_music_post(BT_MUSIC_EVT_VOL_DOWN, 0); }
-void bt_music_pairing(void)      { bt_music_post(BT_MUSIC_EVT_PAIRING, 0); }
-void bt_music_connect_toggle(void) { bt_music_post(BT_MUSIC_EVT_CONNECT_TOGGLE, 0); }
 void bt_music_dance_toggle(void) { bt_music_post(BT_MUSIC_EVT_DANCE_TOGGLE, 0); }
 bool bt_music_is_dancing(void)   { return s_dance_user_enabled; }
-bool bt_music_is_playing(void)   { return s_playing != 0; }
+bool bt_music_is_playing(void)   { return s_playing; }
 
 void bt_music_get_bands(uint8_t *low, uint8_t *mid, uint8_t *high)
 {

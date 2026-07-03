@@ -6,7 +6,7 @@
  * beken_robot and links it to the bt_rhythm engine so the on-board hand dances
  * to whatever the phone plays. Follows the bk_demo_iface_t plug-in contract.
  *
- * The control helpers (play/pause, prev/next, volume, pairing, dance toggle)
+ * The control helpers (play/pause, prev/next, volume, dance toggle)
  * are non-blocking: they post to an internal worker thread and are safe to call
  * from the LVGL UI thread.
  */
@@ -29,8 +29,6 @@ void bt_music_next(void);
 void bt_music_prev(void);
 void bt_music_vol_up(void);
 void bt_music_vol_down(void);
-void bt_music_pairing(void);
-void bt_music_connect_toggle(void);
 
 void bt_music_dance_toggle(void);
 bool bt_music_is_dancing(void);

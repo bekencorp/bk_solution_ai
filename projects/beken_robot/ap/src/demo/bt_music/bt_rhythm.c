@@ -193,6 +193,8 @@ static volatile uint8_t s_onset_q8;
 static volatile uint8_t s_pose_level[BT_RHYTHM_POSE_COUNT];
 
 static volatile bool s_enabled;
+/* Claw-button gate for the physical hand only; engine/UI keep running. */
+static volatile bool s_hand_output = true;
 static bk_hiwonder_hand_servo_handle_t s_servo;
 static beken_thread_t s_task;
 static volatile bool s_task_run;
@@ -528,6 +530,7 @@ static void bt_rhythm_task(void *arg)
     float hf_env = 0.0f;       /* smoothed treble response, avoids HF twitch    */
     float mid_slow = 0.0f;     /* adaptive mid baseline, for vocal detection    */
     bool  parked = false;
+    bool  hand_parked = false; /* physical hand parked due to the claw gate      */
     float target[BT_RHYTHM_SERVO_COUNT];
 
     while (s_task_run) {
@@ -713,7 +716,14 @@ static void bt_rhythm_task(void *arg)
             s_pose_level[WRIST_IDX] = (uint8_t)(clampf(mag, 0.0f, 1.0f) * 100.0f + 0.5f);
         }
 
-        glide_to(target);
+        /* UI mirror already updated above; gate only the physical servos. */
+        if (s_hand_output) {
+            hand_parked = false;
+            glide_to(target);
+        } else if (!hand_parked) {
+            pose_neutral();   /* claw off: park once, then hold */
+            hand_parked = true;
+        }
 
         rtos_delay_milliseconds(BT_RHYTHM_TICK_MS);
     }
@@ -797,4 +807,15 @@ void bt_rhythm_set_enabled(bool enable)
 bool bt_rhythm_is_enabled(void)
 {
     return s_enabled;
+}
+
+void bt_rhythm_set_hand_output(bool enable)
+{
+    s_hand_output = enable;
+    LOGI("rhythm hand output %s\n", enable ? "ON" : "OFF");
+}
+
+bool bt_rhythm_hand_output_enabled(void)
+{
+    return s_hand_output;
 }
