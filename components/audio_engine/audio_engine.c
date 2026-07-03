@@ -9,7 +9,7 @@
 #include <components/bk_player_service.h>
 #include <components/bk_player_service_types.h>
 #include <components/bk_audio/audio_pipeline/rb_port.h>
-#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS || CONFIG_BEKEN_KWS_MODEL_FROM_UDISK
 #include "bk_posix.h"
 #endif
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
@@ -854,6 +854,353 @@ int audio_engine_play_photo_shutter(void)
 static const char *g_audio_engine_asr_text = NULL;
 static float g_audio_engine_asr_score = 0.0f;
 
+#if CONFIG_BEKEN_KWS
+static int s_audio_engine_kws_desired_model = BK_TFLITE_ASR_MODEL_WAKEUP;
+static int s_audio_engine_kws_switch_request = BK_TFLITE_ASR_MODEL_WAKEUP;
+
+#ifndef CONFIG_BEKEN_KWS_MODEL_FROM_UDISK
+#define CONFIG_BEKEN_KWS_MODEL_FROM_UDISK 0
+#endif
+
+#define AE_KWS_UDISK_WAKEUP_MODEL_PATH VFS_SD_0_PATITION_0 "/kws_model/bk_kws_wakeup.tflite"
+#define AE_KWS_UDISK_CMD_MODEL_PATH    VFS_SD_0_PATITION_0 "/kws_model/bk_kws_commands.tflite"
+
+#if CONFIG_BEKEN_KWS_MODEL_FROM_UDISK
+
+#if CONFIG_VFS
+extern bk_err_t board_usb_switch_prepare_nand_access(void) __attribute__((weak));
+extern int bk_vfs_open(const char *path, int oflag);
+extern int bk_vfs_close(int fd);
+extern ssize_t bk_vfs_read(int fd, void *buf, size_t count);
+extern off_t bk_vfs_lseek(int fd, off_t offset, int whence);
+
+#ifndef SEEK_SET
+#define SEEK_SET 0
+#endif
+#ifndef SEEK_END
+#define SEEK_END 2
+#endif
+
+static bool s_audio_engine_kws_vfs_mounted;
+
+static bool audio_engine_kws_vfs_path_accessible(const char *path)
+{
+    if (path == NULL) {
+        return false;
+    }
+
+    int fd = bk_vfs_open(path, 0);
+    if (fd < 0) {
+        return false;
+    }
+    (void)bk_vfs_close(fd);
+    return true;
+}
+
+static int audio_engine_kws_prepare_udisk(void)
+{
+    if (audio_engine_kws_vfs_path_accessible(AE_KWS_UDISK_WAKEUP_MODEL_PATH)) {
+        return 0;
+    }
+
+    if (board_usb_switch_prepare_nand_access != NULL) {
+        (void)board_usb_switch_prepare_nand_access();
+        rtos_delay_milliseconds(50);
+    }
+
+    if (!s_audio_engine_kws_vfs_mounted) {
+        struct bk_fatfs_partition partition;
+        char *fs_name = "fatfs";
+
+        partition.part_type = FATFS_DEVICE;
+        partition.part_dev.device_name = FATFS_DEV_SDCARD;
+        partition.mount_path = VFS_SD_0_PATITION_0;
+
+        int ret = BK_FAIL;
+        for (uint32_t i = 0; i < 3; i++) {
+            ret = mount("SOURCE_NONE", partition.mount_path, fs_name, 0, &partition);
+            if (ret == BK_OK ||
+                audio_engine_kws_vfs_path_accessible(AE_KWS_UDISK_WAKEUP_MODEL_PATH)) {
+                s_audio_engine_kws_vfs_mounted = true;
+                LOGI("kws vfs mount %s ok\n", VFS_SD_0_PATITION_0);
+                return 0;
+            }
+            LOGI("kws vfs mount %s retry %u ret=%d\n",
+                 VFS_SD_0_PATITION_0, (unsigned)i + 1, ret);
+            rtos_delay_milliseconds(100);
+        }
+
+        LOGE("kws vfs mount %s failed ret=%d\n", VFS_SD_0_PATITION_0, ret);
+        return ret;
+    }
+
+    return audio_engine_kws_vfs_path_accessible(AE_KWS_UDISK_WAKEUP_MODEL_PATH) ? 0 : -1;
+}
+
+static int audio_engine_kws_file_open(const char *path, void **handle)
+{
+    if (path == NULL || handle == NULL) {
+        return -1;
+    }
+
+    int fd = bk_vfs_open(path, 0);
+    if (fd < 0) {
+        return fd;
+    }
+
+    *handle = (void *)(intptr_t)fd;
+    return 0;
+}
+
+static int audio_engine_kws_file_read(void *handle, uint8_t *buf, uint32_t size, uint32_t *read_size)
+{
+    int fd = (int)(intptr_t)handle;
+    if (fd < 0 || buf == NULL || read_size == NULL) {
+        return -1;
+    }
+
+    ssize_t br = bk_vfs_read(fd, buf, size);
+    if (br < 0) {
+        return (int)br;
+    }
+
+    *read_size = (uint32_t)br;
+    return 0;
+}
+
+static int audio_engine_kws_file_size(void *handle, uint32_t *file_size)
+{
+    int fd = (int)(intptr_t)handle;
+    off_t end_pos;
+
+    if (fd < 0 || file_size == NULL) {
+        return -1;
+    }
+
+    /* bk_vfs_fstat() is not implemented; use lseek like FatFS f_size(). */
+    end_pos = bk_vfs_lseek(fd, 0, SEEK_END);
+    if (end_pos < 0) {
+        return -1;
+    }
+    if (bk_vfs_lseek(fd, 0, SEEK_SET) < 0) {
+        return -1;
+    }
+
+    *file_size = (uint32_t)end_pos;
+    return (*file_size > 0) ? 0 : -1;
+}
+
+static int audio_engine_kws_file_close(void *handle)
+{
+    int fd = (int)(intptr_t)handle;
+    if (fd < 0) {
+        return 0;
+    }
+
+    return bk_vfs_close(fd);
+}
+
+static int audio_engine_kws_load_udisk_models(void)
+{
+    static const bk_tflite_asr_model_file_ops_t s_kws_vfs_ops = {
+        .open = audio_engine_kws_file_open,
+        .read = audio_engine_kws_file_read,
+        .size = audio_engine_kws_file_size,
+        .close = audio_engine_kws_file_close,
+    };
+
+    int ret = audio_engine_kws_prepare_udisk();
+    if (ret != 0) {
+        LOGE("prepare kws udisk failed ret=%d\n", ret);
+        return ret;
+    }
+
+    ret = bk_tflite_asr_register_model_file_ops(&s_kws_vfs_ops);
+    if (ret != 0) {
+        LOGE("register kws file ops failed ret=%d\n", ret);
+        return ret;
+    }
+
+    ret = bk_tflite_asr_set_model_from_file(BK_TFLITE_ASR_MODEL_WAKEUP, AE_KWS_UDISK_WAKEUP_MODEL_PATH);
+    if (ret != 0) {
+        LOGE("load kws wakeup model from %s failed ret=%d\n",
+             AE_KWS_UDISK_WAKEUP_MODEL_PATH, ret);
+        return ret;
+    }
+
+    ret = bk_tflite_asr_set_model_from_file(BK_TFLITE_ASR_MODEL_CMDS, AE_KWS_UDISK_CMD_MODEL_PATH);
+    if (ret != 0) {
+        LOGE("load kws command model from %s failed ret=%d\n",
+             AE_KWS_UDISK_CMD_MODEL_PATH, ret);
+        return ret;
+    }
+
+    LOGI("kws command model loaded from %s\n", AE_KWS_UDISK_CMD_MODEL_PATH);
+    return 0;
+}
+#else
+static int audio_engine_kws_load_udisk_models(void)
+{
+    LOGE("CONFIG_VFS is disabled, cannot load kws models from udisk\n");
+    return -1;
+}
+#endif
+
+#endif /* CONFIG_BEKEN_KWS_MODEL_FROM_UDISK */
+
+static int audio_engine_asr_switch_model_inner(void)
+{
+    int model_id = s_audio_engine_kws_switch_request;
+    if (model_id != BK_TFLITE_ASR_MODEL_WAKEUP &&
+        model_id != BK_TFLITE_ASR_MODEL_CMDS) {
+        LOGE("invalid kws model id: %d\n", model_id);
+        return AUDIO_ENGINE_ERR_INVALID_PARAM;
+    }
+
+    s_audio_engine_kws_desired_model = model_id;
+
+    if (g_audio_engine.aud_asr_handle == NULL) {
+        LOGI("kws desired model set to %d before asr start\n", model_id);
+        return AUDIO_ENGINE_SUCCESS;
+    }
+
+    int ret = bk_tflite_asr_switch_model(model_id);
+    if (ret != 0) {
+        LOGE("switch kws model to %d failed ret=%d\n", model_id, ret);
+        return AUDIO_ENGINE_ERR_ASR_INIT;
+    }
+
+    LOGI("kws model switched to %d\n", model_id);
+    return AUDIO_ENGINE_SUCCESS;
+}
+
+static uint8_t audio_engine_map_beken_kws_result(const char *result)
+{
+    if (os_strcmp(result, "nihaobotong") == 0) {
+        LOGI("nihaobotong\r\n");
+        return BK_KWS_ARMINO;
+    }
+
+    if (os_strcmp(result, "zaijianbotong") == 0) {
+        LOGI("%s \n", "zaijianbotong");
+        return BK_KWS_BYEBYE;
+    }
+
+    if (os_strcmp(result, "jinrubiaoding") == 0) {
+        LOGI("jinrubiaoding\r\n");
+        return BK_KWS_JINRUBIAODING;
+    }
+
+    if (os_strcmp(result, "wanchengbiaoding") == 0) {
+        LOGI("wanchengbiaoding\r\n");
+        return BK_KWS_WANCHENGBIAODING;
+    }
+
+    if (os_strcmp(result, "dakaShexiang") == 0) {
+        LOGI("dakaShexiang\r\n");
+        return BK_KWS_DAKASHEXIANG;
+    }
+
+    if (os_strcmp(result, "guanbishexiang") == 0) {
+        LOGI("guanbishexiang\r\n");
+        return BK_KWS_GUANBISHEXIANG;
+    }
+
+    if (os_strcmp(result, "shangxiadunqi") == 0) {
+        LOGI("shangxiadunqi\r\n");
+        return BK_KWS_SHANGXIADUNQI;
+    }
+
+    if (os_strcmp(result, "zuoyouyaobai") == 0) {
+        LOGI("zuoyouyaobai\r\n");
+        return BK_KWS_ZUOYOUYAOBAI;
+    }
+
+    if (os_strcmp(result, "qianhoubaidong") == 0) {
+        LOGI("qianhoubaidong\r\n");
+        return BK_KWS_QIANHOUBAIDONG;
+    }
+
+    if (os_strcmp(result, "yaotouhuangnao") == 0) {
+        LOGI("yaotouhuangnao\r\n");
+        return BK_KWS_YAOTOUHUANGNAO;
+    }
+
+    if (os_strcmp(result, "shenlanyao") == 0) {
+        LOGI("shenlanyao\r\n");
+        return BK_KWS_SHENLANYAO;
+    }
+
+    if (os_strcmp(result, "dazhaohu") == 0) {
+        LOGI("dazhaohu\r\n");
+        return BK_KWS_DAZHAOHU;
+    }
+
+    if (os_strcmp(result, "naoyangyang") == 0) {
+        LOGI("naoyangyang\r\n");
+        return BK_KWS_NAOYANGYANG;
+    }
+
+    if (os_strcmp(result, "zuozhuanwan") == 0) {
+        LOGI("zuozhuanwan\r\n");
+        return BK_KWS_ZUOZHUANWAN;
+    }
+
+    if (os_strcmp(result, "youzhuanwan") == 0) {
+        LOGI("youzhuanwan\r\n");
+        return BK_KWS_YOUZHUANWAN;
+    }
+
+    if (os_strcmp(result, "qianjin") == 0) {
+        LOGI("qianjin\r\n");
+        return BK_KWS_QIANJIN;
+    }
+
+    if (os_strcmp(result, "houtui") == 0) {
+        LOGI("houtui\r\n");
+        return BK_KWS_HOUTUI;
+    }
+
+    if (os_strcmp(result, "zuoxia") == 0) {
+        LOGI("zuoxia\r\n");
+        return BK_KWS_ZUOXIA;
+    }
+
+    if (os_strcmp(result, "aonao") == 0) {
+        LOGI("aonao\r\n");
+        return BK_KWS_AONAO;
+    }
+
+    if (os_strcmp(result, "baobao") == 0) {
+        LOGI("baobao\r\n");
+        return BK_KWS_BAOBAO;
+    }
+
+    if (os_strcmp(result, "sajiao") == 0) {
+        LOGI("sajiao\r\n");
+        return BK_KWS_SAJIAO;
+    }
+
+    if (os_strcmp(result, "youyong") == 0) {
+        LOGI("youyong\r\n");
+        return BK_KWS_YOUYONG;
+    }
+
+    if (os_strcmp(result, "shengqi") == 0) {
+        LOGI("shengqi\r\n");
+        return BK_KWS_SHENGQI;
+    }
+
+    if (os_strcmp(result, "qiqiu") == 0) {
+        LOGI("qiqiu\r\n");
+        return BK_KWS_QIQIU;
+    }
+
+    LOGE("Invalid asr result: %s\n", result);
+    return BK_KWS_NONE;
+}
+#endif
+
 void bk_audio_engine_asr_result_handle(void *p1, void *p2)
 {
     const char *result = NULL;
@@ -871,38 +1218,7 @@ void bk_audio_engine_asr_result_handle(void *p1, void *p2)
 
 #if CONFIG_BEKEN_KWS
     //LOGD("result : %s\n", result);
-    if (os_strcmp(result, "nihaobotong") == 0)
-    {
-        LOGI("nihaobotong\r\n");
-        asr_result = BK_KWS_ARMINO;
-    } else if ((os_strcmp(result, "zaijianbotong") == 0))
-    {
-        LOGI("%s \n", "zaijianbotong");
-        asr_result = BK_KWS_BYEBYE;
-    } else if (os_strcmp(result, "Play Music") == 0)
-    {
-        LOGI("play music\r\n");
-        asr_result = BK_KWS_PLAY_MUSIC;
-    } else if (os_strcmp(result, "Stop Play") == 0)
-    {
-        LOGI("stop play\r\n");
-        asr_result = BK_KWS_STOP_PLAY;
-    }else if (os_strcmp(result, "Next song") == 0)
-    {
-        LOGI("next song\r\n");
-        asr_result = BK_KWS_NEXT_SONG;
-    } else if (os_strcmp(result, "Volume Up") == 0)
-    {
-        LOGI("volume up\r\n");
-        asr_result = BK_KWS_VOLUME_UP;
-    } else if (os_strcmp(result, "Volume Down") == 0)
-    {
-        LOGI("volume down\r\n");
-        asr_result = BK_KWS_VOLUME_DOWN;
-    } else {
-        LOGE("Invalid asr result: %s\n", result);
-        asr_result = BK_KWS_NONE;
-    }
+    asr_result = audio_engine_map_beken_kws_result(result);
 #endif
 
 #if (CONFIG_WANSON_ASR_GROUP_VERSION_WORDS_V1)
@@ -1017,14 +1333,15 @@ void bk_audio_engine_asr_result_handle(void *p1, void *p2)
             LOGD("APP_EVT_ASR_ZAIJIANBOTONG event sent successfully\n");
         }
     }
-    else if (g_audio_engine.asr_result == BK_KWS_VOLUME_UP) {
-        audio_engine_volume_increase();
-    }
-    else if (g_audio_engine.asr_result == BK_KWS_VOLUME_DOWN) {
-        audio_engine_volume_decrease();
-    }
-    else if (g_audio_engine.asr_result >= BK_KWS_PLAY_MUSIC && g_audio_engine.asr_result <= BK_KWS_NEXT_SONG) {
-        //nothing to do
+    else if (g_audio_engine.asr_result > BK_KWS_BYEBYE &&
+             g_audio_engine.asr_result < BK_KWS_MAX_WORDS) {
+        ret = app_event_send_msg(APP_EVT_ASR_KWS_LABEL, (uint32_t)g_audio_engine.asr_result);
+        if (BK_OK != ret) {
+            LOGE("Failed to send APP_EVT_ASR_KWS_LABEL event, ret: %d\n", ret);
+        } else {
+            LOGD("APP_EVT_ASR_KWS_LABEL event sent successfully\n");
+        }
+        LOGI("KWS command action not implemented yet: %d\n", g_audio_engine.asr_result);
     }
     else {
         LOGE("Unexpected asr_result: %d\n", g_audio_engine.asr_result);
@@ -1570,6 +1887,12 @@ static int audio_engine_asr_start_inner(void)
         aud_asr_cfg.aud_asr_recog  = bk_wanson_asr_recog;
         aud_asr_cfg.max_read_size  = 960;
 #elif CONFIG_BEKEN_KWS
+#if CONFIG_BEKEN_KWS_MODEL_FROM_UDISK
+        if (audio_engine_kws_load_udisk_models() != 0) {
+            (void)audio_engine_asr_stop();
+            return AUDIO_ENGINE_ERR_ASR_INIT;
+        }
+#endif
         aud_asr_cfg.aud_asr_init   = bk_tflite_asr_init;
         aud_asr_cfg.aud_asr_deinit = bk_tflite_asr_deinit;
         aud_asr_cfg.aud_asr_recog  = bk_tflite_asr_recog;
@@ -1586,6 +1909,15 @@ static int audio_engine_asr_start_inner(void)
             (void)audio_engine_asr_stop();
             return AUDIO_ENGINE_ERR_ASR_INIT;
         }
+
+#if CONFIG_BEKEN_KWS
+        s_audio_engine_kws_switch_request = s_audio_engine_kws_desired_model;
+        int switch_ret = audio_engine_asr_switch_model_inner();
+        if (switch_ret != AUDIO_ENGINE_SUCCESS) {
+            (void)audio_engine_asr_stop();
+            return switch_ret;
+        }
+#endif
     }
 
     if (BK_OK != bk_asr_start(g_audio_engine.asr_handle)) {
@@ -1686,6 +2018,17 @@ int audio_engine_asr_stop(void)
     }
     return ae_worker_run(audio_engine_asr_stop_inner);
 }
+
+#if CONFIG_BEKEN_KWS
+int audio_engine_asr_switch_model(int model_id)
+{
+    s_audio_engine_kws_switch_request = model_id;
+    if (ae_in_worker()) {
+        return audio_engine_asr_switch_model_inner();
+    }
+    return ae_worker_run(audio_engine_asr_switch_model_inner);
+}
+#endif
 #endif
 
 static int audio_engine_start_inner(audio_engine_cfg_t *cfg)

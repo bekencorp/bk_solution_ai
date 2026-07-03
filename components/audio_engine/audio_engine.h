@@ -160,6 +160,20 @@ int audio_engine_asr_start(void);
  *         - < 0: Error codes (see audio_engine_err_t)
  */
 int audio_engine_asr_stop(void);
+
+#if CONFIG_BEKEN_KWS
+#define AUDIO_ENGINE_KWS_MODEL_WAKEUP 0
+#define AUDIO_ENGINE_KWS_MODEL_CMDS   1
+
+/**
+ * @brief Select the active Beken KWS model.
+ *
+ * If ASR is already initialized this switches the current interpreter
+ * immediately; otherwise the selection is remembered and applied before the
+ * next ASR start.
+ */
+int audio_engine_asr_switch_model(int model_id);
+#endif
 #endif
 
 /**
