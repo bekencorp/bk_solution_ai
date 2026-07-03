@@ -5,6 +5,7 @@ set(incs
 set(srcs
 	src/core/box.c
 	src/core/AvdkDetectionModel.cc
+	src/core/AvdkMultiModel.cc
 	src/core/AvdkVideoReatorOSD.cc
 )
 
@@ -41,7 +42,25 @@ if (CONFIG_TFLM_HAND_GESTURE_DETECTION_V1)
 	endif()
 endif()
 
+if (CONFIG_TFLM_FACE_RECOG_V1)
+	list(APPEND srcs
+		src/tflm_face_recog/FaceRecognitionModel.cc
+		src/tflm_face_recog/FaceDetectionRuntime.cc
+		src/tflm_face_recog/FaceVerifyRuntime.cc
+	)
+	if (NOT CONFIG_SDCARD)
+		list(APPEND srcs
+			src/tflm_face_recog/face_detect_model_data.cc
+			src/tflm_face_recog/face_verify_model_data.cc
+		)
+	endif()
+endif()
+
 set(priv_req bk_common unity include avdk_utils bk_tflite_micro multimedia_device_service bk_peripheral)
+
+if (CONFIG_TFLM_FACE_RECOG_V1)
+	list(APPEND priv_req bk_gpu media_service avdk_driver)
+endif()
 
 if (CONFIG_SDCARD)
 	list(APPEND priv_req fatfs)

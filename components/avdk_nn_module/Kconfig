@@ -15,4 +15,9 @@ menu "AVDK NN Module"
 		bool "Enable tflm HAND_GESTURE_DETECTION_V1"
 		default n
 
+	config TFLM_FACE_RECOG_V1
+		depends on TFLITE_MICRO
+		bool "Enable tflm FACE_RECOG_V1"
+		default n
+
 endmenu
