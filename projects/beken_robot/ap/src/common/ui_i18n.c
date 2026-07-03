@@ -77,25 +77,35 @@ void ui_i18n_init(void)
 }
 
 /* Top-level generated screens that cache their objects (auto_del=false) and
- * carry translated text. Deleting the non-active ones forces a rebuild in the
- * new language on the next navigate_to_screen() call (which re-inits when the
- * slot is no longer a valid object). Dynamic menus (settings / demo center)
- * rebuild via their on_back/enter handlers, so they need no entry here. */
+ * carry translated text. Destroying the non-active ones forces a rebuild in
+ * the new language on the next navigate_to_screen() call (which re-inits when
+ * the slot is no longer a valid object). Dynamic menus (settings / demo
+ * center) rebuild via their on_back/enter handlers, so they need no entry here.
+ *
+ * IMPORTANT: pages must be torn down through their generated destroy_page_*()
+ * helper, NOT a raw lv_obj_del(). The generated helper fires bk_page_fire_
+ * destroy() first (which deletes per-page lv_timers such as provisioning's
+ * status poll / ASR's animation timer and unregisters the nav-router entry)
+ * and then NULLs every cached child-object pointer in bk_lv_tool_ui. A bare
+ * lv_obj_del() leaves those timers running and the child pointers dangling, so
+ * the next timer tick dereferences freed objects -> CPU MemFault. */
 static void invalidate_cached_pages(void)
 {
     lv_obj_t *active = lv_screen_active();
-    lv_obj_t **slots[] = {
-        &bk_lv_tool_ui.page_1,   /* splash / welcome */
-        &bk_lv_tool_ui.page_2,   /* home */
-        &bk_lv_tool_ui.page_4,   /* provisioning */
-        &bk_lv_tool_ui.page_8,   /* asr */
-        &bk_lv_tool_ui.page_10,  /* volume */
+    const struct {
+        lv_obj_t **slot;
+        void (*destroy)(bk_lv_ui_t *);
+    } pages[] = {
+        { &bk_lv_tool_ui.page_1,  destroy_page_page_1  },  /* splash / welcome */
+        { &bk_lv_tool_ui.page_2,  destroy_page_page_2  },  /* home */
+        { &bk_lv_tool_ui.page_4,  destroy_page_page_4  },  /* provisioning */
+        { &bk_lv_tool_ui.page_8,  destroy_page_page_8  },  /* asr */
+        { &bk_lv_tool_ui.page_10, destroy_page_page_10 },  /* volume */
     };
-    for (size_t i = 0; i < sizeof(slots) / sizeof(slots[0]); i++) {
-        lv_obj_t *obj = *slots[i];
+    for (size_t i = 0; i < sizeof(pages) / sizeof(pages[0]); i++) {
+        lv_obj_t *obj = *pages[i].slot;
         if (obj != NULL && lv_obj_is_valid(obj) && obj != active) {
-            lv_obj_del(obj);
-            *slots[i] = NULL;
+            pages[i].destroy(&bk_lv_tool_ui);
         }
     }
 }
