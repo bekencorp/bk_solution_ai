@@ -23,12 +23,27 @@
 #include "bk_smart_config.h"
 #endif
 
+#if CONFIG_BT
+#include "demo/a2dp_sink.h"
+#endif
+
 #define TAG "prov_demo"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 
 void provisioning_trigger_smart_config(void)
 {
 #if CONFIG_BK_SMART_CONFIG
+#if CONFIG_BT
+    /* Classic BT (A2DP/AVRCP) keeps the 2.4G radio busy, which starves the
+     * Wi-Fi fast-connect single-channel scan -> the first provisioning attempt
+     * reports "fail" before the slower full scan recovers. Drop the classic
+     * link first so provisioning is reliable on the first try; the user can
+     * reconnect BT after the network is provisioned. Safe no-op when nothing
+     * is connected. */
+    LOGI("freeing radio: disconnecting classic BT before provisioning\r\n");
+    (void)a2dp_sink_demo_try_disconnect_current();
+#endif
+
     bk_sconf_prepare_for_smart_config();
 #else
     LOGI("BK_SMART_CONFIG disabled, provisioning trigger ignored\r\n");

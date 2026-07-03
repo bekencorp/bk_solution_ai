@@ -34,6 +34,7 @@
 #include "demo/camera_preview_demo.h"
 #include "demo/udisk.h"
 #include "demo/robot_video.h"
+#include "demo/bt_music.h"
 
 static const bk_demo_iface_t * const s_demo_list[] = {
     &g_demo_provisioning,
@@ -49,6 +50,7 @@ static const bk_demo_iface_t * const s_demo_list[] = {
     &g_demo_camera_preview,
     &g_demo_udisk,
     &g_demo_robot_video,
+    &g_demo_bt_music,
 };
 
 #define DEMO_LIST_LEN ((int)(sizeof(s_demo_list) / sizeof(s_demo_list[0])))

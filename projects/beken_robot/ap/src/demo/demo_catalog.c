@@ -35,6 +35,7 @@
 #include "demo/camera_preview_demo.h"
 #include "demo/udisk.h"
 #include "demo/robot_video.h"
+#include "demo/bt_music.h"
 #include "demo/provisioning.h"
 #include "camera_preview.h"
 #include "page_edge_ai.h"
@@ -252,17 +253,18 @@ int demo_category_cloud_enter(void)
 /* ------------------------------------------------------------------ */
 /* Entertainment sub-menu.                                             */
 /* ------------------------------------------------------------------ */
-static const char *const s_fun_items[UI_LANG_COUNT][2] = {
-    { "音乐播放",  "图传播放" },
-    { "Music",     "Video" },
+static const char *const s_fun_items[UI_LANG_COUNT][3] = {
+    { "音乐播放",  "图传播放", "音乐互动" },
+    { "Music",     "Video",    "BT Music" },
 };
-static const char *const s_fun_descs[UI_LANG_COUNT][2] = {
-    { "音乐控制",  "实时图传" },
-    { "Playback",  "Live" },
+static const char *const s_fun_descs[UI_LANG_COUNT][3] = {
+    { "音乐控制",  "实时图传", "手机音乐" },
+    { "Playback",  "Live",     "A2DP rhythm hand" },
 };
 static const ui_theme_icon_kind_t s_fun_icons[] = {
     UI_THEME_ICON_MUSIC,
     UI_THEME_ICON_VIDEO,
+    UI_THEME_ICON_MUSIC,
 };
 #define FUN_ITEM_COUNT ((int)(sizeof(s_fun_items[0]) / sizeof(s_fun_items[0][0])))
 
@@ -273,6 +275,7 @@ static void fun_on_select(int index, void *user_data)
     switch (index) {
     case 0: (void)music_start();       break;
     case 1: (void)robot_video_start(); break;
+    case 2: (void)bt_music_start();    break;
     default: break;
     }
 }

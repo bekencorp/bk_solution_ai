@@ -180,6 +180,7 @@ LV_IMAGE_DECLARE(wifi_1_23x24_RGB565A8_NONE);
 /* declare fonts */
 LV_FONT_DECLARE(lv_font_ali_25);
 LV_FONT_DECLARE(lv_font_ali_16);
+LV_FONT_DECLARE(lv_font_bt_music_16);
 LV_FONT_DECLARE(lv_font_doa_menu_16);
 LV_FONT_DECLARE(lv_font_ali_30);
 LV_FONT_DECLARE(lv_font_zh_demo_16);

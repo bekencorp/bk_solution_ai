@@ -3,7 +3,7 @@
 FLASH_CAPACITY=8M
 #Name,Offset,Size,Type,Read,Write
 primary_bootloader,,64k,code,TRUE,FALSE
-primary_cp_app,,1216k,code,TRUE,FALSE
+primary_cp_app,,1408k,code,TRUE,FALSE
 # AP 镜像（含 .text/.rodata 及 PSRAM 段的 LMA）需略大于 3309K；从 OTA 区划出空间避免链接器 ROM overflow
 primary_ap_app,,6280K,code,TRUE,FALSE
 ota,,264k,data,TRUE,TRUE
