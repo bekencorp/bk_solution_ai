@@ -9,8 +9,8 @@
  *   - bt_music_start(): lazy one-time BT bring-up (bt_manager + A2DP sink), frees
  *                       the DAC from the voice engine, starts the rhythm engine
  *                       (hand begins to groove) and enters the bt_music page.
- *   - bt_music_stop():  parks the hand and releases the speaker; the BT link is
- *                       left connected so re-entering the page is instant.
+ *   - bt_music_stop():  parks the hand, tears down audio/A2DP/classic-BT and
+ *                       releases IRAM so other demos can use the heap.
  *
  * A small worker thread serializes the (potentially blocking) BT/AVRCP calls so
  * the LVGL UI thread never stalls -- same pattern as rhythm_robot's robot_app.c.
@@ -22,6 +22,7 @@
 #include <components/log.h>
 #if CONFIG_BT
 #include "components/bluetooth/bk_dm_bluetooth.h"
+#include "bluetooth_storage.h"
 #include "bt_manager.h"
 #include "bk_avrcp_ct_service.h"
 #endif
@@ -44,7 +45,8 @@ void page_bt_music_show_low_mem_hint(void);
 #define BT_MUSIC_TASK_PRIORITY   (4)
 #define BT_MUSIC_TASK_STACK      (2048)
 #define BT_MUSIC_QUEUE_LEN       (16)
-#define BT_MUSIC_START_MIN_HEAP  (36U * 1024U)
+#define BT_MUSIC_START_MIN_HEAP  (18U * 1024U)
+#define BT_MUSIC_TEARDOWN_WAIT_MS 8000U
 
 typedef enum {
     BT_MUSIC_EVT_PAIRING = 0,
@@ -54,7 +56,7 @@ typedef enum {
     BT_MUSIC_EVT_NEXT,
     BT_MUSIC_EVT_PREV,
     BT_MUSIC_EVT_DANCE_TOGGLE,
-    BT_MUSIC_EVT_STOP_AUDIO,
+    BT_MUSIC_EVT_TEARDOWN,
 } bt_music_evt_type_t;
 
 typedef struct {
@@ -64,6 +66,7 @@ typedef struct {
 
 static beken_queue_t s_queue;
 static beken_thread_t s_thread;
+static beken_semaphore_t s_teardown_done;
 static bool s_dance_user_enabled = true;
 static bool s_page_active;
 static bool s_render_ready;
@@ -116,6 +119,7 @@ static int bt_music_bringup(void)
 
     if (a2dp_sink_demo_init(0 /*aac off*/, 1 /*auto-accept*/) != BK_OK) {
         LOGE("a2dp_sink_demo_init failed\n");
+        (void)bt_manager_deinit();
         return -1;
     }
 
@@ -127,20 +131,67 @@ static int bt_music_bringup(void)
 
 /* ---------------- worker ---------------- */
 
+#if CONFIG_BT
+static void bt_music_bringdown_locked(bool pause_remote)
+{
+    if (!s_bt_ready) {
+        return;
+    }
+
+    if (pause_remote) {
+        bk_avrcp_ct_pause();
+    }
+    a2dp_sink_demo_audio_spk_enable(0);
+    (void)a2dp_sink_demo_wait_player_end();
+    (void)a2dp_sink_demo_try_disconnect_current();
+    (void)a2dp_sink_demo_deinit();
+    (void)bt_manager_deinit();
+    s_bt_ready = 0;
+
+    LOGI("classic BT + A2DP sink down\n");
+}
+#endif
+
 static void bt_music_handle(const bt_music_evt_t *evt)
 {
     switch (evt->type) {
 #if CONFIG_BT
+    case BT_MUSIC_EVT_TEARDOWN:
+        bt_music_bringdown_locked(evt->arg != 0);
+        break;
     case BT_MUSIC_EVT_PAIRING:
-        bk_bt_enter_pairing_mode(1);
+        if (!s_bt_ready) {
+            break;
+        }
+        {
+            uint8_t recon_addr[6] = {0};
+            if (bluetooth_storage_get_newest_linkkey_info(recon_addr, NULL) >= 0) {
+                LOGI("bt_music reconnect %02x:%02x:%02x:%02x:%02x:%02x\n",
+                     recon_addr[5], recon_addr[4], recon_addr[3],
+                     recon_addr[2], recon_addr[1], recon_addr[0]);
+                bt_manager_start_reconnect(recon_addr, 1);
+            } else {
+                LOGI("bt_music no bonded phone, enter pairing mode\n");
+                bk_bt_enter_pairing_mode(1);
+            }
+        }
         break;
     case BT_MUSIC_EVT_VOL_UP:
+        if (!s_bt_ready) {
+            break;
+        }
         bk_avrcp_ct_vol_up();
         break;
     case BT_MUSIC_EVT_VOL_DOWN:
+        if (!s_bt_ready) {
+            break;
+        }
         bk_avrcp_ct_vol_down();
         break;
     case BT_MUSIC_EVT_PLAY_PAUSE:
+        if (!s_bt_ready) {
+            break;
+        }
         if (s_playing) {
             bk_avrcp_ct_pause();
             s_playing = false;
@@ -151,9 +202,15 @@ static void bt_music_handle(const bt_music_evt_t *evt)
         bt_music_apply_rhythm_state();
         break;
     case BT_MUSIC_EVT_NEXT:
+        if (!s_bt_ready) {
+            break;
+        }
         bk_avrcp_ct_next();
         break;
     case BT_MUSIC_EVT_PREV:
+        if (!s_bt_ready) {
+            break;
+        }
         bk_avrcp_ct_prev();
         break;
 #endif
@@ -161,17 +218,6 @@ static void bt_music_handle(const bt_music_evt_t *evt)
         s_dance_user_enabled = !s_dance_user_enabled;
         bt_music_apply_rhythm_state();
         break;
-#if CONFIG_BT
-    case BT_MUSIC_EVT_STOP_AUDIO:
-        if (evt->arg != 0) {
-            /* Keep phone/robot state consistent when leaving the page: the BT
-             * link stays connected, but the remote stream is paused instead of
-             * silently continuing while the speaker/rhythm are stopped locally. */
-            bk_avrcp_ct_pause();
-        }
-        a2dp_sink_demo_audio_spk_enable(0);
-        break;
-#endif
     default:
         break;
     }
@@ -183,7 +229,11 @@ static void bt_music_task(void *arg)
     while (1) {
         bt_music_evt_t evt = {0};
         if (rtos_pop_from_queue(&s_queue, &evt, BEKEN_WAIT_FOREVER) == BK_OK) {
+            bool teardown_evt = (evt.type == BT_MUSIC_EVT_TEARDOWN);
             bt_music_handle(&evt);
+            if (teardown_evt && s_teardown_done != NULL) {
+                (void)rtos_set_semaphore(&s_teardown_done);
+            }
         }
     }
 }
@@ -217,6 +267,10 @@ int bt_music_init(void)
         rtos_deinit_queue(&s_queue);
         s_queue = NULL;
         return -1;
+    }
+    if (s_teardown_done == NULL &&
+        rtos_init_semaphore(&s_teardown_done, 1) != BK_OK) {
+        LOGE("teardown semaphore init failed\n");
     }
     LOGI("bt_music init ok\n");
     return 0;
@@ -301,10 +355,30 @@ int bt_music_stop(void)
     s_page_active = false;
     s_render_ready = false;
     s_playing = false;
-#if CONFIG_BT
-    bt_music_post(BT_MUSIC_EVT_STOP_AUDIO, was_playing);
-#endif
     bt_rhythm_deinit();
+#if CONFIG_BT
+    if (s_bt_ready) {
+        if (s_queue != NULL && s_teardown_done != NULL) {
+            bt_music_evt_t evt = {
+                .type = (uint8_t)BT_MUSIC_EVT_TEARDOWN,
+                .arg = was_playing ? 1U : 0U,
+            };
+            if (rtos_push_to_queue(&s_queue, &evt, BEKEN_WAIT_FOREVER) == BK_OK) {
+                int ret = rtos_get_semaphore(&s_teardown_done, BT_MUSIC_TEARDOWN_WAIT_MS);
+                if (ret != BK_OK) {
+                    LOGW("bt_music teardown wait timeout, force bringdown\n");
+                    bt_music_bringdown_locked(was_playing);
+                    (void)rtos_set_semaphore(&s_teardown_done);
+                }
+            } else {
+                LOGW("bt_music teardown queue push failed, force bringdown\n");
+                bt_music_bringdown_locked(was_playing);
+            }
+        } else {
+            bt_music_bringdown_locked(was_playing);
+        }
+    }
+#endif
     return 0;
 }
 

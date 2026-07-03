@@ -35,6 +35,7 @@
 
 #define CODEC_AUDIO_SBC 0x00U
 #define A2DP_SPK_ENABLE_TIMEOUT_MS 1000U
+#define ACL_DISCONNECT_TIMEOUT_MS 1500U
 
 enum
 {
@@ -53,6 +54,7 @@ static beken_queue_t s_a2dp_sink_msg_queue = NULL;
 static beken_thread_t s_a2dp_sink_thread = NULL;
 static beken_semaphore_t s_audio_player_en_sema = NULL;
 static beken_semaphore_t s_a2dp_connect_sema = NULL;
+static beken_semaphore_t s_acl_disconnect_sema = NULL;
 
 static uint8_t s_user_spk_enable = 1;
 static uint8_t s_mix_multi_channel = 1;
@@ -223,6 +225,13 @@ static void a2dp_sink_gap_event_cb(bk_gap_bt_cb_event_t event, bk_bt_gap_cb_para
 {
     switch (event)
     {
+    case BK_BT_GAP_ACL_DISCONN_CMPL_STAT_EVT:
+        if (s_acl_disconnect_sema)
+        {
+            rtos_set_semaphore(&s_acl_disconnect_sema);
+        }
+        break;
+
     case BK_BT_GAP_LINK_KEY_NOTIF_EVT:
         if (param)
         {
@@ -243,12 +252,22 @@ static void a2dp_sink_gap_event_cb(bk_gap_bt_cb_event_t event, bk_bt_gap_cb_para
     }
 }
 
+static void a2dp_sink_reconnect_fail_cb(void)
+{
+    /* Active reconnect exhausted its retries (e.g. phone is off or out of
+     * range). Leave the sink connectable/discoverable so the phone can still
+     * connect later instead of getting stuck in RECONNECTING. */
+    LOGW("%s reconnect failed, back to pairing mode\n", __func__);
+    bk_bt_enter_pairing_mode(1);
+}
+
 static void a2dp_sink_bt_manager_callback_register(void)
 {
     if (s_bt_manager_index == 0xFF)
     {
         btm_callback_s btm_cb = {
             .gap_cb = a2dp_sink_gap_event_cb,
+            .reconnect_fail_cb = a2dp_sink_reconnect_fail_cb,
         };
         s_bt_manager_index = bt_manager_register_callback(&btm_cb);
     }
@@ -266,6 +285,35 @@ static void a2dp_sink_bt_manager_callback_unregister(void)
 static uint8_t a2dp_sink_get_local_volume(void)
 {
     return bk_avrcp_tg_get_local_volume_value();
+}
+
+static void a2dp_sink_wait_acl_disconnect(void)
+{
+    uint8_t state = bt_manager_get_connect_state();
+    int ret;
+
+    if (state != BT_STATE_LINK_CONNECTED &&
+        state != BT_STATE_PROFILE_CONNECTED &&
+        state != BT_STATE_KEY_MISSING)
+    {
+        return;
+    }
+
+    if (!s_acl_disconnect_sema)
+    {
+        if (rtos_init_semaphore(&s_acl_disconnect_sema, 1) != BK_OK)
+        {
+            LOGE("%s init sema failed\n", __func__);
+            return;
+        }
+    }
+
+    LOGI("%s wait acl disconnect state=%u\n", __func__, state);
+    ret = rtos_get_semaphore(&s_acl_disconnect_sema, ACL_DISCONNECT_TIMEOUT_MS);
+    if (ret != BK_OK)
+    {
+        LOGW("%s wait timeout state=%u\n", __func__, bt_manager_get_connect_state());
+    }
 }
 
 static void a2dp_sink_demo_task(void *arg)
@@ -737,9 +785,10 @@ int a2dp_sink_demo_deinit(void)
         return BK_OK;
     }
 
+    bk_a2dp_sink_service_deinit();
+    a2dp_sink_wait_acl_disconnect();
     bk_avrcp_tg_service_deinit();
     bk_avrcp_ct_service_deinit();
-    bk_a2dp_sink_service_deinit();
     a2dp_sink_bt_manager_callback_unregister();
     a2dp_sink_task_deinit();
 
@@ -753,6 +802,12 @@ int a2dp_sink_demo_deinit(void)
     {
         rtos_deinit_semaphore(&s_a2dp_connect_sema);
         s_a2dp_connect_sema = NULL;
+    }
+
+    if (s_acl_disconnect_sema)
+    {
+        rtos_deinit_semaphore(&s_acl_disconnect_sema);
+        s_acl_disconnect_sema = NULL;
     }
 
     s_a2dp_connected = 0;
