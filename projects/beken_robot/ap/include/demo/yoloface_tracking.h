@@ -18,6 +18,8 @@
 #include "demo/demo_iface.h"
 
 #define YOLOFACE_ARCHIVE_MAX_ITEMS 8
+#define YOLOFACE_SOLUTION_ERR_BUSY    (-2)
+#define YOLOFACE_SOLUTION_ERR_NO_FACE (-3)
 
 typedef struct {
     uint32_t profile_id;

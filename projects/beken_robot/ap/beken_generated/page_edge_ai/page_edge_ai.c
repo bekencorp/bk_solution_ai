@@ -368,10 +368,10 @@ static void reset_apply_async(void *arg)
 
     if (s_reset_worker_rc >= 0) {
         lv_label_set_text(s_solution_status_label, "人脸库已清空");
-    } else if (s_reset_worker_rc == -2) {
-        lv_label_set_text(s_solution_status_label, "操作中，请稍后");
+    } else if (s_reset_worker_rc == YOLOFACE_SOLUTION_ERR_BUSY) {
+        lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
     } else {
-        lv_label_set_text(s_solution_status_label, "清空失败，请检查存储");
+        lv_label_set_text(s_solution_status_label, "清空失败,  请检查存储");
     }
 }
 
@@ -388,7 +388,7 @@ static int reset_start_task(void)
 {
     if (s_reset_busy) {
         if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            lv_label_set_text(s_solution_status_label, "操作中，请稍后");
+            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
         }
         return 0;
     }
@@ -423,7 +423,7 @@ static void solution_reset_click_cb(lv_event_t *e)
 
     if (s_reset_busy) {
         if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            lv_label_set_text(s_solution_status_label, "操作中，请稍后");
+            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
         }
         return;
     }
@@ -449,16 +449,18 @@ static void solution_enroll_click_cb(lv_event_t *e)
     int rc;
     if (s_reset_busy) {
         if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            lv_label_set_text(s_solution_status_label, "操作中，请稍后");
+            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
         }
         return;
     }
     rc = yoloface_solution_enroll_request();
     if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-        if (rc == -2) {
-            lv_label_set_text(s_solution_status_label, "操作中，请稍后");
+        if (rc == YOLOFACE_SOLUTION_ERR_BUSY) {
+            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
+        } else if (rc == YOLOFACE_SOLUTION_ERR_NO_FACE) {
+            lv_label_set_text(s_solution_status_label, "未检测到人脸");
         } else if (rc != 0) {
-            lv_label_set_text(s_solution_status_label, "录入失败，请重新录入");
+            lv_label_set_text(s_solution_status_label, "录入失败,  请重新录入");
         }
     }
 }
@@ -469,7 +471,7 @@ static void solution_verify_click_cb(lv_event_t *e)
     int rc;
     if (s_reset_busy) {
         if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            lv_label_set_text(s_solution_status_label, "操作中，请稍后");
+            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
         }
         return;
     }
@@ -477,10 +479,12 @@ static void solution_verify_click_cb(lv_event_t *e)
     if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
         if (rc == 0) {
             lv_label_set_text(s_solution_status_label, "验证中");
-        } else if (rc == -2) {
-            lv_label_set_text(s_solution_status_label, "操作中，请稍后");
+        } else if (rc == YOLOFACE_SOLUTION_ERR_BUSY) {
+            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
+        } else if (rc == YOLOFACE_SOLUTION_ERR_NO_FACE) {
+            lv_label_set_text(s_solution_status_label, "未检测到人脸");
         } else {
-            lv_label_set_text(s_solution_status_label, "验证失败，请重试");
+            lv_label_set_text(s_solution_status_label, "验证失败,  请重试");
         }
     }
 }
@@ -491,7 +495,7 @@ static void solution_query_click_cb(lv_event_t *e)
     int rc;
     if (s_reset_busy) {
         if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            lv_label_set_text(s_solution_status_label, "操作中，请稍后");
+            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
         }
         return;
     }
@@ -499,8 +503,8 @@ static void solution_query_click_cb(lv_event_t *e)
     if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
         if (rc == 0) {
             lv_label_set_text(s_solution_status_label, "查询中");
-        } else if (rc == -2) {
-            lv_label_set_text(s_solution_status_label, "操作中，请稍后");
+        } else if (rc == YOLOFACE_SOLUTION_ERR_BUSY) {
+            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
         } else {
             lv_label_set_text(s_solution_status_label, "查询失败");
         }

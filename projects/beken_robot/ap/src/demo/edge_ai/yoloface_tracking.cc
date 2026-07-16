@@ -102,6 +102,7 @@ static FaceRecognitionModel *s_solution_face_model = NULL;
 #define YOLOFACE_ENROLL_SAVE_TASK_STACK    (1024 * 6)
 #define YOLOFACE_ENROLL_SAVE_TASK_NAME     "face_enroll_save"
 #define YOLOFACE_ACTIVE_REQUEST_TIMEOUT_MS 2000
+#define YOLOFACE_FACE_STATUS_VALID_MS      1000
 
 typedef enum {
     YOLOFACE_FACE_MSG_ENROLL_SAVE = 0,
@@ -125,6 +126,8 @@ static volatile bool s_yoloface_enroll_session_active = false;
 static uint32_t s_yoloface_enroll_profile_id = 0;
 static uint32_t s_yoloface_enroll_sample_index = 0;
 static uint32_t s_yoloface_active_request_ms = 0;
+static volatile int s_yoloface_latest_face_count = -1;
+static volatile uint32_t s_yoloface_latest_face_ms = 0;
 static beken_queue_t s_yoloface_enroll_save_queue = NULL;
 static beken_thread_t s_yoloface_enroll_save_thread = NULL;
 static volatile bool s_yoloface_enroll_save_stop = false;
@@ -215,6 +218,21 @@ static bool yoloface_solution_is_busy(void)
     return s_yoloface_enroll_pending || s_yoloface_verify_pending ||
            s_yoloface_verify_result_pending ||
            s_yoloface_enroll_session_active;
+}
+
+static void yoloface_solution_record_face_count(int count)
+{
+    s_yoloface_latest_face_count = count > 0 ? count : 0;
+    s_yoloface_latest_face_ms = (uint32_t)rtos_get_time();
+}
+
+static bool yoloface_solution_recent_no_face(void)
+{
+    uint32_t now = (uint32_t)rtos_get_time();
+
+    return s_yoloface_latest_face_count == 0 &&
+           (uint32_t)(now - s_yoloface_latest_face_ms) <=
+           YOLOFACE_FACE_STATUS_VALID_MS;
 }
 
 static void yoloface_enroll_session_reset(void)
@@ -929,18 +947,18 @@ static void yoloface_enroll_save_task(void *arg)
                                                       &saved_count,
                                                       &profile_id);
             if (save_rc == 0) {
-                char text[32];
+                char text[64];
                 if (saved_count >= YOLOFACE_FACE_SAMPLES_PER_ID) {
                     snprintf(text, sizeof(text), "录入完成 5/5");
                 } else {
-                    snprintf(text, sizeof(text), "录入成功 %u/5，请继续录入",
+                    snprintf(text, sizeof(text), "录入成功 %u/5,  请继续录入",
                              (unsigned)saved_count);
                 }
                 yoloface_enroll_session_cancel();
                 yoloface_solution_status(text);
             } else {
                 yoloface_enroll_session_cancel();
-                yoloface_solution_status("录入失败，请重新录入");
+                yoloface_solution_status("录入失败,  请重新录入");
             }
         }
         yoloface_free_enroll_msg(&msg);
@@ -1078,13 +1096,13 @@ static void yoloface_enroll_result_cb(const FaceVerifyResult *result,
         if (yoloface_post_verify_request(result) == 0) {
             yoloface_solution_status("验证中");
         } else {
-            yoloface_solution_status("验证失败，请重试");
+            yoloface_solution_status("验证失败,  请重试");
         }
     } else if (yoloface_post_enroll_save(result, aligned_rgb, aligned_rgb_size) == 0) {
         yoloface_solution_status("保存中");
     } else {
         yoloface_enroll_session_cancel();
-        yoloface_solution_status("录入失败，请重新录入");
+        yoloface_solution_status("录入失败,  请重新录入");
     }
 }
 
@@ -1120,14 +1138,11 @@ static void yoloface_enroll_save_worker_stop(void)
  * explicitly clear the path. */
 static void yoloface_detection_box_cb(Box *boxes, int count)
 {
-    if (s_yoloface_lvgl_camera_blend &&
-        (s_yoloface_verify_pending || s_yoloface_verify_result_pending)) {
-        (void)bk_camera_lvgl_blend_set_boxes(NULL, 0);
-        box_detection_path_clear();
-        return;
-    }
+    bool has_face = boxes != NULL && count > 0;
 
-    if (boxes == NULL || count <= 0) {
+    yoloface_solution_record_face_count(has_face ? count : 0);
+
+    if (!has_face) {
         if (s_yoloface_lvgl_camera_blend) {
             (void)bk_camera_lvgl_blend_set_boxes(NULL, 0);
         }
@@ -1142,6 +1157,13 @@ static void yoloface_detection_box_cb(Box *boxes, int count)
             yoloface_solution_verify_set_pending(false);
             yoloface_solution_status("未检测到人脸");
         }
+        box_detection_path_clear();
+        return;
+    }
+
+    if (s_yoloface_lvgl_camera_blend &&
+        (s_yoloface_verify_pending || s_yoloface_verify_result_pending)) {
+        (void)bk_camera_lvgl_blend_set_boxes(NULL, 0);
         box_detection_path_clear();
         return;
     }
@@ -1314,6 +1336,9 @@ static void yoloface_detection_start_task(void *arg)
     bool model_init_failed = false;
 #endif
     bool reuse_model = false;
+
+    s_yoloface_latest_face_count = -1;
+    s_yoloface_latest_face_ms = 0;
 
 #if CONFIG_LVGL
     if (!s_yoloface_lvgl_camera_blend) {
@@ -1771,7 +1796,14 @@ extern "C" int yoloface_solution_enroll_request(void)
         return -1;
     }
     if (yoloface_solution_is_busy()) {
-        return -2;
+        return YOLOFACE_SOLUTION_ERR_BUSY;
+    }
+    if (yoloface_solution_recent_no_face()) {
+        if (s_yoloface_lvgl_camera_blend) {
+            (void)bk_camera_lvgl_blend_set_boxes(NULL, 0);
+        }
+        yoloface_solution_status("未检测到人脸");
+        return YOLOFACE_SOLUTION_ERR_NO_FACE;
     }
 
     yoloface_enroll_session_reset();
@@ -1806,7 +1838,13 @@ extern "C" int yoloface_solution_verify_request(void)
         return -1;
     }
     if (yoloface_solution_is_busy()) {
-        return -2;
+        return YOLOFACE_SOLUTION_ERR_BUSY;
+    }
+    if (yoloface_solution_recent_no_face()) {
+        if (s_yoloface_lvgl_camera_blend) {
+            (void)bk_camera_lvgl_blend_set_boxes(NULL, 0);
+        }
+        return YOLOFACE_SOLUTION_ERR_NO_FACE;
     }
 
     if (s_yoloface_lvgl_camera_blend) {
@@ -1821,7 +1859,7 @@ extern "C" int yoloface_solution_verify_request(void)
 extern "C" int yoloface_solution_archive_enter_request(void)
 {
     if (yoloface_solution_is_busy()) {
-        return -2;
+        return YOLOFACE_SOLUTION_ERR_BUSY;
     }
     s_yoloface_return_to_archive = true;
     s_yoloface_return_to_edge_ai = false;
@@ -1954,7 +1992,7 @@ extern "C" int yoloface_solution_archive_clear_all(void)
     int deleted = 0;
 
     if (yoloface_solution_is_busy()) {
-        return -2;
+        return YOLOFACE_SOLUTION_ERR_BUSY;
     }
 
     if (yoloface_faces_mount() != 0) {
