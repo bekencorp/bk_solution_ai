@@ -42,6 +42,9 @@ int vision_start_service(void)
 
 int vision_request_exit(void)
 {
+    /* Cancel any still-pending early camera bring-up before requesting the
+     * (serialized) teardown, so a late worker can't re-open the camera. */
+    bk_sconf_vision_video_prestop();
     int ret = (bk_sconf_exit_ai_mode_async(1) == BK_OK) ? 0 : -1;
     if (audio_engine_is_running()) {
         (void)audio_engine_stop();
@@ -56,6 +59,10 @@ extern int page_vision_enter(void);
 int vision_start(void)
 {
     LOGI("Vision recognition -> page_7\r\n");
+    /* Kick the camera/video-engine bring-up as early as possible (before the
+     * page loads and independent of the sconf RTC op queue) so the local
+     * preview appears promptly instead of waiting behind a prior mode op. */
+    (void)bk_sconf_vision_video_prestart();
     return page_vision_enter();
 }
 

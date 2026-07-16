@@ -111,9 +111,28 @@ static void page_vision_preview_sink(const uint8_t *rgb565,
 
 static void page_vision_preview_try_start(void)
 {
-    if (s_started || !s_active || !video_engine_is_running()) {
+    if (!s_active || !video_engine_is_running()) {
         return;
     }
+
+    /* The preview worker lives inside the video engine. A rapid Vision
+     * exit/re-enter can bounce video_engine_deinit()/init() underneath us,
+     * killing the worker that was started against the old engine instance.
+     * So instead of latching s_started once, track the engine's actual preview
+     * state and (re)start whenever the engine is up but the worker isn't. */
+    if (video_engine_preview_is_running()) {
+        if (!s_started) {
+            s_started = 1;
+            if (s_status != NULL && lv_obj_is_valid(s_status)) {
+                lv_obj_add_flag(s_status, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+        return;
+    }
+
+    /* Engine running but preview worker not (yet) alive: it either never
+     * started or died with a torn-down engine. Clear the latch and (re)start. */
+    s_started = 0;
 
     video_engine_preview_config_t cfg = {
         .width = VISION_PREVIEW_IN_W,
