@@ -30,8 +30,8 @@
 #define HAND_GESTURE_MODEL_SD_PATH "1:/tflite/hand_gesture_detection_vela.tflite"
 #endif
 
-static constexpr float k_conf_threshold = 0.45f;
-static constexpr float k_iou_threshold = 0.7f;
+static constexpr float k_conf_threshold = 0.5f;
+static constexpr float k_iou_threshold = 0.5f;
 static constexpr int k_max_detections = 32;
 
 static constexpr const char *k_class_names[k_num_classes] = {
