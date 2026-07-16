@@ -46,6 +46,12 @@ static const char *const s_tr[STR_ID_COUNT][UI_LANG_COUNT] = {
     [STR_SETTINGS_SUBTITLE]= { "音量 · U盘 · 恢复出厂",  "Volume · USB · Reset" },
     [STR_SETTINGS_LANG]    = { "语言",                  "Language" },
 
+    [STR_USBMODE_TITLE]    = { "U盘 / UART",            "USB / UART" },
+    [STR_USBMODE_UART]     = { "UART",                  "UART (Log)" },
+    [STR_USBMODE_USB]      = { "U盘",                   "USB Drive" },
+    [STR_USBMODE_ON_UART]  = { "当前 UART",             "Now: UART" },
+    [STR_USBMODE_ON_USB]   = { "当前 U盘",              "Now: USB" },
+
     [STR_LANG_NATIVE_ZH]   = { "中文",                  "中文" },
     [STR_LANG_NATIVE_EN]   = { "English",               "English" },
 };

@@ -58,6 +58,9 @@ typedef struct {
     const char *const *descriptions;   /**< Optional right-side entry hints. */
     const ui_theme_icon_kind_t *icons; /**< Optional semantic entry icons. */
     int item_count;                    /**< Entry count (<= UI_LIST_MENU_MAX_ITEMS). */
+    int initial_focus;                 /**< Entry that starts focused (blue bar);
+                                        *   defaults to 0. Use it to point the
+                                        *   highlight at the active choice. */
     const char *const *tabs;           /**< Optional category pills above the list. */
     int tab_count;                     /**< Optional category pill count. */
     int active_tab;                    /**< Active category pill index. */

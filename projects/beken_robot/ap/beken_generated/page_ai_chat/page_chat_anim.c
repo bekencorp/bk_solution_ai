@@ -64,10 +64,13 @@
 #define APP_LOGICAL_H     LOGICAL_SCREEN_HEIGHT
 
 #define CORE_CX           (APP_LOGICAL_W / 2)
-#define CORE_CY           132
+#define CORE_CY           PAGE_VISION_CORE_CY
 #define CORE_DIAM         50
 
-#define STATUS_Y          48
+/* Status line sits above the viewfinder. The vision preview now fills the whole
+ * frame (top edge at FRAME_TOP = CORE_CY - FRAME_H/2 = 61), so keep the status
+ * text clear of it: STATUS_Y + STATUS_FONT_H must stay below FRAME_TOP. */
+#define STATUS_Y          34
 #define STATUS_FONT_H     22
 
 /* EQ bars: bottom-anchored, height grows upward. */
@@ -86,11 +89,12 @@
 #define EQ_LERP_NUM        3    /* cur_h += (target - cur_h) * 3/10 */
 #define EQ_LERP_DEN        10
 
-/* Viewfinder frame (vision mode only) */
-#define FRAME_W           257
-#define FRAME_H           142
-#define FRAME_LEFT        ((APP_LOGICAL_W - FRAME_W) / 2)
-#define FRAME_TOP         (CORE_CY - FRAME_H / 2)
+/* Viewfinder frame (vision mode only) - geometry shared via page_chat_anim.h
+ * so page_vision_preview.c can align the live camera image to these brackets. */
+#define FRAME_W           PAGE_VISION_FRAME_W
+#define FRAME_H           PAGE_VISION_FRAME_H
+#define FRAME_LEFT        PAGE_VISION_FRAME_LEFT
+#define FRAME_TOP         PAGE_VISION_FRAME_TOP
 #define FRAME_BOTTOM      (FRAME_TOP + FRAME_H)
 #define CORNER_LEN        24
 #define CORNER_THICK      3
@@ -154,8 +158,8 @@ static int32_t   s_eq_cur_h[EQ_BAR_COUNT];
 static int32_t   s_eq_t_deg;
 static lv_timer_t *s_eq_energy_timer;
 
-/* Vision mode overlay */
-static lv_obj_t *s_frame_anchor;
+/* Vision mode overlay. Corner brackets + scan line are owned by
+ * page_vision_preview.c (drawn over the live image); only REC lives here. */
 static lv_obj_t *s_rec_label;
 
 #if CONFIG_APP_EVT
@@ -489,15 +493,6 @@ static void stop_eq_energy(void)
  *  Vision overlay (page_7 only)
  * ==========================================================================*/
 
-static void scan_y_cb(void *var, int32_t v)
-{
-    lv_obj_t *o = (lv_obj_t *)var;
-    if (o == NULL || !lv_obj_is_valid(o)) {
-        return;
-    }
-    lv_obj_set_y(o, v);
-}
-
 static void rec_opa_cb(void *var, int32_t v)
 {
     lv_obj_t *o = (lv_obj_t *)var;
@@ -510,60 +505,11 @@ static void rec_opa_cb(void *var, int32_t v)
 
 static void build_vision_overlay(lv_obj_t *root)
 {
-    /* Anchor at frame center so corner positions can be expressed relative. */
-    s_frame_anchor = lv_obj_create(root);
-    lv_obj_remove_style_all(s_frame_anchor);
-    lv_obj_set_size(s_frame_anchor, FRAME_W, FRAME_H);
-    lv_obj_set_pos(s_frame_anchor, FRAME_LEFT, FRAME_TOP);
-
-    /* Four corner brackets. Each corner is two thin rectangles: a
-     * horizontal strip and a vertical strip joined at a right angle. */
-    struct corner_def { int x; int y; int hx; int hy; int vx; int vy; };
-    const struct corner_def corners[4] = {
-        /* top-left  */ { 0,             0,             0, 0, 0, 0 },
-        /* top-right */ { FRAME_W - CORNER_LEN, 0,
-                         FRAME_W - CORNER_LEN, 0,
-                         FRAME_W - CORNER_THICK, 0 },
-        /* btm-left  */ { 0, FRAME_H - CORNER_THICK,
-                         0, FRAME_H - CORNER_THICK,
-                         0, FRAME_H - CORNER_LEN },
-        /* btm-right */ { FRAME_W - CORNER_LEN, FRAME_H - CORNER_THICK,
-                         FRAME_W - CORNER_LEN, FRAME_H - CORNER_THICK,
-                         FRAME_W - CORNER_THICK, FRAME_H - CORNER_LEN },
-    };
-    /* The struct above carries redundant fields; simpler: compute on the
-     * fly from the corner index. */
-    (void)corners;
-    for (int i = 0; i < 4; i++) {
-        int hx = (i & 1) ? (FRAME_W - CORNER_LEN) : 0;
-        int hy = (i & 2) ? (FRAME_H - CORNER_THICK) : 0;
-        int vx = (i & 1) ? (FRAME_W - CORNER_THICK) : 0;
-        int vy = (i & 2) ? (FRAME_H - CORNER_LEN) : 0;
-
-        lv_obj_t *h = make_solid(s_frame_anchor, CORNER_LEN, CORNER_THICK,
-                                 COLOR_FRAME, 1);
-        lv_obj_set_pos(h, hx, hy);
-        lv_obj_t *v = make_solid(s_frame_anchor, CORNER_THICK, CORNER_LEN,
-                                 COLOR_FRAME, 1);
-        lv_obj_set_pos(v, vx, vy);
-    }
-
-    /* Scan line sweeping vertically across the frame. */
-    lv_obj_t *scan = make_solid(s_frame_anchor, FRAME_W - 8, 2,
-                                COLOR_FRAME, 1);
-    lv_obj_set_pos(scan, 4, 0);
-    lv_obj_set_style_bg_opa(scan, LV_OPA_80, LV_PART_MAIN);
-
-    lv_anim_t sa;
-    lv_anim_init(&sa);
-    lv_anim_set_var(&sa, scan);
-    lv_anim_set_exec_cb(&sa, scan_y_cb);
-    lv_anim_set_values(&sa, 0, FRAME_H - 2);
-    lv_anim_set_duration(&sa, 2200);
-    lv_anim_set_reverse_duration(&sa, 2200);
-    lv_anim_set_repeat_count(&sa, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&sa, lv_anim_path_ease_in_out);
-    lv_anim_start(&sa);
+    /* NOTE: the corner brackets and the vertical scan line are NOT drawn here
+     * anymore. They are now drawn by page_vision_preview.c on top of the live
+     * camera image (a foreground panel), so they stay visible over the picture
+     * instead of being hidden behind it. This overlay only keeps the blinking
+     * REC label, which sits above the frame and never overlaps the image. */
 
     /* Blinking REC label below the frame top-right corner. */
     s_rec_label = lv_label_create(root);
@@ -817,7 +763,6 @@ static void clear_all_objects(void)
     s_core_anchor   = NULL;
     s_core          = NULL;
     s_orbit_dot     = NULL;
-    s_frame_anchor  = NULL;
     s_rec_label     = NULL;
     for (int i = 0; i < 3; i++) s_ripple[i] = NULL;
     for (int i = 0; i < EQ_BAR_COUNT; i++) s_eq[i] = NULL;

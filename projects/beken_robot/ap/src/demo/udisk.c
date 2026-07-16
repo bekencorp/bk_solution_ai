@@ -30,13 +30,24 @@ int udisk_start(void)
     return 0;
 }
 
-int udisk_stop(void) { return 0; }
+int udisk_stop(void)
+{
+    LOGI("U-disk mode -> route Type-C back to CH340 UART + MSC down\r\n");
+    if (board_usb_switch_to_uart() != BK_OK) {
+        LOGE("board_usb_switch_to_uart failed\r\n");
+        return -1;
+    }
+    return 0;
+}
+
+int udisk_is_usb_mode(void) { return board_usb_switch_in_usb_mode(); }
 
 #else  /* !ROBOT_TEST */
 
 int udisk_init(void)  { return 0; }
 int udisk_start(void) { return 0; }
 int udisk_stop(void)  { return 0; }
+int udisk_is_usb_mode(void) { return 0; }
 
 #endif /* ROBOT_TEST */
 

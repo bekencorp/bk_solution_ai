@@ -14,6 +14,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include <os/os.h>
+
 #include "ui_list_menu.h"
 #include "ui_nav_router.h"
 #include "ui_theme.h"
@@ -716,6 +718,7 @@ static const ui_theme_icon_kind_t s_settings_icons[SETTINGS_ITEM_COUNT] = {
 };
 
 static int language_menu_enter(void);
+static int usb_mode_menu_enter(void);
 
 static void settings_on_select(int index, void *user_data)
 {
@@ -726,8 +729,9 @@ static void settings_on_select(int index, void *user_data)
         (void)volume_start();
         break;
     case SETTINGS_UDISK:
-        ui_demo_set_return_menu(device_settings_enter);
-        (void)udisk_start();
+        /* Open the UART/USB mode sub-menu so the user can switch either way
+         * and see which mode is currently active. */
+        (void)usb_mode_menu_enter();
         break;
     case SETTINGS_LANG:
         (void)language_menu_enter();
@@ -760,6 +764,10 @@ int device_settings_enter(void)
     /* The language row shows the active language name as its right-side hint. */
     s_settings_desc_rt[SETTINGS_LANG] =
         ui_tr(lang == UI_LANG_EN ? STR_LANG_NATIVE_EN : STR_LANG_NATIVE_ZH);
+    /* The U-disk row shows the current Type-C mode so it is obvious at a
+     * glance whether the port is serving UART log or the USB drive. */
+    s_settings_desc_rt[SETTINGS_UDISK] =
+        ui_tr(udisk_is_usb_mode() ? STR_USBMODE_ON_USB : STR_USBMODE_ON_UART);
 
     s_settings_cfg.title = ui_tr(STR_SETTINGS_TITLE);
     s_settings_cfg.subtitle = ui_tr(STR_SETTINGS_SUBTITLE);
@@ -809,14 +817,114 @@ static ui_list_menu_config_t s_lang_cfg = {
 static int language_menu_enter(void)
 {
     ui_lang_t lang = demo_lang();
-    static const char *s_lang_desc_rt[LANG_ITEM_COUNT];
-    s_lang_desc_rt[LANG_ITEM_ZH] = (lang == UI_LANG_ZH) ? LV_SYMBOL_OK : "";
-    s_lang_desc_rt[LANG_ITEM_EN] = (lang == UI_LANG_EN) ? LV_SYMBOL_OK : "";
 
     s_lang_cfg.title = ui_tr(STR_SETTINGS_LANG);
     s_lang_cfg.subtitle = ui_tr(STR_SETTINGS_TITLE);
-    s_lang_cfg.descriptions = s_lang_desc_rt;
+    /* The blue highlight bar marks the active language; no check-mark glyph
+     * (the list font would render it as a box). */
+    s_lang_cfg.descriptions = NULL;
+    s_lang_cfg.initial_focus = (lang == UI_LANG_EN) ? LANG_ITEM_EN : LANG_ITEM_ZH;
     return ui_list_menu_create(&s_lang_cfg) != NULL ? 0 : -1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Type-C port mode sub-menu (UART log  <->  USB / U-disk).            */
+/*                                                                     */
+/* The single Type-C connector is muxed between the CH340 UART (log)   */
+/* and the BK7259 USB device (U-disk). Both directions are reversible  */
+/* from here; a check mark marks the active mode. Note that switching  */
+/* to USB physically disconnects the UART log until switched back.     */
+/* ------------------------------------------------------------------ */
+enum {
+    USB_MODE_ITEM_UART = 0,
+    USB_MODE_ITEM_USB,
+    USB_MODE_ITEM_COUNT,
+};
+
+static const ui_theme_icon_kind_t s_usb_mode_icons[USB_MODE_ITEM_COUNT] = {
+    UI_THEME_ICON_SETTINGS,
+    UI_THEME_ICON_USB,
+};
+
+/* Switching the Type-C mux drags the whole USB device controller through a
+ * re-init (msc_storage_init/deinit -> usbd_(de)initialize -> usb_dc_init),
+ * which takes long enough to freeze the LVGL render thread if run inline.
+ * Do it on a short-lived worker task and rebuild the menu back on the LVGL
+ * thread via lv_async_call once the (slow) switch has settled. */
+static volatile bool s_usb_switch_busy;
+static int           s_usb_switch_want_usb;
+
+static void usb_mode_rebuild_async(void *arg)
+{
+    (void)arg;
+    (void)usb_mode_menu_enter();
+}
+
+static void usb_mode_switch_task(void *arg)
+{
+    (void)arg;
+    if (s_usb_switch_want_usb) {
+        (void)udisk_start();   /* Type-C -> BK7259 USB (U-disk), UART log gone */
+    } else {
+        (void)udisk_stop();    /* Type-C -> CH340 UART (log restored)          */
+    }
+    /* Refresh the highlight bar / current-mode subtitle on the UI thread. */
+    lv_async_call(usb_mode_rebuild_async, NULL);
+    s_usb_switch_busy = false;
+    rtos_delete_thread(NULL);
+}
+
+static void usb_mode_on_select(int index, void *user_data)
+{
+    (void)user_data;
+    int want_usb = (index == USB_MODE_ITEM_USB) ? 1 : 0;
+
+    /* Ignore a tap on the already-active mode, and drop taps while a switch
+     * is still in flight so the USB device controller is never re-inited
+     * re-entrantly (that is what hung the second switch). */
+    if (s_usb_switch_busy || want_usb == udisk_is_usb_mode()) {
+        return;
+    }
+    s_usb_switch_busy = true;
+    s_usb_switch_want_usb = want_usb;
+
+    beken_thread_t thr = NULL;
+    if (rtos_create_thread(&thr, 5, "usbsw",
+                           (beken_thread_function_t)usb_mode_switch_task,
+                           4096, NULL) != kNoErr) {
+        /* Thread spawn failed: fall back to an inline switch (may briefly
+         * block the UI) rather than silently doing nothing. */
+        if (want_usb) { (void)udisk_start(); } else { (void)udisk_stop(); }
+        s_usb_switch_busy = false;
+        (void)usb_mode_menu_enter();
+    }
+}
+
+static ui_list_menu_config_t s_usb_mode_cfg = {
+    .icons = s_usb_mode_icons,
+    .item_count = USB_MODE_ITEM_COUNT,
+    .on_select = usb_mode_on_select,
+    .on_back = device_settings_enter,
+    .on_nav_intercept = NULL,
+    .user_data = NULL,
+};
+
+static int usb_mode_menu_enter(void)
+{
+    int in_usb = udisk_is_usb_mode();
+
+    static const char *s_usb_mode_items_rt[USB_MODE_ITEM_COUNT];
+    s_usb_mode_items_rt[USB_MODE_ITEM_UART] = ui_tr(STR_USBMODE_UART);
+    s_usb_mode_items_rt[USB_MODE_ITEM_USB]  = ui_tr(STR_USBMODE_USB);
+
+    s_usb_mode_cfg.title = ui_tr(STR_USBMODE_TITLE);
+    s_usb_mode_cfg.subtitle = ui_tr(in_usb ? STR_USBMODE_ON_USB : STR_USBMODE_ON_UART);
+    s_usb_mode_cfg.items = s_usb_mode_items_rt;
+    /* The blue highlight bar marks the active mode; no right-side glyph (the
+     * list font has no check-mark symbol, so it would render as a box). */
+    s_usb_mode_cfg.descriptions = NULL;
+    s_usb_mode_cfg.initial_focus = in_usb ? USB_MODE_ITEM_USB : USB_MODE_ITEM_UART;
+    return ui_list_menu_create(&s_usb_mode_cfg) != NULL ? 0 : -1;
 }
 
 #else /* !ROBOT_TEST */

@@ -24,6 +24,17 @@
 #define OVERLAY_SWIPE_MAX_MS           1500U
 #define OVERLAY_SWIPE_DEBOUNCE_MS      500U
 #define OVERLAY_SWIPE_STOP_WAIT_MS     400U
+/* Tap: short press+release that stays within a small radius (i.e. clearly not
+ * a swipe). */
+#define OVERLAY_TAP_MAX_MS             350U
+#define OVERLAY_TAP_MAX_MOVE           30
+#define OVERLAY_TAP_DEBOUNCE_MS        450U
+
+typedef enum {
+    OVERLAY_GESTURE_NONE = 0,
+    OVERLAY_GESTURE_BACK,
+    OVERLAY_GESTURE_TAP,
+} overlay_gesture_t;
 
 typedef struct {
     bool pressed;
@@ -43,6 +54,9 @@ static volatile bool s_swipe_stop_req;
 static ui_overlay_swipe_back_cb_t s_back_cb;
 static void *s_back_arg;
 static uint32_t s_last_back_ms;
+static ui_overlay_tap_cb_t s_tap_cb;
+static void *s_tap_arg;
+static uint32_t s_last_tap_ms;
 static int32_t s_tp_raw_w = 320;
 static int32_t s_tp_raw_h = 385;
 static int s_tp_rotation = ROTATE_NONE;
@@ -79,8 +93,8 @@ static overlay_point_t overlay_tp_to_screen(const tp_point_infor_t *point)
     return screen;
 }
 
-static bool overlay_swipe_check_right(overlay_swipe_state_t *st,
-                                      const tp_point_infor_t *point)
+static overlay_gesture_t overlay_detect_gesture(overlay_swipe_state_t *st,
+                                                const tp_point_infor_t *point)
 {
     uint32_t now = rtos_get_time();
     overlay_point_t screen = overlay_tp_to_screen(point);
@@ -92,31 +106,44 @@ static bool overlay_swipe_check_right(overlay_swipe_state_t *st,
             st->start_y = screen.y;
             st->start_ms = now;
         }
-        return false;
+        return OVERLAY_GESTURE_NONE;
     }
 
     if (!st->pressed) {
-        return false;
+        return OVERLAY_GESTURE_NONE;
     }
 
     uint32_t elapsed = now - st->start_ms;
     int32_t dx = screen.x - st->start_x;
+    int32_t adx = abs_i32(dx);
     int32_t dy = abs_i32(screen.y - st->start_y);
     st->pressed = false;
 
-    if (elapsed > OVERLAY_SWIPE_MAX_MS ||
-        st->start_x > OVERLAY_SWIPE_EDGE_X ||
-        dx < OVERLAY_SWIPE_MIN_DX ||
-        dy > OVERLAY_SWIPE_MAX_DY) {
-        return false;
+    /* Right swipe from the left edge -> back (takes priority over a tap). */
+    if (elapsed <= OVERLAY_SWIPE_MAX_MS &&
+        st->start_x <= OVERLAY_SWIPE_EDGE_X &&
+        dx >= OVERLAY_SWIPE_MIN_DX &&
+        dy <= OVERLAY_SWIPE_MAX_DY) {
+        if (s_last_back_ms != 0 && now - s_last_back_ms < OVERLAY_SWIPE_DEBOUNCE_MS) {
+            return OVERLAY_GESTURE_NONE;
+        }
+        s_last_back_ms = now;
+        return OVERLAY_GESTURE_BACK;
     }
 
-    if (s_last_back_ms != 0 && now - s_last_back_ms < OVERLAY_SWIPE_DEBOUNCE_MS) {
-        return false;
+    /* Short press+release with little movement -> tap. */
+    if (s_tap_cb != NULL &&
+        elapsed <= OVERLAY_TAP_MAX_MS &&
+        adx <= OVERLAY_TAP_MAX_MOVE &&
+        dy <= OVERLAY_TAP_MAX_MOVE) {
+        if (s_last_tap_ms != 0 && now - s_last_tap_ms < OVERLAY_TAP_DEBOUNCE_MS) {
+            return OVERLAY_GESTURE_NONE;
+        }
+        s_last_tap_ms = now;
+        return OVERLAY_GESTURE_TAP;
     }
 
-    s_last_back_ms = now;
-    return true;
+    return OVERLAY_GESTURE_NONE;
 }
 
 void ui_overlay_swipe_set_display_transform(int raw_w, int raw_h, int rotation)
@@ -149,6 +176,14 @@ static void overlay_swipe_clear_callback(void)
 {
     s_back_cb = NULL;
     s_back_arg = NULL;
+    s_tap_cb = NULL;
+    s_tap_arg = NULL;
+}
+
+void ui_overlay_swipe_set_tap_cb(ui_overlay_tap_cb_t cb, void *arg)
+{
+    s_tap_cb = cb;
+    s_tap_arg = arg;
 }
 
 static void overlay_swipe_task(void *arg)
@@ -162,7 +197,8 @@ static void overlay_swipe_task(void *arg)
 
         while (!s_swipe_stop_req && drv_tp_read(&point) == BK_OK) {
             got_point = true;
-            if (overlay_swipe_check_right(&state, &point)) {
+            overlay_gesture_t gesture = overlay_detect_gesture(&state, &point);
+            if (gesture == OVERLAY_GESTURE_BACK) {
                 ui_overlay_swipe_back_cb_t cb = s_back_cb;
                 void *cb_arg = s_back_arg;
                 LOGI("right swipe -> overlay back\n");
@@ -174,6 +210,14 @@ static void overlay_swipe_task(void *arg)
                 }
                 rtos_delete_thread(NULL);
                 return;
+            }
+            if (gesture == OVERLAY_GESTURE_TAP) {
+                ui_overlay_tap_cb_t tap_cb = s_tap_cb;
+                void *tap_arg = s_tap_arg;
+                LOGI("tap -> overlay action\n");
+                if (tap_cb != NULL) {
+                    tap_cb(tap_arg);
+                }
             }
             if (!point.m_need_continue) {
                 break;
@@ -253,6 +297,12 @@ int ui_overlay_swipe_back_start(ui_overlay_swipe_back_cb_t cb, void *arg)
 
 void ui_overlay_swipe_back_stop(void)
 {
+}
+
+void ui_overlay_swipe_set_tap_cb(ui_overlay_tap_cb_t cb, void *arg)
+{
+    (void)cb;
+    (void)arg;
 }
 
 #endif

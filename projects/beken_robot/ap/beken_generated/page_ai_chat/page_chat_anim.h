@@ -18,10 +18,29 @@
 #define __PAGE_CHAT_ANIM_H__
 
 #include "lvgl.h"
+#include "beken_ui.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* ---------------------------------------------------------------------------
+ * Vision viewfinder geometry (page_7) - single source of truth.
+ *
+ * These describe the corner-bracket frame drawn by build_vision_overlay() in
+ * page_chat_anim.c. page_vision_preview.c MUST reuse them so the live camera
+ * image lines up exactly with the brackets. Keep them here (not duplicated in
+ * each .c) to prevent the two from drifting out of sync.
+ * ------------------------------------------------------------------------- */
+#define PAGE_VISION_CORE_CY      132
+/* Width MUST stay even: the live preview is an RGB565 image whose row stride is
+ * width*2. An odd width yields a non-4-byte-aligned stride, and the LVGL/display
+ * blit then overruns the tightly-sized preview frame buffers, corrupting the
+ * frame-buffer slab (caught as MEM_SLAB_ERR_OVERFLOW_DATA_TAIL on free). */
+#define PAGE_VISION_FRAME_W      256
+#define PAGE_VISION_FRAME_H      142
+#define PAGE_VISION_FRAME_LEFT   ((LOGICAL_SCREEN_WIDTH - PAGE_VISION_FRAME_W) / 2)
+#define PAGE_VISION_FRAME_TOP    (PAGE_VISION_CORE_CY - PAGE_VISION_FRAME_H / 2)
 
 typedef enum {
     PAGE_CHAT_ANIM_MODE_VOICE = 0,   /**< AI chat only (page_6) */

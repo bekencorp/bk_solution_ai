@@ -45,6 +45,7 @@ bk_err_t bk_robot_lvgl_resume_display(void);
  * camera_preview does not have to pull in any RTC-backend specific
  * headers (which live in a component-private include path). */
 #include "bk_smart_config.h"
+#include "audio_engine.h"
 #if CONFIG_BK_NETWORK_ENGINE
 #include "network_engine.h"
 #endif
@@ -245,6 +246,32 @@ static void camera_preview_resume_lvgl(void)
     lv_vendor_disp_unlock();
 }
 
+/* ----------------------------------------------------------------------
+ * Touch control during preview.
+ *
+ * LVGL is stopped during preview (the screen is a pure GPU composite of the
+ * camera), so we cannot use LVGL widgets. Touch is instead read by the raw-TP
+ * overlay worker (ui_overlay_swipe): a single tap anywhere toggles capture <->
+ * resume, while the existing right-swipe still exits.
+ *
+ * Note: an on-screen hint drawn with the GPU vector-path overlay (as the
+ * edge-AI demos do for detection boxes) is NOT usable here -- this preview
+ * pipeline opens the GPU flexa with no tessellation buffer (tess 0x0), so any
+ * vg_lite path draw bus-errors and hangs the whole GPU. The physical keys and
+ * the fullscreen tap remain the control surface.
+ * -------------------------------------------------------------------- */
+
+/* Single tap anywhere: live -> capture (freeze), frozen -> resume live. */
+static void camera_preview_overlay_tap(void *arg)
+{
+    (void)arg;
+    if (camera_preview_is_running()) {
+        (void)camera_preview_take_photo();
+    } else if (camera_preview_is_frozen()) {
+        (void)camera_preview_resume_live();
+    }
+}
+
 static void camera_preview_start_task(void *arg)
 {
     (void)arg;
@@ -299,6 +326,8 @@ static void camera_preview_start_task(void *arg)
 
     s_preview_state = PREVIEW_STATE_RUNNING;
     (void)ui_overlay_swipe_back_start(camera_preview_overlay_back, NULL);
+    /* Tap anywhere to capture/resume (physical keys still work too). */
+    ui_overlay_swipe_set_tap_cb(camera_preview_overlay_tap, NULL);
     s_preview_thread = NULL;
     LOGI("camera_preview_start_task: running\n");
     rtos_delete_thread(NULL);
@@ -925,6 +954,13 @@ static void camera_preview_stop_task(void *arg)
     ntwk_eng_set_uplink_audio_muted(false);
     (void)bk_sconf_exit_ai_mode_async(0);
 
+    /* Symmetric with the audio_engine_init() in camera_preview_demo_start():
+     * the AI-camera session owns the audio engine, so shut it down on the way
+     * out (mirrors vision_request_exit / ai_chat_request_exit). */
+    if (audio_engine_is_running()) {
+        (void)audio_engine_stop();
+    }
+
     (void)media_gpu_drop_snapshot();
 
     camera_preview_release_photo();
@@ -972,6 +1008,17 @@ int camera_preview_demo_start(void)
 #endif
     if (camera_preview_start() != 0) {
         LOGE("camera_preview_start trigger failed\r\n");
+        return -1;
+    }
+    /* Bring the audio engine up BEFORE the AGENT_JOINED prompt tone (mirrors
+     * ai_chat_start_service / vision_start_service). Otherwise the prompt-tone
+     * handler is the one that inits the engine, marks itself as the owner, and
+     * then tears the whole engine down on PROMPT_TONE_FINISH -- killing the
+     * downlink speaker path so the vision LLM's spoken answer is never heard.
+     * Starting it here means the prompt tone just mixes into an already-running
+     * engine and leaves it alive for the RTC/agent reply. */
+    if (!audio_engine_is_running() && audio_engine_init() != AUDIO_ENGINE_SUCCESS) {
+        LOGW("AI camera restore audio engine failed\r\n");
         return -1;
     }
 #if CONFIG_APP_EVT

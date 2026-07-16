@@ -70,17 +70,27 @@ bk_err_t board_usb_switch_to_usb(void);
 
 /**
  * @brief Drive the USB mux back to CH340 UART (default boot state).
+ *
+ * Only the FSW3157A mux is flipped; the USB device MSC stack (if it was
+ * brought up) is intentionally LEFT initialised so the next switch back to
+ * USB is a plain hot-replug instead of a fragile deinit/re-init cycle. Use
+ * board_usb_switch_prepare_nand_access() when MSC must actually be torn down.
  */
 bk_err_t board_usb_switch_to_uart(void);
 
 /**
+ * @brief Query the current Type-C mux routing so the UI can show the state.
+ * @return 1 if Type-C is routed to BK7259 USB (U-disk), 0 if routed to the
+ *         CH340 UART path (default). Always 0 when the switch is not enabled.
+ */
+int board_usb_switch_in_usb_mode(void);
+
+/**
  * @brief Make the SD-NAND available to the AP-side FatFS.
  *
- * If the FSW3157A is currently routed to BK7259 USB (and the CherryUSB
- * MSC layer therefore owns the SDIO), this call performs the same
- * teardown as board_usb_switch_to_uart() so the AP can subsequently
- * f_mount drive 1. Idempotent: no-op when the mux is already in UART
- * mode.
+ * Flips the mux back to CH340 (if needed) AND tears the CherryUSB MSC layer
+ * down so it releases the SDIO, letting the AP f_mount drive 1. This is the
+ * only path that deinitialises MSC; the plain UART toggle keeps it up.
  */
 bk_err_t board_usb_switch_prepare_nand_access(void);
 

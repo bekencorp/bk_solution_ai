@@ -258,7 +258,8 @@ static void build_menu(ui_list_menu_ctx_t *ctx, lv_obj_t *screen,
     ctx->screen = screen;
     ctx->cfg = *cfg;
     ctx->item_count = count;
-    ctx->focus_idx = 0;
+    ctx->focus_idx = (cfg->initial_focus >= 0 && cfg->initial_focus < count)
+                     ? cfg->initial_focus : 0;
 
     ui_theme_apply_screen(screen);
 
