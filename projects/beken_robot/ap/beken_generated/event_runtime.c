@@ -22,6 +22,7 @@
 
 #include "event_runtime.h"
 #include "beken_ui.h"
+#include "page_hooks.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -39,13 +40,26 @@ void navigate_to_screen(lv_obj_t** target, lv_screen_load_anim_t anim_type, int 
     if (target == NULL) {
         return;
     }
-    
+
+    /* Screen we are leaving, captured before the (lazy) init of the target
+     * so we can release it once the new screen is loaded. */
+    lv_obj_t *prev = lv_screen_active();
+
     if ((*target == NULL || !lv_obj_is_valid(*target)) && target_init != NULL) {
         target_init(&bk_lv_tool_ui);
     }
     
     if ((*target != NULL && lv_obj_is_valid(*target))) {
         lv_screen_load_anim(*target, anim_type, anim_time, delay, auto_del);
+        /* Free the previous page (except keep-alive hubs / dynamic screens)
+         * so deep UI navigation does not accumulate resident pages.
+         * Only safe on the immediate-load path (time==0 && delay==0), where
+         * lv_screen_load_anim() switches the active screen synchronously;
+         * with a real transition the swap is deferred and `prev` would still
+         * be active here, so we leave it to LVGL's auto_del in that case. */
+        if (anim_time == 0 && delay == 0) {
+            bk_page_release_prev_screen(prev, *target);
+        }
     }
 }
 

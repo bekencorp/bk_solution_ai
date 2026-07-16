@@ -74,6 +74,19 @@ void bk_page_fire_destroy(int page_id, bk_lv_ui_t *ui);
 void bk_page_attach_right_swipe_gesture(lv_obj_t *screen);
 
 /**
+ * @brief Release the page we navigated away from, to avoid accumulating
+ *        resident pages as the user drills deeper into the UI.
+ *
+ * Destroys `prev` via its destroy_page_page_N() (full teardown: UI EXIT
+ * hook + nav/service cleanup + lv_obj_del) when `prev` is a disposable
+ * generated page. No-op when `prev` is NULL, equal to `next`, or a
+ * non-generated (dynamic) screen that owns its own lifetime. MUST be called
+ * AFTER `next` has been loaded as the active screen (deleting the active
+ * screen is illegal in LVGL).
+ */
+void bk_page_release_prev_screen(lv_obj_t *prev, lv_obj_t *next);
+
+/**
  * @brief Register all per-page UI hooks under beken_generated/page_*.
  *
  * Each page subdirectory provides a page_<feature>_init_hooks() function
