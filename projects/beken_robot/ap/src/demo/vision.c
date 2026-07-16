@@ -36,11 +36,7 @@ int vision_start_service(void)
     if (bk_sconf_enter_vision_mode() != BK_OK) {
         return -1;
     }
-#if CONFIG_APP_EVT
-    if (app_event_send_msg(APP_EVT_AGENT_JOINED, 0) != BK_OK) {
-        LOGW("Vision entry prompt event failed\r\n");
-    }
-#endif
+
     return 0;
 }
 
