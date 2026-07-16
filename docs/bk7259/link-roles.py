@@ -58,7 +58,7 @@ def setup(app):
     on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
     if on_rtd:
         # provide RTD specific commit identification to be included in the link
-        tag_rev = '4.0.1'
+        tag_rev = 'v4.0.1'
         if (run_cmd_get_output('git rev-parse --short HEAD') != rev):
             tag_rev = rev
     else:
@@ -68,7 +68,7 @@ def setup(app):
     DOCS_VERSION = os.getenv('DOCS_VERSION')
 
     if DOCS_VERSION is None:
-        app.add_role('link_to_translation', crosslink('%s../../%s/4.0.1/%s.html'))
+        app.add_role('link_to_translation', crosslink('%s../../%s/v4.0.1/%s.html'))
     else:
         app.add_role('link_to_translation', crosslink('%s../../%s/{}/%s.html'.format(DOCS_VERSION)))
 
