@@ -79,6 +79,15 @@ static int home_enter(void)
 
 #define DEMO_CENTER_MAX_ITEMS 7
 
+/*
+ * Two-zone key focus: the list rows use focus indices 0..item_count-1, while
+ * DEMO_CENTER_FOCUS_TABS puts the key focus on the category tab bar. In the
+ * tab zone FOCUS_PREV/NEXT cycle the active category and SCREEN_NEXT drops the
+ * focus into the list. Touch handling is unaffected -- tapping a tab or a row
+ * still selects directly.
+ */
+#define DEMO_CENTER_FOCUS_TABS (-1)
+
 static lv_obj_t *s_demo_center_screen;
 static lv_obj_t *s_demo_center_panel;
 static lv_obj_t *s_demo_center_tabs[DEMO_CAT_COUNT];
@@ -89,6 +98,7 @@ static ui_touch_tap_state_t s_demo_center_tap_state;
 
 static void demo_center_render(void);
 static int demo_center_show_category(int category);
+static void demo_center_switch_tab(int delta);
 
 /* ------------------------------------------------------------------ */
 /* End-side AI sub-menu.                                               */
@@ -353,6 +363,26 @@ static bool demo_center_nav_intercepted(ui_nav_event_t ev)
     return false;
 }
 
+static void demo_center_apply_tab_focus(bool tabs_focused)
+{
+    for (int i = 0; i < DEMO_CAT_COUNT; i++) {
+        lv_obj_t *seg = s_demo_center_tabs[i];
+        if (seg == NULL || !lv_obj_is_valid(seg)) {
+            continue;
+        }
+
+        bool ring = tabs_focused && (i == s_demo_center_active_cat);
+        lv_obj_set_style_outline_width(seg, ring ? 3 : 0,
+                                       LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_outline_color(seg, lv_color_hex(UI_THEME_COLOR_PRIMARY),
+                                       LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_outline_opa(seg, ring ? LV_OPA_COVER : LV_OPA_TRANSP,
+                                     LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_outline_pad(seg, ring ? 2 : 0,
+                                     LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
+}
+
 static void demo_center_apply_focus(void)
 {
     const ui_list_menu_config_t *cfg = demo_center_cfg_for_category(s_demo_center_active_cat);
@@ -360,13 +390,15 @@ static void demo_center_apply_focus(void)
         return;
     }
 
+    bool tabs_focused = (s_demo_center_focus == DEMO_CENTER_FOCUS_TABS);
+
     for (int i = 0; i < cfg->item_count && i < DEMO_CENTER_MAX_ITEMS; i++) {
         lv_obj_t *row = s_demo_center_rows[i];
         if (row == NULL || !lv_obj_is_valid(row)) {
             continue;
         }
 
-        bool focused = (i == s_demo_center_focus);
+        bool focused = (!tabs_focused && i == s_demo_center_focus);
         const char *desc = cfg->descriptions != NULL ? cfg->descriptions[i] : NULL;
         ui_theme_icon_kind_t icon = cfg->icons != NULL ? cfg->icons[i] : UI_THEME_ICON_DEMO;
         ui_theme_set_row_focus(row, cfg->items[i], desc, icon, focused);
@@ -374,6 +406,8 @@ static void demo_center_apply_focus(void)
             lv_obj_scroll_to_view(row, LV_ANIM_ON);
         }
     }
+
+    demo_center_apply_tab_focus(tabs_focused);
 }
 
 static void demo_center_select_focused(void)
@@ -383,6 +417,12 @@ static void demo_center_select_focused(void)
         return;
     }
     if (demo_center_nav_intercepted(UI_NAV_EVENT_SCREEN_NEXT)) {
+        return;
+    }
+    if (s_demo_center_focus == DEMO_CENTER_FOCUS_TABS) {
+        /* Confirming on the tab bar drops the focus into the list. */
+        s_demo_center_focus = 0;
+        demo_center_apply_focus();
         return;
     }
     if (s_demo_center_focus >= 0 && s_demo_center_focus < cfg->item_count) {
@@ -495,6 +535,16 @@ static lv_obj_t *demo_center_create_row(lv_obj_t *parent, const char *title,
     return row;
 }
 
+static void demo_center_switch_tab(int delta)
+{
+    int next = (s_demo_center_active_cat + delta + DEMO_CAT_COUNT) % DEMO_CAT_COUNT;
+    s_demo_center_active_cat = next;
+    /* Stay in the tab zone so up/down keeps cycling categories; the new
+     * category's list is rebuilt underneath and previewed unfocused. */
+    s_demo_center_focus = DEMO_CENTER_FOCUS_TABS;
+    demo_center_render();
+}
+
 static void demo_center_focus_prev(bk_lv_ui_t *ui)
 {
     (void)ui;
@@ -505,7 +555,17 @@ static void demo_center_focus_prev(bk_lv_ui_t *ui)
     if (demo_center_nav_intercepted(UI_NAV_EVENT_FOCUS_PREV)) {
         return;
     }
-    s_demo_center_focus = (s_demo_center_focus + cfg->item_count - 1) % cfg->item_count;
+    if (s_demo_center_focus == DEMO_CENTER_FOCUS_TABS) {
+        demo_center_switch_tab(-1);
+        return;
+    }
+    if (s_demo_center_focus == 0) {
+        /* Moving up past the first row hands focus to the tab bar. */
+        s_demo_center_focus = DEMO_CENTER_FOCUS_TABS;
+        demo_center_apply_focus();
+        return;
+    }
+    s_demo_center_focus--;
     demo_center_apply_focus();
 }
 
@@ -519,6 +579,13 @@ static void demo_center_focus_next(bk_lv_ui_t *ui)
     if (demo_center_nav_intercepted(UI_NAV_EVENT_FOCUS_NEXT)) {
         return;
     }
+    if (s_demo_center_focus == DEMO_CENTER_FOCUS_TABS) {
+        demo_center_switch_tab(1);
+        return;
+    }
+    /* Within the list, wrap around at the bottom to keep browsing quick;
+     * use "up from the first row" as the single, predictable path to the
+     * tab bar. */
     s_demo_center_focus = (s_demo_center_focus + 1) % cfg->item_count;
     demo_center_apply_focus();
 }
