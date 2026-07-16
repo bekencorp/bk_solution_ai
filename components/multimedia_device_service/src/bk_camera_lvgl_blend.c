@@ -293,7 +293,10 @@ bk_err_t bk_camera_lvgl_blend_update_lvgl_frame(void *frame, int (*release_cb)(v
     }
 
     if (s_blend.suspended) {
-        return BK_FAIL;
+        if (release_cb != NULL) {
+            (void)release_cb(frame);
+        }
+        return BK_OK;
     }
 
     return lv_camera_blend_async_update_lvgl_frame(s_blend.async_handle,
