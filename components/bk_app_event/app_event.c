@@ -69,6 +69,8 @@ static beken_mutex_t s_event_mutex = NULL;
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
 extern audio_engine_prompt_tone_handle_t g_audio_engine_prompt_tone;
 static bool s_prompt_tone_owns_audio_engine;
+static bool s_face_prompt_pending;
+static app_evt_type_t s_face_prompt_pending_event;
 #endif
 
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
@@ -78,6 +80,12 @@ static uint8_t s_prompt_tone_status; //0 stop 1 play
 static audio_dec_type_t app_prompt_tone_dec_type(void)
 {
     return AUDIO_DEC_TYPE_MP3;
+}
+
+static bool app_is_face_prompt_event(app_evt_type_t event)
+{
+    return event >= APP_EVT_FACE_NO_FACE_DETECTED &&
+           event <= APP_EVT_FACE_NO_DELETABLE_PROFILE;
 }
 
 #if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
@@ -96,6 +104,18 @@ static char low_voltage_prompt_tone_path[] = "/sd0/low_voltage_16k_mono_16bit_en
 static char ota_update_success_prompt_tone_path[] = "/sd0/ota_update_success_16k_mono_16bit_en.mp3";
 static char ota_update_fail_prompt_tone_path[] = "/sd0/ota_update_fail_16k_mono_16bit_en.mp3";
 static char agent_start_fail_prompt_tone_path[] = "/sd0/agent_start_fail_16k_mono_16bit_en.mp3";
+static char face_no_face_detected_prompt_tone_path[] = "/sd0/no_face_detected.mp3";
+static char face_enrollment_failed_prompt_tone_path[] = "/sd0/enrollment_failed.mp3";
+static char face_enrollment_successful_prompt_tone_path[] = "/sd0/enrollment_successful.mp3";
+static char face_enrollment_completed_prompt_tone_path[] = "/sd0/enrollment_completed.mp3";
+static char face_verification_passed_prompt_tone_path[] = "/sd0/verification_passed.mp3";
+static char face_verification_failed_prompt_tone_path[] = "/sd0/verification_failed.mp3";
+static char face_enrollment_first_prompt_tone_path[] = "/sd0/enrollment_first.mp3";
+static char face_tap_again_to_clear_prompt_tone_path[] = "/sd0/tap_again_to_clear.mp3";
+static char face_database_has_been_cleared_prompt_tone_path[] = "/sd0/database_has_been_cleared.mp3";
+static char face_deletion_success_prompt_tone_path[] = "/sd0/deletion_success.mp3";
+static char face_deletion_failed_prompt_tone_path[] = "/sd0/deletion_failed.mp3";
+static char face_no_face_deletion_prompt_tone_path[] = "/sd0/no_face_deletion.mp3";
 #endif  //CONFIG_AE_PROMPT_TONE_SOURCE_VFS
 #endif  //CONFIG_AE_SUPPORT_PROMPT_TONE
 
@@ -362,6 +382,90 @@ static bk_err_t app_play_prompt_tone(app_evt_type_t event)
 #endif
             break;
 
+        case APP_EVT_FACE_NO_FACE_DETECTED:
+            LOGI("[prompt_tone] FACE_NO_FACE_DETECTED\n");
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            s_event_prompt_tone_info.uri = face_no_face_detected_prompt_tone_path;
+#endif
+            break;
+
+        case APP_EVT_FACE_ENROLLMENT_FAILED:
+            LOGI("[prompt_tone] FACE_ENROLLMENT_FAILED\n");
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            s_event_prompt_tone_info.uri = face_enrollment_failed_prompt_tone_path;
+#endif
+            break;
+
+        case APP_EVT_FACE_ENROLLMENT_SUCCESSFUL:
+            LOGI("[prompt_tone] FACE_ENROLLMENT_SUCCESSFUL\n");
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            s_event_prompt_tone_info.uri = face_enrollment_successful_prompt_tone_path;
+#endif
+            break;
+
+        case APP_EVT_FACE_ENROLLMENT_COMPLETED:
+            LOGI("[prompt_tone] FACE_ENROLLMENT_COMPLETED\n");
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            s_event_prompt_tone_info.uri = face_enrollment_completed_prompt_tone_path;
+#endif
+            break;
+
+        case APP_EVT_FACE_VERIFICATION_PASSED:
+            LOGI("[prompt_tone] FACE_VERIFICATION_PASSED\n");
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            s_event_prompt_tone_info.uri = face_verification_passed_prompt_tone_path;
+#endif
+            break;
+
+        case APP_EVT_FACE_VERIFICATION_FAILED:
+            LOGI("[prompt_tone] FACE_VERIFICATION_FAILED\n");
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            s_event_prompt_tone_info.uri = face_verification_failed_prompt_tone_path;
+#endif
+            break;
+
+        case APP_EVT_FACE_ENROLLMENT_REQUIRED:
+            LOGI("[prompt_tone] FACE_ENROLLMENT_REQUIRED\n");
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            s_event_prompt_tone_info.uri = face_enrollment_first_prompt_tone_path;
+#endif
+            break;
+
+        case APP_EVT_FACE_CLEAR_CONFIRM:
+            LOGI("[prompt_tone] FACE_CLEAR_CONFIRM\n");
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            s_event_prompt_tone_info.uri = face_tap_again_to_clear_prompt_tone_path;
+#endif
+            break;
+
+        case APP_EVT_FACE_DATABASE_CLEARED:
+            LOGI("[prompt_tone] FACE_DATABASE_CLEARED\n");
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            s_event_prompt_tone_info.uri = face_database_has_been_cleared_prompt_tone_path;
+#endif
+            break;
+
+        case APP_EVT_FACE_DELETE_SUCCESS:
+            LOGI("[prompt_tone] FACE_DELETE_SUCCESS\n");
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            s_event_prompt_tone_info.uri = face_deletion_success_prompt_tone_path;
+#endif
+            break;
+
+        case APP_EVT_FACE_DELETE_FAILED:
+            LOGI("[prompt_tone] FACE_DELETE_FAILED\n");
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            s_event_prompt_tone_info.uri = face_deletion_failed_prompt_tone_path;
+#endif
+            break;
+
+        case APP_EVT_FACE_NO_DELETABLE_PROFILE:
+            LOGI("[prompt_tone] FACE_NO_DELETABLE_PROFILE\n");
+#if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
+            s_event_prompt_tone_info.uri = face_no_face_deletion_prompt_tone_path;
+#endif
+            break;
+
         default:
             LOGE("%s, %d, event: %d not support fail\n", __func__, __LINE__, event);
             play_flag = false;
@@ -371,11 +475,17 @@ static bk_err_t app_play_prompt_tone(app_evt_type_t event)
     if (play_flag)
     {
         if (s_prompt_tone_status != 0) {
+            if (app_is_face_prompt_event(event)) {
+                s_face_prompt_pending = true;
+                s_face_prompt_pending_event = event;
+                LOGI("[prompt_tone] defer face event %d, prompt tone busy\n", event);
+                return BK_OK;
+            }
             LOGI("[prompt_tone] skip event %d, prompt tone busy\n", event);
             return BK_OK;
         }
 
-        if (audio_engine_is_running()) {
+        if (audio_engine_is_running() && !s_prompt_tone_owns_audio_engine) {
             /* Voice-mix playback owns its stop/restart flow in audio_engine.
              * Do not skip here because the mix player may keep PLAYING state
              * briefly after the short prompt has drained. */
@@ -769,10 +879,33 @@ static void app_event_thread(beken_thread_arg_t data)
                     bk_sconf_sync_flash_handler();
 #endif
                     break;
+                case APP_EVT_FACE_NO_FACE_DETECTED:
+                case APP_EVT_FACE_ENROLLMENT_FAILED:
+                case APP_EVT_FACE_ENROLLMENT_SUCCESSFUL:
+                case APP_EVT_FACE_ENROLLMENT_COMPLETED:
+                case APP_EVT_FACE_VERIFICATION_PASSED:
+                case APP_EVT_FACE_VERIFICATION_FAILED:
+                case APP_EVT_FACE_ENROLLMENT_REQUIRED:
+                case APP_EVT_FACE_CLEAR_CONFIRM:
+                case APP_EVT_FACE_DATABASE_CLEARED:
+                case APP_EVT_FACE_DELETE_SUCCESS:
+                case APP_EVT_FACE_DELETE_FAILED:
+                case APP_EVT_FACE_NO_DELETABLE_PROFILE:
+                    LOGI("APP_EVT_FACE_PROMPT %d\n", msg.event);
+#if CONFIG_AE_SUPPORT_PROMPT_TONE
+                    app_play_prompt_tone(msg.event);
+#endif
+                    break;
                 case APP_EVT_PROMPT_TONE_FINISH:
                     LOGI("APP_EVT_PROMPT_TONE_FINISH\n");
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
                     s_prompt_tone_status = 0;
+                    if (s_face_prompt_pending) {
+                        app_evt_type_t pending_event = s_face_prompt_pending_event;
+                        s_face_prompt_pending = false;
+                        app_play_prompt_tone(pending_event);
+                        break;
+                    }
                     if (s_prompt_tone_owns_audio_engine && audio_engine_is_running()) {
                         s_prompt_tone_owns_audio_engine = false;
                         (void)audio_engine_stop();

@@ -23,6 +23,10 @@
 #include "page_hooks.h"
 #include "ui_nav_router.h"
 
+#if CONFIG_APP_EVT
+#include "app_event.h"
+#endif
+
 #define SOL_SCREEN_W           LOGICAL_SCREEN_WIDTH
 #define SOL_SCREEN_H           LOGICAL_SCREEN_HEIGHT
 #define SOL_CAMERA_VIEW_X      25
@@ -44,12 +48,13 @@
 #define ARCH_PANEL_H           178
 #define ARCH_TASK_STACK_SIZE   (1024 * 4)
 #define ARCH_TASK_NAME         "face_archive"
-#define RESET_CONFIRM_MS       3000
+#define RESET_CONFIRM_MS       6000
 #define RESET_TASK_STACK_SIZE  (1024 * 4)
 #define RESET_TASK_NAME        "face_reset"
 #define STATUS_CLEAR_MS        5000
 #define STATUS_CLEAR_TASK_SIZE (1024 * 2)
 #define STATUS_CLEAR_TASK_NAME "solution_status_clear"
+#define FACE_PROMPT_DEBOUNCE_MS 800
 
 typedef enum {
     ARCH_OP_QUERY = 0,
@@ -80,6 +85,11 @@ static int s_reset_worker_rc;
 static char s_solution_status_pending[64];
 static volatile uint32_t s_solution_status_seq;
 static volatile uint32_t s_solution_status_clear_seq;
+#if CONFIG_APP_EVT
+static bool s_face_prompt_last_valid;
+static app_evt_type_t s_face_prompt_last_event;
+static uint32_t s_face_prompt_last_ms;
+#endif
 
 int page_edge_ai_archive_enter(void);
 static const ui_page_nav_ops_t s_solution_nav_ops;
@@ -93,6 +103,82 @@ static const char *const s_solution_btn_titles[4] = {
     "查询",
     "重置",
 };
+
+#if CONFIG_APP_EVT
+static bool face_prompt_event_for_text(const char *text, app_evt_type_t *event)
+{
+    if (text == NULL || event == NULL) {
+        return false;
+    }
+
+    if (strcmp(text, "未检测到人脸") == 0) {
+        *event = APP_EVT_FACE_NO_FACE_DETECTED;
+    } else if (strstr(text, "录入失败") != NULL) {
+        *event = APP_EVT_FACE_ENROLLMENT_FAILED;
+    } else if (strstr(text, "录入成功") != NULL) {
+        *event = APP_EVT_FACE_ENROLLMENT_SUCCESSFUL;
+    } else if (strstr(text, "录入完成") != NULL) {
+        *event = APP_EVT_FACE_ENROLLMENT_COMPLETED;
+    } else if (strcmp(text, "验证通过") == 0) {
+        *event = APP_EVT_FACE_VERIFICATION_PASSED;
+    } else if (strstr(text, "验证失败") != NULL) {
+        *event = APP_EVT_FACE_VERIFICATION_FAILED;
+    } else if (strcmp(text, "请先录入") == 0) {
+        *event = APP_EVT_FACE_ENROLLMENT_REQUIRED;
+    } else if (strcmp(text, "再次点击清空人脸库") == 0) {
+        *event = APP_EVT_FACE_CLEAR_CONFIRM;
+    } else if (strcmp(text, "人脸库已清空") == 0) {
+        *event = APP_EVT_FACE_DATABASE_CLEARED;
+    } else if (strcmp(text, "删除成功") == 0) {
+        *event = APP_EVT_FACE_DELETE_SUCCESS;
+    } else if (strcmp(text, "删除失败") == 0) {
+        *event = APP_EVT_FACE_DELETE_FAILED;
+    } else if (strcmp(text, "暂无可删除档案") == 0) {
+        *event = APP_EVT_FACE_NO_DELETABLE_PROFILE;
+    } else {
+        return false;
+    }
+
+    return true;
+}
+
+static void face_prompt_play_for_text(const char *text)
+{
+    app_evt_type_t event;
+    uint32_t now;
+
+    if (!face_prompt_event_for_text(text, &event)) {
+        return;
+    }
+
+    now = (uint32_t)rtos_get_time();
+    if (s_face_prompt_last_valid &&
+        s_face_prompt_last_event == event &&
+        (int32_t)(now - s_face_prompt_last_ms) < FACE_PROMPT_DEBOUNCE_MS) {
+        return;
+    }
+
+    s_face_prompt_last_valid = true;
+    s_face_prompt_last_event = event;
+    s_face_prompt_last_ms = now;
+    (void)app_event_send_msg(event, 0);
+}
+#else
+static void face_prompt_play_for_text(const char *text)
+{
+    (void)text;
+}
+#endif
+
+static void set_status_label_text(lv_obj_t *label, const char *text)
+{
+    if (label == NULL || text == NULL || !lv_obj_is_valid(label)) {
+        return;
+    }
+
+    lv_label_set_text(label, text);
+    face_prompt_play_for_text(text);
+}
 
 static void set_label_font(lv_obj_t *label, const lv_font_t *font)
 {
@@ -179,13 +265,13 @@ static void archive_refresh_view(void)
 
     if (s_archive_status_label != NULL && lv_obj_is_valid(s_archive_status_label)) {
         if (s_archive_info.profile_count == 0) {
-            lv_label_set_text(s_archive_status_label, "暂无人脸档案");
+            set_status_label_text(s_archive_status_label, "暂无人脸档案");
         } else {
             snprintf(text, sizeof(text), "档案:%u 样本:%u 图片:%u",
                      (unsigned)s_archive_info.profile_count,
                      (unsigned)s_archive_info.total_features,
                      (unsigned)s_archive_info.total_ppm);
-            lv_label_set_text(s_archive_status_label, text);
+            set_status_label_text(s_archive_status_label, text);
         }
     }
 
@@ -224,7 +310,8 @@ static void archive_apply_query_result(const yoloface_archive_info_t *info, cons
         memset(&s_archive_info, 0, sizeof(s_archive_info));
         archive_refresh_view();
         if (s_archive_status_label != NULL && lv_obj_is_valid(s_archive_status_label)) {
-            lv_label_set_text(s_archive_status_label, fail_text != NULL ? fail_text : "查询失败");
+            set_status_label_text(s_archive_status_label,
+                                  fail_text != NULL ? fail_text : "查询失败");
         }
         return;
     }
@@ -248,8 +335,8 @@ static void archive_apply_async(void *arg)
         archive_apply_query_result(&s_archive_worker_info, NULL);
         if (s_archive_status_label != NULL && lv_obj_is_valid(s_archive_status_label) &&
             s_archive_worker_op == ARCH_OP_DELETE) {
-            lv_label_set_text(s_archive_status_label,
-                              s_archive_worker_deleted ? "删除成功" : "删除失败");
+            set_status_label_text(s_archive_status_label,
+                                  s_archive_worker_deleted ? "删除成功" : "删除失败");
         }
     } else {
         archive_apply_query_result(NULL, "查询失败");
@@ -279,7 +366,7 @@ static int archive_start_task(archive_op_t op, uint32_t profile_id)
 {
     if (s_archive_busy) {
         if (s_archive_status_label != NULL && lv_obj_is_valid(s_archive_status_label)) {
-            lv_label_set_text(s_archive_status_label, "操作中");
+            set_status_label_text(s_archive_status_label, "操作中");
         }
         return 0;
     }
@@ -300,7 +387,7 @@ static int archive_start_task(archive_op_t op, uint32_t profile_id)
         s_archive_thread = NULL;
         s_archive_busy = false;
         if (s_archive_status_label != NULL && lv_obj_is_valid(s_archive_status_label)) {
-            lv_label_set_text(s_archive_status_label, "查询线程失败");
+            set_status_label_text(s_archive_status_label, "查询线程失败");
         }
         return -1;
     }
@@ -321,7 +408,7 @@ static void archive_return_click_cb(lv_event_t *e)
     (void)e;
     if (s_archive_busy) {
         if (s_archive_status_label != NULL && lv_obj_is_valid(s_archive_status_label)) {
-            lv_label_set_text(s_archive_status_label, "操作中");
+            set_status_label_text(s_archive_status_label, "操作中");
         }
         return;
     }
@@ -341,18 +428,18 @@ static void archive_delete_click_cb(lv_event_t *e)
     uint32_t visible = archive_visible_count();
     if (visible == 0 || s_archive_selected >= visible) {
         if (s_archive_status_label != NULL && lv_obj_is_valid(s_archive_status_label)) {
-            lv_label_set_text(s_archive_status_label, "暂无可删除档案");
+            set_status_label_text(s_archive_status_label, "暂无可删除档案");
         }
         return;
     }
 
     uint32_t profile_id = s_archive_info.items[s_archive_selected].profile_id;
     if (s_archive_status_label != NULL && lv_obj_is_valid(s_archive_status_label)) {
-        lv_label_set_text(s_archive_status_label, "删除中");
+        set_status_label_text(s_archive_status_label, "删除中");
     }
     if (archive_start_task(ARCH_OP_DELETE, profile_id) != 0 &&
         s_archive_status_label != NULL && lv_obj_is_valid(s_archive_status_label)) {
-        lv_label_set_text(s_archive_status_label, "删除失败");
+        set_status_label_text(s_archive_status_label, "删除失败");
     }
 }
 
@@ -367,11 +454,11 @@ static void reset_apply_async(void *arg)
     }
 
     if (s_reset_worker_rc >= 0) {
-        lv_label_set_text(s_solution_status_label, "人脸库已清空");
+        set_status_label_text(s_solution_status_label, "人脸库已清空");
     } else if (s_reset_worker_rc == YOLOFACE_SOLUTION_ERR_BUSY) {
-        lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
+        set_status_label_text(s_solution_status_label, "操作中,  请稍后");
     } else {
-        lv_label_set_text(s_solution_status_label, "清空失败,  请检查存储");
+        set_status_label_text(s_solution_status_label, "清空失败,  请检查存储");
     }
 }
 
@@ -388,7 +475,7 @@ static int reset_start_task(void)
 {
     if (s_reset_busy) {
         if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
+            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
         }
         return 0;
     }
@@ -405,7 +492,7 @@ static int reset_start_task(void)
         s_reset_thread = NULL;
         s_reset_busy = false;
         if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            lv_label_set_text(s_solution_status_label, "清空线程失败");
+            set_status_label_text(s_solution_status_label, "清空线程失败");
         }
         return -1;
     }
@@ -423,7 +510,7 @@ static void solution_reset_click_cb(lv_event_t *e)
 
     if (s_reset_busy) {
         if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
+            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
         }
         return;
     }
@@ -432,13 +519,13 @@ static void solution_reset_click_cb(lv_event_t *e)
     if ((int32_t)(s_reset_confirm_deadline - now) <= 0) {
         s_reset_confirm_deadline = now + RESET_CONFIRM_MS;
         if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            lv_label_set_text(s_solution_status_label, "再次点击清空人脸库");
+            set_status_label_text(s_solution_status_label, "再次点击清空人脸库");
         }
         return;
     }
 
     if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-        lv_label_set_text(s_solution_status_label, "清空中");
+        set_status_label_text(s_solution_status_label, "清空中");
     }
     (void)reset_start_task();
 }
@@ -449,18 +536,18 @@ static void solution_enroll_click_cb(lv_event_t *e)
     int rc;
     if (s_reset_busy) {
         if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
+            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
         }
         return;
     }
     rc = yoloface_solution_enroll_request();
     if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
         if (rc == YOLOFACE_SOLUTION_ERR_BUSY) {
-            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
+            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
         } else if (rc == YOLOFACE_SOLUTION_ERR_NO_FACE) {
-            lv_label_set_text(s_solution_status_label, "未检测到人脸");
+            set_status_label_text(s_solution_status_label, "未检测到人脸");
         } else if (rc != 0) {
-            lv_label_set_text(s_solution_status_label, "录入失败,  请重新录入");
+            set_status_label_text(s_solution_status_label, "录入失败,  请重新录入");
         }
     }
 }
@@ -471,20 +558,20 @@ static void solution_verify_click_cb(lv_event_t *e)
     int rc;
     if (s_reset_busy) {
         if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
+            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
         }
         return;
     }
     rc = yoloface_solution_verify_request();
     if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
         if (rc == 0) {
-            lv_label_set_text(s_solution_status_label, "验证中");
+            set_status_label_text(s_solution_status_label, "验证中");
         } else if (rc == YOLOFACE_SOLUTION_ERR_BUSY) {
-            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
+            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
         } else if (rc == YOLOFACE_SOLUTION_ERR_NO_FACE) {
-            lv_label_set_text(s_solution_status_label, "未检测到人脸");
+            set_status_label_text(s_solution_status_label, "未检测到人脸");
         } else {
-            lv_label_set_text(s_solution_status_label, "验证失败,  请重试");
+            set_status_label_text(s_solution_status_label, "验证失败,  请重试");
         }
     }
 }
@@ -495,18 +582,18 @@ static void solution_query_click_cb(lv_event_t *e)
     int rc;
     if (s_reset_busy) {
         if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
+            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
         }
         return;
     }
     rc = yoloface_solution_archive_enter_request();
     if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
         if (rc == 0) {
-            lv_label_set_text(s_solution_status_label, "查询中");
+            set_status_label_text(s_solution_status_label, "查询中");
         } else if (rc == YOLOFACE_SOLUTION_ERR_BUSY) {
-            lv_label_set_text(s_solution_status_label, "操作中,  请稍后");
+            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
         } else {
-            lv_label_set_text(s_solution_status_label, "查询失败");
+            set_status_label_text(s_solution_status_label, "查询失败");
         }
     }
 }
@@ -568,7 +655,7 @@ static void solution_status_apply_async(void *arg)
     (void)arg;
 
     if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-        lv_label_set_text(s_solution_status_label, s_solution_status_pending);
+        set_status_label_text(s_solution_status_label, s_solution_status_pending);
         lv_obj_invalidate(s_solution_status_label);
     }
 }
@@ -581,7 +668,7 @@ static void solution_status_clear_async(void *arg)
         return;
     }
     if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-        lv_label_set_text(s_solution_status_label, "摄像头预览");
+        set_status_label_text(s_solution_status_label, "摄像头预览");
         lv_obj_invalidate(s_solution_status_label);
     }
 }
@@ -662,7 +749,7 @@ int page_edge_ai_archive_enter(void)
         ui_nav_unregister_screen(s_archive_screen);
         archive_clear_rows();
         if (s_archive_status_label != NULL && lv_obj_is_valid(s_archive_status_label)) {
-            lv_label_set_text(s_archive_status_label, "查询中");
+            set_status_label_text(s_archive_status_label, "查询中");
         }
         if (s_archive_panel != NULL && lv_obj_is_valid(s_archive_panel)) {
             lv_obj_scroll_to_y(s_archive_panel, 0, LV_ANIM_OFF);
