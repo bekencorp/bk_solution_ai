@@ -70,8 +70,6 @@ bool g_ble_split_pkt = false;
 beken_semaphore_t sync_flash_sema = NULL;
 bool smart_config_running = false;
 static beken_thread_t config_ir_mode_switch_thread_handle = NULL;
-static beken_thread_t s_sconf_cli_mode_thread_handle = NULL;
-static beken_thread_t s_sconf_exit_thread_handle = NULL;
 static const char *s_sconf_start_model_type = "text";
 static char s_agent_token[BK_SCONF_AGENT_TOKEN_LEN];
 static bool s_agent_token_loaded = false;
@@ -939,7 +937,7 @@ void bk_sconf_sync_flash_handler(void)
     }
 }
 
-/* Encoding of bk_sconf_cli_mode_switch_handler's beken_thread_arg_t:
+/* mode_arg for bk_sconf_do_mode_switch():
  *   0 -> text mode
  *   1 -> vision mode (also brings up video_engine for uplink H.264)
  *   2 -> vision mode without video_engine (camera owned by another module
@@ -948,10 +946,131 @@ void bk_sconf_sync_flash_handler(void)
 #define SCONF_MODE_ARG_VISION           1
 #define SCONF_MODE_ARG_VISION_NO_VIDEO  2
 
-static void bk_sconf_cli_mode_switch_handler(beken_thread_arg_t arg)
+/* ======================================================================
+ * Vision video-engine early bring-up (decoupled from the sconf op queue)
+ *
+ * The local camera preview only needs the video engine (video_engine_init),
+ * NOT the RTC/agent. But video_engine_init used to run inside the serialized
+ * sconf op worker, so entering Vision right after AI chat had to wait for the
+ * previous op's multi-second HTTP agent start to drain before the camera
+ * appeared.
+ *
+ * To make the preview appear promptly, video_engine bring-up is kicked on a
+ * dedicated short-lived worker (bk_sconf_vision_video_prestart) the moment
+ * the Vision page opens, independent of the op queue. The RTC/agent still
+ * goes through the serialized queue.
+ *
+ * All video_engine_init/deinit calls (early bring-up, the sconf vision op's
+ * own idempotent init, the text/exit teardown) are funneled through
+ * s_vision_video_lock so init and deinit can never run concurrently. A
+ * "want" latch lets a teardown that happened after the request cancel a
+ * still-pending bring-up, so a late worker can't resurrect the camera after
+ * the user has already navigated away.
+ * ==================================================================== */
+#if CONFIG_BK_VIDEO_ENGINE
+static beken_mutex_t  s_vision_video_lock   = NULL;
+static beken_thread_t s_vision_video_thread = NULL;
+static volatile bool  s_vision_video_want   = false;
+
+static void bk_sconf_vision_video_lock_acquire(void)
+{
+    if (s_vision_video_lock != NULL) {
+        rtos_lock_mutex(&s_vision_video_lock);
+    }
+}
+
+static void bk_sconf_vision_video_lock_release(void)
+{
+    if (s_vision_video_lock != NULL) {
+        rtos_unlock_mutex(&s_vision_video_lock);
+    }
+}
+
+/* Bring the video engine up. respect_want=true skips if the user already
+ * navigated away (used by the async pre-start worker); respect_want=false
+ * forces it (used by the sconf vision op, which must have video before RTC). */
+static bk_err_t bk_sconf_vision_video_up_locked(bool respect_want)
+{
+    bk_err_t ret = BK_OK;
+
+    bk_sconf_vision_video_lock_acquire();
+    if ((!respect_want || s_vision_video_want) && !video_engine_is_running()) {
+        ret = video_engine_init();
+        if (ret != BK_OK) {
+            LOGE("vision video: video_engine_init failed ret=%d\r\n", ret);
+        } else {
+            LOGI("vision video: engine up\r\n");
+        }
+    }
+    bk_sconf_vision_video_lock_release();
+    return ret;
+}
+
+static void bk_sconf_vision_video_down_locked(void)
+{
+    bk_sconf_vision_video_lock_acquire();
+    if (video_engine_is_running()) {
+        if (video_engine_deinit() != BK_OK) {
+            LOGE("vision video: video_engine_deinit failed\r\n");
+        }
+    }
+    bk_sconf_vision_video_lock_release();
+}
+
+static void bk_sconf_vision_video_up_worker(beken_thread_arg_t arg)
+{
+    (void)arg;
+    (void)bk_sconf_vision_video_up_locked(true);
+    s_vision_video_thread = NULL;
+    rtos_delete_thread(NULL);
+}
+
+int bk_sconf_vision_video_prestart(void)
+{
+    int ret;
+
+    s_vision_video_want = true;
+    if (s_vision_video_thread != NULL) {
+        return BK_OK;  /* bring-up already dispatched */
+    }
+#if CONFIG_PSRAM_AS_SYS_MEMORY
+    ret = rtos_create_psram_thread(&s_vision_video_thread,
+                                   CONFIG_IR_MODE_SWITCH_TASK_PRIORITY,
+                                   "vis_vid_up",
+                                   (beken_thread_function_t)bk_sconf_vision_video_up_worker,
+                                   4096,
+                                   (beken_thread_arg_t)0);
+#else
+    ret = rtos_create_thread(&s_vision_video_thread,
+                             CONFIG_IR_MODE_SWITCH_TASK_PRIORITY,
+                             "vis_vid_up",
+                             (beken_thread_function_t)bk_sconf_vision_video_up_worker,
+                             4096,
+                             (beken_thread_arg_t)0);
+#endif
+    if (ret != kNoErr) {
+        LOGE("vision video prestart thread fail: %d\r\n", ret);
+        s_vision_video_thread = NULL;
+        return BK_FAIL;
+    }
+    return BK_OK;
+}
+
+void bk_sconf_vision_video_prestop(void)
+{
+    /* Cancel any pending bring-up so a late worker won't re-open the camera
+     * after the user has left Vision. The actual teardown happens in the
+     * serialized exit op (ordered after RTC stop). */
+    s_vision_video_want = false;
+}
+#else  /* !CONFIG_BK_VIDEO_ENGINE */
+int  bk_sconf_vision_video_prestart(void) { return BK_OK; }
+void bk_sconf_vision_video_prestop(void)  {}
+#endif /* CONFIG_BK_VIDEO_ENGINE */
+
+static void bk_sconf_do_mode_switch(int mode_arg)
 {
     char device_id[128] = {0};
-    int mode_arg = (int)(intptr_t)arg;
     int to_vision = (mode_arg == SCONF_MODE_ARG_VISION ||
                      mode_arg == SCONF_MODE_ARG_VISION_NO_VIDEO);
     int with_video = (mode_arg == SCONF_MODE_ARG_VISION);
@@ -966,13 +1085,14 @@ static void bk_sconf_cli_mode_switch_handler(beken_thread_arg_t arg)
 
     if (to_vision) {
 #if CONFIG_BK_VIDEO_ENGINE
-        if (with_video && !video_engine_is_running()) {
-            ret = video_engine_init();
+        if (with_video) {
+            /* Video may already be up from the early pre-start worker; this is
+             * idempotent and only ensures it is running before RTC starts. */
+            ret = bk_sconf_vision_video_up_locked(false);
             if (ret != BK_OK) {
-                LOGE("sconf vision: video_engine_init failed ret=%d\r\n", ret);
                 goto done;
             }
-        } else if (!with_video) {
+        } else {
             LOGI("sconf vision (no_video): skip video_engine_init "
                  "(camera owned by another module)\r\n");
         }
@@ -999,13 +1119,10 @@ static void bk_sconf_cli_mode_switch_handler(beken_thread_arg_t arg)
     } else {
         /* CLI sconf text: stop UVC/pipeline before Agora/HTTP to avoid URB OOM and stream_stop fault */
 #if CONFIG_BK_VIDEO_ENGINE
+        s_vision_video_want = false;  /* leaving vision: cancel any pending bring-up */
         if (video_engine_is_running()) {
-            ret = video_engine_deinit();
-            if (ret != BK_OK) {
-                LOGE("sconf text: video_engine_deinit failed ret=%d\r\n", ret);
-            } else {
-                rtos_delay_milliseconds(50);
-            }
+            bk_sconf_vision_video_down_locked();
+            rtos_delay_milliseconds(50);
         }
 #endif
         ret = bk_sconf_start_rtc_for_model(device_id, "text", &rtc_was_running);
@@ -1026,55 +1143,185 @@ static void bk_sconf_cli_mode_switch_handler(beken_thread_arg_t arg)
     }
 
 done:
-    s_sconf_cli_mode_thread_handle = NULL;
+    return;
+}
+
+/* ======================================================================
+ * Serialized AI-mode operation queue
+ *
+ * All AI-mode lifecycle requests (enter text / enter vision / enter
+ * vision-no-video / exit) are funneled through a SINGLE worker thread plus a
+ * one-slot "latest wins" pending mailbox. This makes rapid page navigation
+ * (e.g. quickly toggling AI chat <-> Vision) race-free:
+ *
+ *   * At most one operation runs at a time, so an enter can no longer
+ *     collide with a previous session's still-running switch. The old code
+ *     rejected the second request with "sconf mode switch already running"
+ *     -> BK_FAIL, which left video_engine_init() uncalled and the Vision
+ *     page with no camera picture. Requests are now queued instead of
+ *     dropped, and an exit can no longer overlap an enter's RTC/video
+ *     bring-up.
+ *   * Only the LATEST request matters: any request that arrives while an op
+ *     is in flight overwrites the pending slot, so the final state always
+ *     reflects the user's last action. A queued enter is naturally
+ *     superseded by a later exit (and vice-versa), which cancels stale work
+ *     after the user has already navigated away.
+ * ==================================================================== */
+typedef enum {
+    SCONF_OP_NONE = 0,
+    SCONF_OP_ENTER_TEXT,
+    SCONF_OP_ENTER_VISION,
+    SCONF_OP_ENTER_VISION_NO_VIDEO,
+    SCONF_OP_EXIT_TEXT,
+    SCONF_OP_EXIT_VISION,
+} sconf_op_t;
+
+static beken_mutex_t       s_sconf_op_lock         = NULL;
+static volatile sconf_op_t s_sconf_op_pending      = SCONF_OP_NONE;
+/* Guarded by s_sconf_op_lock: whether a worker is (about to be) running. A
+ * boolean rather than the thread handle so enqueue can register the worker
+ * BEFORE rtos_create_thread returns, closing the worker-exit-vs-enqueue race. */
+static volatile bool       s_sconf_op_worker_alive = false;
+
+static void bk_sconf_op_lock_acquire(void)
+{
+    if (s_sconf_op_lock != NULL) {
+        rtos_lock_mutex(&s_sconf_op_lock);
+    }
+}
+
+static void bk_sconf_op_lock_release(void)
+{
+    if (s_sconf_op_lock != NULL) {
+        rtos_unlock_mutex(&s_sconf_op_lock);
+    }
+}
+
+static void bk_sconf_run_op(sconf_op_t op)
+{
+    switch (op) {
+    case SCONF_OP_ENTER_TEXT:
+        bk_sconf_do_mode_switch(SCONF_MODE_ARG_TEXT);
+        break;
+    case SCONF_OP_ENTER_VISION:
+        bk_sconf_do_mode_switch(SCONF_MODE_ARG_VISION);
+        break;
+    case SCONF_OP_ENTER_VISION_NO_VIDEO:
+        bk_sconf_do_mode_switch(SCONF_MODE_ARG_VISION_NO_VIDEO);
+        break;
+    case SCONF_OP_EXIT_TEXT:
+        (void)bk_sconf_exit_ai_mode(0);
+        break;
+    case SCONF_OP_EXIT_VISION:
+        (void)bk_sconf_exit_ai_mode(1);
+        break;
+    default:
+        break;
+    }
+}
+
+static void bk_sconf_op_worker(beken_thread_arg_t arg)
+{
+    (void)arg;
+
+    for (;;) {
+        sconf_op_t op;
+
+        bk_sconf_op_lock_acquire();
+        op = s_sconf_op_pending;
+        s_sconf_op_pending = SCONF_OP_NONE;
+        if (op == SCONF_OP_NONE) {
+            /* No pending work: retire atomically w.r.t. enqueue so a request
+             * arriving right now is guaranteed to spawn a fresh worker. */
+            s_sconf_op_worker_alive = false;
+            bk_sconf_op_lock_release();
+            break;
+        }
+        bk_sconf_op_lock_release();
+
+        LOGI("sconf op run: %d\r\n", (int)op);
+        bk_sconf_run_op(op);
+        LOGI("sconf op done: %d\r\n", (int)op);
+    }
+
     rtos_delete_thread(NULL);
 }
 
-static int bk_sconf_begin_cli_mode_switch(int mode_arg)
+static int bk_sconf_enqueue_op(sconf_op_t op)
 {
-    int ret;
+    bool need_thread = false;
+    int  ret;
 
-    if (s_sconf_cli_mode_thread_handle) {
-        LOGW("sconf mode switch already running\r\n");
-        return BK_FAIL;
+    bk_sconf_op_lock_acquire();
+    s_sconf_op_pending = op;              /* latest wins (coalesce) */
+    if (!s_sconf_op_worker_alive) {
+        s_sconf_op_worker_alive = true;
+        need_thread = true;
     }
+    bk_sconf_op_lock_release();
+
+    if (!need_thread) {
+        LOGI("sconf op queued: %d (worker busy)\r\n", (int)op);
+        return BK_OK;
+    }
+
+    beken_thread_t th = NULL;
 #if CONFIG_PSRAM_AS_SYS_MEMORY
-    ret = rtos_create_psram_thread(&s_sconf_cli_mode_thread_handle,
+    ret = rtos_create_psram_thread(&th,
                                    CONFIG_IR_MODE_SWITCH_TASK_PRIORITY,
-                                   "sconf_mode",
-                                   (beken_thread_function_t)bk_sconf_cli_mode_switch_handler,
+                                   "sconf_op",
+                                   (beken_thread_function_t)bk_sconf_op_worker,
                                    4096,
-                                   (beken_thread_arg_t)(intptr_t)mode_arg);
+                                   (beken_thread_arg_t)0);
 #else
-    ret = rtos_create_thread(&s_sconf_cli_mode_thread_handle,
+    ret = rtos_create_thread(&th,
                              CONFIG_IR_MODE_SWITCH_TASK_PRIORITY,
-                             "sconf_mode",
-                             (beken_thread_function_t)bk_sconf_cli_mode_switch_handler,
+                             "sconf_op",
+                             (beken_thread_function_t)bk_sconf_op_worker,
                              4096,
-                             (beken_thread_arg_t)(intptr_t)mode_arg);
+                             (beken_thread_arg_t)0);
 #endif
     if (ret != kNoErr) {
-        LOGE("sconf mode thread fail: %d\r\n", ret);
-        s_sconf_cli_mode_thread_handle = NULL;
+        LOGE("sconf op thread fail: %d\r\n", ret);
+        bk_sconf_op_lock_acquire();
+        s_sconf_op_worker_alive = false;
+        s_sconf_op_pending = SCONF_OP_NONE;
+        bk_sconf_op_lock_release();
         return BK_FAIL;
     }
 
     return BK_OK;
 }
 
+/* Kept for the CLI ("sconf vision" / "sconf text"); routes into the queue. */
+static int bk_sconf_begin_cli_mode_switch(int mode_arg)
+{
+    switch (mode_arg) {
+    case SCONF_MODE_ARG_TEXT:
+        return bk_sconf_enqueue_op(SCONF_OP_ENTER_TEXT);
+    case SCONF_MODE_ARG_VISION:
+        return bk_sconf_enqueue_op(SCONF_OP_ENTER_VISION);
+    case SCONF_MODE_ARG_VISION_NO_VIDEO:
+        return bk_sconf_enqueue_op(SCONF_OP_ENTER_VISION_NO_VIDEO);
+    default:
+        LOGE("sconf begin: bad mode_arg %d\r\n", mode_arg);
+        return BK_FAIL;
+    }
+}
+
 int bk_sconf_enter_text_mode(void)
 {
-    return bk_sconf_begin_cli_mode_switch(SCONF_MODE_ARG_TEXT);
+    return bk_sconf_enqueue_op(SCONF_OP_ENTER_TEXT);
 }
 
 int bk_sconf_enter_vision_mode(void)
 {
-    return bk_sconf_begin_cli_mode_switch(SCONF_MODE_ARG_VISION);
+    return bk_sconf_enqueue_op(SCONF_OP_ENTER_VISION);
 }
 
 int bk_sconf_enter_vision_mode_no_video(void)
 {
-    return bk_sconf_begin_cli_mode_switch(SCONF_MODE_ARG_VISION_NO_VIDEO);
+    return bk_sconf_enqueue_op(SCONF_OP_ENTER_VISION_NO_VIDEO);
 }
 
 int bk_sconf_exit_ai_mode(int from_vision)
@@ -1086,14 +1333,10 @@ int bk_sconf_exit_ai_mode(int from_vision)
     ret = bk_sconf_stop_rtc();
 
 #if CONFIG_BK_VIDEO_ENGINE
-    if (from_vision && video_engine_is_running()) {
-        int video_ret = video_engine_deinit();
-        if (video_ret != BK_OK) {
-            LOGE("sconf exit: video_engine_deinit failed ret=%d\r\n", video_ret);
-            if (ret == BK_OK) {
-                ret = video_ret;
-            }
-        }
+    if (from_vision) {
+        /* Cancel any pending pre-start, then tear down (after RTC stop). */
+        s_vision_video_want = false;
+        bk_sconf_vision_video_down_locked();
     }
 #else
     (void)from_vision;
@@ -1111,51 +1354,17 @@ int bk_sconf_exit_ai_mode(int from_vision)
  * fixed delay and Agora destroy.
  *
  * When invoked from on_screen_prev (page nav callbacks), the LVGL display
- * lock is held for that entire duration, freezing all UI animations. This
- * worker decouples teardown from the caller so the LV tree can be swapped
- * to page_3 immediately and the heavy stop happens in the background.
+ * lock is held for that entire duration, freezing all UI animations. The
+ * exit is therefore enqueued onto the shared serialized op worker (see
+ * bk_sconf_enqueue_op) so the LV tree can be swapped to page_3 immediately
+ * and the heavy stop happens in the background -- AND so it is ordered
+ * against any in-flight/queued enter instead of racing it.
  * -------------------------------------------------------------------- */
-
-static void bk_sconf_exit_ai_mode_handler(beken_thread_arg_t arg)
-{
-    int from_vision = (int)(intptr_t)arg;
-    LOGI("sconf exit worker start, from_vision=%d\r\n", from_vision);
-    (void)bk_sconf_exit_ai_mode(from_vision);
-    LOGI("sconf exit worker done\r\n");
-    s_sconf_exit_thread_handle = NULL;
-    rtos_delete_thread(NULL);
-}
 
 int bk_sconf_exit_ai_mode_async(int from_vision)
 {
-    int ret;
-
-    if (s_sconf_exit_thread_handle) {
-        LOGW("sconf exit already running, coalesce\r\n");
-        return BK_FAIL;
-    }
-#if CONFIG_PSRAM_AS_SYS_MEMORY
-    ret = rtos_create_psram_thread(&s_sconf_exit_thread_handle,
-                                   CONFIG_IR_MODE_SWITCH_TASK_PRIORITY,
-                                   "sconf_exit",
-                                   (beken_thread_function_t)bk_sconf_exit_ai_mode_handler,
-                                   4096,
-                                   from_vision ? (beken_thread_arg_t)(void *)1 : (beken_thread_arg_t)0);
-#else
-    ret = rtos_create_thread(&s_sconf_exit_thread_handle,
-                             CONFIG_IR_MODE_SWITCH_TASK_PRIORITY,
-                             "sconf_exit",
-                             (beken_thread_function_t)bk_sconf_exit_ai_mode_handler,
-                             4096,
-                             from_vision ? (beken_thread_arg_t)(void *)1 : (beken_thread_arg_t)0);
-#endif
-    if (ret != kNoErr) {
-        LOGE("sconf exit thread fail: %d\r\n", ret);
-        s_sconf_exit_thread_handle = NULL;
-        return BK_FAIL;
-    }
-
-    return BK_OK;
+    return bk_sconf_enqueue_op(from_vision ? SCONF_OP_EXIT_VISION
+                                           : SCONF_OP_EXIT_TEXT);
 }
 
 static void bk_sconf_cli_handler(char *pcWriteBuffer, int xWriteBufferLen, int argC, char **argV)
@@ -1270,6 +1479,21 @@ int bk_sconf_cli_network_provisioning_init(void)
 int bk_sconf_init(void)
 {
     g_ble_split_pkt = false;
+
+    /* Serialized AI-mode op queue lock (see bk_sconf_enqueue_op). */
+    if (s_sconf_op_lock == NULL && rtos_init_mutex(&s_sconf_op_lock) != BK_OK) {
+        LOGE("sconf op lock init failed\r\n");
+        s_sconf_op_lock = NULL;
+    }
+
+#if CONFIG_BK_VIDEO_ENGINE
+    /* Vision video-engine lifecycle lock (see bk_sconf_vision_video_prestart). */
+    if (s_vision_video_lock == NULL && rtos_init_mutex(&s_vision_video_lock) != BK_OK) {
+        LOGE("vision video lock init failed\r\n");
+        s_vision_video_lock = NULL;
+    }
+#endif
+
     //for user to receive network provisioning status change event
     bk_register_network_provisioning_status_cb(bk_sconf_network_provisioning_status_cb);
     //if default provisioning type is ble, then set msg handle cb

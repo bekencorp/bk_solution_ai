@@ -1025,6 +1025,13 @@ int video_engine_preview_stop(void)
     LOGI("%s: stopped\n", __func__);
     return BK_OK;
 }
+
+bool video_engine_preview_is_running(void)
+{
+    return (g_video_engine_ctx != NULL &&
+            g_video_engine_ctx->preview_running &&
+            g_video_engine_ctx->preview_task_handle != NULL);
+}
 #else
 int video_engine_preview_start(const video_engine_preview_config_t *config)
 {
@@ -1036,6 +1043,11 @@ int video_engine_preview_start(const video_engine_preview_config_t *config)
 int video_engine_preview_stop(void)
 {
     return BK_OK;
+}
+
+bool video_engine_preview_is_running(void)
+{
+    return false;
 }
 #endif
 

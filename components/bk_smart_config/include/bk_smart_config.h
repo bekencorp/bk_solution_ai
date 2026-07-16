@@ -113,6 +113,32 @@ int bk_sconf_exit_ai_mode(int from_vision);
  *         worker is still running or the OS could not create the thread.
  */
 int bk_sconf_exit_ai_mode_async(int from_vision);
+
+/**
+ * @brief Kick an early, off-queue video-engine bring-up for Vision preview.
+ *
+ * Call this the moment the Vision page opens. It brings up the video engine
+ * (local camera preview) on a dedicated short-lived worker WITHOUT waiting for
+ * the serialized sconf op queue to drain a prior (possibly multi-second HTTP)
+ * operation, so the camera image appears promptly. The RTC/agent start still
+ * goes through bk_sconf_enter_vision_mode()/the op queue as usual; its own
+ * video_engine_init() call becomes an idempotent no-op.
+ *
+ * Idempotent: repeated calls before the engine is up are coalesced.
+ *
+ * @return BK_OK if the bring-up is up or scheduled; BK_FAIL otherwise.
+ */
+int bk_sconf_vision_video_prestart(void);
+
+/**
+ * @brief Cancel a pending pre-start (call when leaving the Vision page).
+ *
+ * Marks the video engine as no-longer-wanted so a still-pending pre-start
+ * worker won't re-open the camera after the user has navigated away. The
+ * actual teardown happens in the serialized exit op (ordered after RTC stop).
+ */
+void bk_sconf_vision_video_prestop(void);
+
 const char *bk_sconf_get_start_model_type(void);
 int bk_sconf_sync_flash_request(void);
 void bk_sconf_sync_flash_handler(void);

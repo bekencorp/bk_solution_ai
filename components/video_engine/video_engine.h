@@ -198,6 +198,16 @@ int video_engine_preview_start(const video_engine_preview_config_t *config);
  */
 int video_engine_preview_stop(void);
 
+/**
+ * @brief Whether the local preview worker is currently running.
+ *
+ * Returns false after the engine has been torn down (e.g. a rapid Vision
+ * exit/re-enter bounces video_engine_deinit()/init()), so callers can detect
+ * that a previously started preview died with the old engine instance and
+ * needs to be (re)started against the fresh one.
+ */
+bool video_engine_preview_is_running(void);
+
 #ifdef __cplusplus
 }
 #endif
