@@ -6,49 +6,23 @@ var sdkList = [
         "name" : "bk7259",
         "lang" : [ "zh-cn", "en" ],
         "version" : [
-            "latest"
+            "4.0.1"
         ]
     }
 ]
 
 jQuery(function()
 {
-    var origin = window.location.origin;
-
-    if (origin.indexOf("file://") == -1)
-    {
-        SdkVersionStartup();
-    }
-    else
-    {
-        autoFillVersionInfoForLocalShow();
-        buildMultiVersionSelector();
-        setPageStyle();
-    }
+    buildMultiVersionSelector();
+    setPageStyle();
     setFeedBackItem();
 });
 
 
 function SdkVersionStartup()
 {
-    var url = "/arminodoc/bk_idk/version.json";
-    var request = new XMLHttpRequest();
-
-    request.open("get", url);
-    request.send(null);
-    request.onload = function () {
-
-        if (request.status == 200) {
-            var json = JSON.parse(request.responseText);
-            sdkList = json;
-        } else {
-            autoFillVersionInfoForLocalShow();
-        }
-
-        buildMultiVersionSelector();
-        setPageStyle();
-    }
-
+    buildMultiVersionSelector();
+    setPageStyle();
 }
 
 function autoFillVersionInfoForLocalShow()
