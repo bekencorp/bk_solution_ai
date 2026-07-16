@@ -95,7 +95,7 @@ static FaceRecognitionModel *s_solution_face_model = NULL;
 #define YOLOFACE_FACE_DIR_PREFIX      "face_"
 #define YOLOFACE_FACE_PATH_BUF_LEN    96
 #define YOLOFACE_FACE_MAX_ID          9999
-#define YOLOFACE_FACE_SAMPLES_PER_ID  5
+#define YOLOFACE_FACE_SAMPLES_PER_ID  3
 #define YOLOFACE_FACE_RGB112_SIZE     (112 * 112 * 3)
 #define YOLOFACE_FACE_VERIFY_AVG_THRESHOLD 0.48f
 #define YOLOFACE_ENROLL_SAVE_QUEUE_LEN     1
@@ -949,10 +949,13 @@ static void yoloface_enroll_save_task(void *arg)
             if (save_rc == 0) {
                 char text[64];
                 if (saved_count >= YOLOFACE_FACE_SAMPLES_PER_ID) {
-                    snprintf(text, sizeof(text), "录入完成 5/5");
+                    snprintf(text, sizeof(text), "录入完成 %u/%u",
+                             (unsigned)YOLOFACE_FACE_SAMPLES_PER_ID,
+                             (unsigned)YOLOFACE_FACE_SAMPLES_PER_ID);
                 } else {
-                    snprintf(text, sizeof(text), "录入成功 %u/5,  请继续录入",
-                             (unsigned)saved_count);
+                    snprintf(text, sizeof(text), "录入成功 %u/%u,  请继续录入",
+                             (unsigned)saved_count,
+                             (unsigned)YOLOFACE_FACE_SAMPLES_PER_ID);
                 }
                 yoloface_enroll_session_cancel();
                 yoloface_solution_status(text);

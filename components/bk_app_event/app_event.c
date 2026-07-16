@@ -64,13 +64,15 @@ typedef enum {
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 #define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
 
+#define PROMPT_TONE_REPLACE_FINISH_GUARD_MS 300
+
 static app_event_handler_t *s_event_handlers = NULL;
 static beken_mutex_t s_event_mutex = NULL;
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
 extern audio_engine_prompt_tone_handle_t g_audio_engine_prompt_tone;
 static bool s_prompt_tone_owns_audio_engine;
-static bool s_face_prompt_pending;
-static app_evt_type_t s_face_prompt_pending_event;
+static bool s_prompt_tone_replacing;
+static uint32_t s_prompt_tone_start_ms;
 #endif
 
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
@@ -80,12 +82,6 @@ static uint8_t s_prompt_tone_status; //0 stop 1 play
 static audio_dec_type_t app_prompt_tone_dec_type(void)
 {
     return AUDIO_DEC_TYPE_MP3;
-}
-
-static bool app_is_face_prompt_event(app_evt_type_t event)
-{
-    return event >= APP_EVT_FACE_NO_FACE_DETECTED &&
-           event <= APP_EVT_FACE_NO_DELETABLE_PROFILE;
 }
 
 #if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
@@ -474,21 +470,11 @@ static bk_err_t app_play_prompt_tone(app_evt_type_t event)
 
     if (play_flag)
     {
-        if (s_prompt_tone_status != 0) {
-            if (app_is_face_prompt_event(event)) {
-                s_face_prompt_pending = true;
-                s_face_prompt_pending_event = event;
-                LOGI("[prompt_tone] defer face event %d, prompt tone busy\n", event);
-                return BK_OK;
-            }
-            LOGI("[prompt_tone] skip event %d, prompt tone busy\n", event);
-            return BK_OK;
-        }
-
         if (audio_engine_is_running() && !s_prompt_tone_owns_audio_engine) {
-            /* Voice-mix playback owns its stop/restart flow in audio_engine.
-             * Do not skip here because the mix player may keep PLAYING state
-             * briefly after the short prompt has drained. */
+            /* New behavior prompts replace any unfinished prompt immediately. */
+            if (audio_engine_play_is_playing()) {
+                (void)audio_engine_play_stop();
+            }
 #if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
             ret = audio_engine_play_vfs(s_event_prompt_tone_info.uri,
                                         app_prompt_tone_dec_type());
@@ -515,21 +501,29 @@ static bk_err_t app_play_prompt_tone(app_evt_type_t event)
             LOGI("[prompt_tone] skip event %d, audio engine prompt unavailable\n", event);
             return BK_OK;
         }
+        if (s_prompt_tone_status != 0) {
+            s_prompt_tone_replacing = true;
+            LOGI("[prompt_tone] replace busy prompt with event %d\n", event);
+        }
         s_prompt_tone_status = 1;
         ret = audio_engine_prompt_tone_start(g_audio_engine_prompt_tone, &s_event_prompt_tone_info);
         if (ret != BK_OK)
         {
             LOGE("%s, %d, play event prompt tone fail\n", __func__, __LINE__);
             s_prompt_tone_status = 0;
+            s_prompt_tone_replacing = false;
             if (s_prompt_tone_owns_audio_engine && audio_engine_is_running()) {
                 s_prompt_tone_owns_audio_engine = false;
                 (void)audio_engine_stop();
             }
+        } else {
+            s_prompt_tone_start_ms = (uint32_t)rtos_get_time();
         }
     }
     else
     {
         s_prompt_tone_status = 0;
+        s_prompt_tone_replacing = false;
         ret = BK_OK;
     }
 
@@ -899,13 +893,16 @@ static void app_event_thread(beken_thread_arg_t data)
                 case APP_EVT_PROMPT_TONE_FINISH:
                     LOGI("APP_EVT_PROMPT_TONE_FINISH\n");
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
-                    s_prompt_tone_status = 0;
-                    if (s_face_prompt_pending) {
-                        app_evt_type_t pending_event = s_face_prompt_pending_event;
-                        s_face_prompt_pending = false;
-                        app_play_prompt_tone(pending_event);
+                    if (s_prompt_tone_replacing &&
+                        s_prompt_tone_status != 0 &&
+                        (uint32_t)((uint32_t)rtos_get_time() - s_prompt_tone_start_ms) <
+                        PROMPT_TONE_REPLACE_FINISH_GUARD_MS) {
+                        s_prompt_tone_replacing = false;
+                        LOGI("[prompt_tone] ignore replaced prompt finish\n");
                         break;
                     }
+                    s_prompt_tone_replacing = false;
+                    s_prompt_tone_status = 0;
                     if (s_prompt_tone_owns_audio_engine && audio_engine_is_running()) {
                         s_prompt_tone_owns_audio_engine = false;
                         (void)audio_engine_stop();
