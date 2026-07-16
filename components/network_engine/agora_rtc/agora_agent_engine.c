@@ -294,7 +294,7 @@ int agora_start_agent_from_bk_server(agora_rtc_agent_info_t *option_info, void *
     }
     
     LOGI("%s, post_data:%s\r\n", __func__, post_data);
-    response_buffer = (char *) web_malloc(AGORA_AGENT_RCV_BUF_SIZE);
+    response_buffer = (char *) psram_malloc(AGORA_AGENT_RCV_BUF_SIZE);
     if (!response_buffer) {
         LOGE("Failed to malloc response buffer\r\n");
         ret = BK_FAIL;
@@ -412,7 +412,7 @@ int agora_upate_agent_from_bk_server(agora_rtc_agent_info_t *option_info, void *
     
     LOGI("%s, %s\r\n", __func__, post_data);
 
-    response_buffer =(char *) web_malloc(AGORA_AGENT_RCV_BUF_SIZE);
+    response_buffer =(char *) psram_malloc(AGORA_AGENT_RCV_BUF_SIZE);
     if (!response_buffer) {
         LOGE("Failed to malloc response buffer\r\n");
         ret = BK_FAIL;

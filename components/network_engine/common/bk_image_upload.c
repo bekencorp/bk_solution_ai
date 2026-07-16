@@ -184,10 +184,10 @@ bk_err_t bk_image_upload_jpeg(const uint8_t *jpeg, size_t jpeg_len,
     os_memcpy(body + head_len, jpeg, jpeg_len);
     os_memcpy(body + head_len + jpeg_len, tail, tail_len);
 
-    response_buffer = (char *)web_malloc(BK_IMG_UPLOAD_RESP_BUF_SIZE);
+    response_buffer = (char *)psram_malloc(BK_IMG_UPLOAD_RESP_BUF_SIZE);
     if (!response_buffer)
     {
-        LOGE("upload_jpeg: web_malloc(%u) OOM for response\r\n",
+        LOGE("upload_jpeg: psram_malloc(%u) OOM for response\r\n",
              (unsigned)BK_IMG_UPLOAD_RESP_BUF_SIZE);
         goto __exit;
     }
