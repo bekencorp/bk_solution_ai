@@ -119,6 +119,7 @@ typedef struct {
     uint32_t preview_rgb565_size;
     video_engine_preview_sink_t preview_sink;
     void *preview_user_data;
+    beken_mutex_t preview_lock;                 /**< Serializes preview start/stop/task lifecycle */
 #endif
     /* Engine state */
     bool is_started;                            /**< Video engine started flag */
@@ -376,11 +377,23 @@ int video_engine_init(void)
     }
     
     memset(g_video_engine_ctx, 0, sizeof(video_engine_ctx_t));
-    
+
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+    if (rtos_init_mutex(&g_video_engine_ctx->preview_lock) != BK_OK) {
+        LOGE("%s: preview_lock init failed\n", __func__);
+        os_free(g_video_engine_ctx);
+        g_video_engine_ctx = NULL;
+        return BK_FAIL;
+    }
+#endif
+
 #if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
     ret = frame_queue_init_all();
     if (ret != BK_OK) {
         LOGE("%s: frame_queue_init_all failed, ret=%d\n", __func__, ret);
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+        rtos_deinit_mutex(&g_video_engine_ctx->preview_lock);
+#endif
         os_free(g_video_engine_ctx);
         g_video_engine_ctx = NULL;
         return ret;
@@ -395,6 +408,9 @@ int video_engine_init(void)
         
 #if CONFIG_VIDEO_ENGINE_USE_DVP_CAMERA
         frame_queue_deinit_all();
+#endif
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+        rtos_deinit_mutex(&g_video_engine_ctx->preview_lock);
 #endif
         os_free(g_video_engine_ctx);
         g_video_engine_ctx = NULL;
@@ -427,7 +443,11 @@ int video_engine_deinit(void)
     frame_queue_deinit_all();
     LOGI("%s: frame_queue deinitialized\n", __func__);
 #endif
-    
+
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+    rtos_deinit_mutex(&g_video_engine_ctx->preview_lock);
+#endif
+
     os_free(g_video_engine_ctx);
     g_video_engine_ctx = NULL;
     
@@ -744,6 +764,14 @@ static void video_engine_nv12_to_rgb565(const uint8_t *nv12,
                                         uint16_t out_w,
                                         uint16_t out_h)
 {
+    /* Defensive: a torn-down preview can hand us freed/NULL buffers. Bailing
+     * out here turns a fatal NULL/UAF dereference into a dropped frame
+     * (root cause of the BK7259SW-2402 MemFault). */
+    if (nv12 == NULL || rgb565 == NULL)
+    {
+        return;
+    }
+
     /* Logical size after rotation (before scaling to the display size). */
     uint16_t rot_w = (rotate == 90 || rotate == 270) ? in_h : in_w;
     uint16_t rot_h = (rotate == 90 || rotate == 270) ? in_w : in_h;
@@ -788,59 +816,66 @@ static void video_engine_nv12_to_rgb565(const uint8_t *nv12,
     }
 }
 
-static void video_engine_preview_release_buffers(void)
-{
-    if (g_video_engine_ctx == NULL)
-    {
-        return;
-    }
-
-    if (g_video_engine_ctx->preview_nv12_buf != NULL)
-    {
-        bk_frame_buffer_free(g_video_engine_ctx->preview_nv12_buf);
-        g_video_engine_ctx->preview_nv12_buf = NULL;
-    }
-    if (g_video_engine_ctx->preview_rgb565_buf != NULL)
-    {
-        bk_frame_buffer_free(g_video_engine_ctx->preview_rgb565_buf);
-        g_video_engine_ctx->preview_rgb565_buf = NULL;
-    }
-    g_video_engine_ctx->preview_nv12_size = 0;
-    g_video_engine_ctx->preview_rgb565_size = 0;
-}
-
 static void video_engine_preview_task(void *arg)
 {
     (void)arg;
     LOGI("%s: started\n", __func__);
 
-    while (g_video_engine_ctx != NULL && g_video_engine_ctx->preview_running)
+    video_engine_ctx_t *ctx = g_video_engine_ctx;
+    if (ctx == NULL)
     {
-        uint32_t fps = g_video_engine_ctx->preview_fps ?
-                       g_video_engine_ctx->preview_fps : VIDEO_PREVIEW_DEFAULT_FPS;
+        rtos_delete_thread(NULL);
+        return;
+    }
+
+    /* This task is the sole owner of the preview buffers for its whole
+     * lifetime: they are allocated by preview_start() and freed *only* here on
+     * exit. A concurrent preview_stop()/deinit() therefore can never free them
+     * out from under an in-flight frame - that use-after-free (buffer freed
+     * after the 1000 ms stop timeout while the task kept running) was the root
+     * cause of the BK7259SW-2402 NULL/UAF MemFault. */
+    rtos_lock_mutex(&ctx->preview_lock);
+    uint8_t *my_nv12 = ctx->preview_nv12_buf;
+    uint8_t *my_rgb565 = ctx->preview_rgb565_buf;
+    rtos_unlock_mutex(&ctx->preview_lock);
+
+    while (1)
+    {
+        /* Snapshot everything the frame needs under the lock so we never
+         * re-read a global that another core may be tearing down mid-iteration. */
+        rtos_lock_mutex(&ctx->preview_lock);
+        bool running = ctx->preview_running;
+        uint8_t *nv12 = ctx->preview_nv12_buf;
+        uint8_t *rgb565 = ctx->preview_rgb565_buf;
+        uint32_t nv12_size = ctx->preview_nv12_size;
+        uint16_t in_w = ctx->preview_in_width;
+        uint16_t in_h = ctx->preview_in_height;
+        uint16_t rotate = ctx->preview_rotate;
+        uint16_t out_w = ctx->preview_out_width;
+        uint16_t out_h = ctx->preview_out_height;
+        video_engine_preview_sink_t sink = ctx->preview_sink;
+        void *user_data = ctx->preview_user_data;
+        uint32_t fps = ctx->preview_fps ? ctx->preview_fps : VIDEO_PREVIEW_DEFAULT_FPS;
+        rtos_unlock_mutex(&ctx->preview_lock);
+
+        if (!running || nv12 == NULL || rgb565 == NULL)
+        {
+            break;
+        }
+
         uint32_t frame_interval_ms = 1000U / fps;
         uint32_t loop_start = rtos_get_time();
 
         if (app_isp_camera_channel_read(APP_ISP_SP_CHN_ID,
-                                        g_video_engine_ctx->preview_nv12_buf,
-                                        g_video_engine_ctx->preview_nv12_size,
+                                        nv12,
+                                        nv12_size,
                                         VIDEO_PREVIEW_READ_TIMEOUT_MS) == BK_OK)
         {
-            video_engine_nv12_to_rgb565(g_video_engine_ctx->preview_nv12_buf,
-                                        g_video_engine_ctx->preview_rgb565_buf,
-                                        g_video_engine_ctx->preview_in_width,
-                                        g_video_engine_ctx->preview_in_height,
-                                        g_video_engine_ctx->preview_rotate,
-                                        g_video_engine_ctx->preview_out_width,
-                                        g_video_engine_ctx->preview_out_height);
+            video_engine_nv12_to_rgb565(nv12, rgb565, in_w, in_h, rotate, out_w, out_h);
 
-            video_engine_preview_sink_t sink = g_video_engine_ctx->preview_sink;
             if (sink != NULL)
             {
-                sink(g_video_engine_ctx->preview_rgb565_buf,
-                     g_video_engine_ctx->preview_out_width,
-                     g_video_engine_ctx->preview_out_height,
-                     g_video_engine_ctx->preview_user_data);
+                sink(rgb565, out_w, out_h, user_data);
             }
         }
 
@@ -858,10 +893,33 @@ static void video_engine_preview_task(void *arg)
         }
     }
 
-    if (g_video_engine_ctx != NULL)
+    /* Publish "task gone" and release ownership of the buffers atomically.
+     * Only clear the ctx pointers if they still refer to this task's buffers
+     * (a fresh preview_start is blocked until preview_task_handle is NULL, so
+     * in practice they always match here). */
+    rtos_lock_mutex(&ctx->preview_lock);
+    if (ctx->preview_nv12_buf == my_nv12)
     {
-        g_video_engine_ctx->preview_task_handle = NULL;
+        ctx->preview_nv12_buf = NULL;
+        ctx->preview_nv12_size = 0;
     }
+    if (ctx->preview_rgb565_buf == my_rgb565)
+    {
+        ctx->preview_rgb565_buf = NULL;
+        ctx->preview_rgb565_size = 0;
+    }
+    ctx->preview_task_handle = NULL;
+    rtos_unlock_mutex(&ctx->preview_lock);
+
+    if (my_nv12 != NULL)
+    {
+        bk_frame_buffer_free(my_nv12);
+    }
+    if (my_rgb565 != NULL)
+    {
+        bk_frame_buffer_free(my_rgb565);
+    }
+
     LOGI("%s: exit\n", __func__);
     rtos_delete_thread(NULL);
 }
@@ -896,6 +954,14 @@ int video_engine_preview_start(const video_engine_preview_config_t *config)
     {
         LOGI("%s: already running\n", __func__);
         return BK_OK;
+    }
+    /* A previous preview task may still be winding down (it owns/frees its own
+     * buffers). Never overlap two preview tasks: bail out and let the caller
+     * retry once the old one has fully exited (preview_task_handle == NULL). */
+    if (g_video_engine_ctx->preview_task_handle != NULL)
+    {
+        LOGW("%s: previous preview task still exiting, retry later\n", __func__);
+        return BK_FAIL;
     }
 
     uint16_t rot_w = (config->rotate == 90 || config->rotate == 270) ?
@@ -942,6 +1008,27 @@ int video_engine_preview_start(const video_engine_preview_config_t *config)
         g_video_engine_ctx->preview_sp_opened = true;
     }
 
+    /* Allocate the buffers before taking the lock (malloc can block). */
+    uint32_t nv12_size = (uint32_t)config->width * config->height * 3U / 2U;
+    uint32_t rgb565_size = (uint32_t)out_w * out_h * 2U;
+    uint8_t *nv12_buf = (uint8_t *)bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED, nv12_size + 32U);
+    uint8_t *rgb565_buf = (uint8_t *)bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED, rgb565_size + 32U);
+    if (nv12_buf == NULL || rgb565_buf == NULL)
+    {
+        LOGE("%s: buffer alloc failed nv12=%p rgb565=%p\n", __func__, nv12_buf, rgb565_buf);
+        if (nv12_buf != NULL)
+        {
+            bk_frame_buffer_free(nv12_buf);
+        }
+        if (rgb565_buf != NULL)
+        {
+            bk_frame_buffer_free(rgb565_buf);
+        }
+        return BK_FAIL;
+    }
+
+    /* Commit state and hand buffer ownership to the worker atomically. */
+    rtos_lock_mutex(&g_video_engine_ctx->preview_lock);
     g_video_engine_ctx->preview_in_width = config->width;
     g_video_engine_ctx->preview_in_height = config->height;
     g_video_engine_ctx->preview_out_width = out_w;
@@ -954,26 +1041,10 @@ int video_engine_preview_start(const video_engine_preview_config_t *config)
     }
     g_video_engine_ctx->preview_sink = config->sink;
     g_video_engine_ctx->preview_user_data = config->user_data;
-    g_video_engine_ctx->preview_nv12_size = (uint32_t)config->width * config->height * 3U / 2U;
-    g_video_engine_ctx->preview_rgb565_size = (uint32_t)out_w * out_h * 2U;
-
-    g_video_engine_ctx->preview_nv12_buf =
-        (uint8_t *)bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED,
-                                          g_video_engine_ctx->preview_nv12_size + 32U);
-    g_video_engine_ctx->preview_rgb565_buf =
-        (uint8_t *)bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED,
-                                          g_video_engine_ctx->preview_rgb565_size + 32U);
-    if (g_video_engine_ctx->preview_nv12_buf == NULL ||
-        g_video_engine_ctx->preview_rgb565_buf == NULL)
-    {
-        LOGE("%s: buffer alloc failed nv12=%p rgb565=%p\n",
-             __func__,
-             g_video_engine_ctx->preview_nv12_buf,
-             g_video_engine_ctx->preview_rgb565_buf);
-        video_engine_preview_release_buffers();
-        return BK_FAIL;
-    }
-
+    g_video_engine_ctx->preview_nv12_size = nv12_size;
+    g_video_engine_ctx->preview_rgb565_size = rgb565_size;
+    g_video_engine_ctx->preview_nv12_buf = nv12_buf;
+    g_video_engine_ctx->preview_rgb565_buf = rgb565_buf;
     g_video_engine_ctx->preview_running = true;
     ret = rtos_create_thread(&g_video_engine_ctx->preview_task_handle,
                              VIDEO_TRANSFER_TASK_PRIORITY,
@@ -983,11 +1054,22 @@ int video_engine_preview_start(const video_engine_preview_config_t *config)
                              NULL);
     if (ret != BK_OK)
     {
-        LOGE("%s: create preview task failed ret=%d\n", __func__, ret);
+        /* Task never took ownership - clear state and free here. */
         g_video_engine_ctx->preview_running = false;
-        video_engine_preview_release_buffers();
+        g_video_engine_ctx->preview_task_handle = NULL;
+        g_video_engine_ctx->preview_nv12_buf = NULL;
+        g_video_engine_ctx->preview_rgb565_buf = NULL;
+        g_video_engine_ctx->preview_nv12_size = 0;
+        g_video_engine_ctx->preview_rgb565_size = 0;
+        g_video_engine_ctx->preview_sink = NULL;
+        g_video_engine_ctx->preview_user_data = NULL;
+        rtos_unlock_mutex(&g_video_engine_ctx->preview_lock);
+        LOGE("%s: create preview task failed ret=%d\n", __func__, ret);
+        bk_frame_buffer_free(nv12_buf);
+        bk_frame_buffer_free(rgb565_buf);
         return BK_FAIL;
     }
+    rtos_unlock_mutex(&g_video_engine_ctx->preview_lock);
 
     LOGI("%s: SP %ux%u -> RGB565 %ux%u rotate=%u fps=%u\n",
          __func__, config->width, config->height, out_w, out_h,
@@ -1002,35 +1084,55 @@ int video_engine_preview_stop(void)
         return BK_OK;
     }
 
-    if (g_video_engine_ctx->preview_running)
-    {
-        g_video_engine_ctx->preview_running = false;
-        for (uint32_t waited_ms = 0;
-             g_video_engine_ctx->preview_task_handle != NULL &&
-             waited_ms < VIDEO_PREVIEW_STOP_WAIT_MS;
-             waited_ms += VIDEO_PREVIEW_STOP_POLL_MS)
-        {
-            rtos_delay_milliseconds(VIDEO_PREVIEW_STOP_POLL_MS);
-        }
-        if (g_video_engine_ctx->preview_task_handle != NULL)
-        {
-            LOGW("%s: preview task did not exit within %u ms\n",
-                 __func__, VIDEO_PREVIEW_STOP_WAIT_MS);
-        }
-    }
-
+    /* Ask the worker to stop and stop delivering frames to the sink. The
+     * worker owns the preview buffers and frees them itself on exit, so we
+     * must NOT free them here while it may still be running - that free-then-use
+     * was the BK7259SW-2402 crash. */
+    rtos_lock_mutex(&g_video_engine_ctx->preview_lock);
+    g_video_engine_ctx->preview_running = false;
     g_video_engine_ctx->preview_sink = NULL;
     g_video_engine_ctx->preview_user_data = NULL;
-    video_engine_preview_release_buffers();
+    beken_thread_t handle = g_video_engine_ctx->preview_task_handle;
+    rtos_unlock_mutex(&g_video_engine_ctx->preview_lock);
+
+    uint32_t waited_ms = 0;
+    while (handle != NULL && waited_ms < VIDEO_PREVIEW_STOP_WAIT_MS)
+    {
+        rtos_delay_milliseconds(VIDEO_PREVIEW_STOP_POLL_MS);
+        waited_ms += VIDEO_PREVIEW_STOP_POLL_MS;
+        rtos_lock_mutex(&g_video_engine_ctx->preview_lock);
+        handle = g_video_engine_ctx->preview_task_handle;
+        rtos_unlock_mutex(&g_video_engine_ctx->preview_lock);
+    }
+
+    if (handle != NULL)
+    {
+        /* Still running: leave the buffers to the worker (it frees them the
+         * moment it finishes its current frame) rather than freeing under it. */
+        LOGW("%s: preview task did not exit within %u ms (task will free its buffers on exit)\n",
+             __func__, VIDEO_PREVIEW_STOP_WAIT_MS);
+        return BK_FAIL;
+    }
+
     LOGI("%s: stopped\n", __func__);
     return BK_OK;
 }
 
 bool video_engine_preview_is_running(void)
 {
-    return (g_video_engine_ctx != NULL &&
-            g_video_engine_ctx->preview_running &&
-            g_video_engine_ctx->preview_task_handle != NULL);
+    bool running;
+
+    if (g_video_engine_ctx == NULL)
+    {
+        return false;
+    }
+
+    rtos_lock_mutex(&g_video_engine_ctx->preview_lock);
+    running = (g_video_engine_ctx->preview_running &&
+              g_video_engine_ctx->preview_task_handle != NULL);
+    rtos_unlock_mutex(&g_video_engine_ctx->preview_lock);
+
+    return running;
 }
 #else
 int video_engine_preview_start(const video_engine_preview_config_t *config)
