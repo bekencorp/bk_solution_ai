@@ -51,6 +51,30 @@ static isp_csi_cam_handle_t isp_cam_handle = {0};
 
 static camera_board_config_t *camera_board_config = NULL;
 
+static avdk_err_t app_isp_sensor_apply_mirror(bk_camera_sensor_handle_t handle, bool hmirror, bool vflip)
+{
+    avdk_err_t ret;
+
+    if (handle == NULL)
+    {
+        return AVDK_ERR_INVAL;
+    }
+
+    ret = bk_camera_sensor_set_hmirror(handle, hmirror);
+    if (ret != AVDK_ERR_OK && ret != AVDK_ERR_UNSUPPORTED)
+    {
+        return ret;
+    }
+
+    ret = bk_camera_sensor_set_vflip(handle, vflip);
+    if (ret != AVDK_ERR_OK && ret != AVDK_ERR_UNSUPPORTED)
+    {
+        return ret;
+    }
+
+    return AVDK_ERR_OK;
+}
+
 #if CONFIG_TP
 static bool app_camera_tp_suspend(void)
 {
@@ -373,14 +397,42 @@ err:
 
 static int app_isp_mipi_sensor_start(const camera_board_config_t *config)
 {
-    bk_camera_sensor_init(isp_cam_handle.sensor_handle);
+    avdk_err_t ret;
     bk_camera_sensor_format_t format = {
         .width = config->mipi.sensor_max_width,
         .height = config->mipi.sensor_max_height,
         .fps = config->mipi.sensor_fps,
     };
 
-    return bk_camera_sensor_set_format(isp_cam_handle.sensor_handle, &format);
+    bk_camera_sensor_init(isp_cam_handle.sensor_handle);
+
+    /* GC2053 mirror (reg 0x17) must be set before MIPI stream start in set_format. */
+    ret = app_isp_sensor_apply_mirror(isp_cam_handle.sensor_handle,
+                                      config->mipi.hmirror != 0,
+                                      config->mipi.vflip != 0);
+    if (ret != AVDK_ERR_OK)
+    {
+        LOGE("%s, apply mirror before set_format failed: %d\n", __func__, ret);
+        return ret;
+    }
+
+    ret = bk_camera_sensor_set_format(isp_cam_handle.sensor_handle, &format);
+    if (ret != AVDK_ERR_OK)
+    {
+        return ret;
+    }
+
+    ret = app_isp_sensor_apply_mirror(isp_cam_handle.sensor_handle,
+                                      config->mipi.hmirror != 0,
+                                      config->mipi.vflip != 0);
+    if (ret != AVDK_ERR_OK)
+    {
+        LOGE("%s, apply mirror after set_format failed: %d\n", __func__, ret);
+        return ret;
+    }
+
+    LOGI("%s hmirror=%u vflip=%u\n", __func__, config->mipi.hmirror, config->mipi.vflip);
+    return AVDK_ERR_OK;
 }
 
 static int app_isp_mipi_camera_mp_turn_on(const camera_board_config_t *config, bk_isp_camera_ctlr_config_t *isp_ctlr_config)

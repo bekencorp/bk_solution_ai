@@ -592,6 +592,8 @@ static int video_engine_mipi_camera_open(camera_parameters_t *parameters)
     cfg.mipi.sensor_max_width   = CONFIG_VIDEO_ENGINE_MIPI_SENSOR_WIDTH;
     cfg.mipi.sensor_max_height  = CONFIG_VIDEO_ENGINE_MIPI_SENSOR_HEIGHT;
     cfg.mipi.sensor_fps         = CONFIG_VIDEO_ENGINE_MIPI_SENSOR_FPS;
+    cfg.mipi.hmirror            = 1;
+    cfg.mipi.vflip              = 0;
 
     cfg.isp.mp_enable = true;
     cfg.isp.mp_flexa  = true;
