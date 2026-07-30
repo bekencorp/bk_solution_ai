@@ -126,6 +126,8 @@ static void hand_gesture_detection_config(void)
     camera_board.mipi.sensor_max_width = 1088;
     camera_board.mipi.sensor_max_height = 1088;
     camera_board.mipi.sensor_fps = 15;
+    camera_board.mipi.hmirror = 1;
+    camera_board.mipi.vflip = 0;
     camera_board.isp.mp_enable = true;
     camera_board.isp.mp_flexa = true;
     camera_board.isp.mp_width = HAND_GESTURE_DISPLAY_W;

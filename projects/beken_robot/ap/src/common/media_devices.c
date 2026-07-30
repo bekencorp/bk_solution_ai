@@ -329,6 +329,8 @@ avdk_err_t media_camera_open(uint16_t cam_w,
     cfg.mipi.sensor_max_width   = cam_w;
     cfg.mipi.sensor_max_height  = cam_h;
     cfg.mipi.sensor_fps         = (uint8_t)fps;
+    cfg.mipi.hmirror            = 1;
+    cfg.mipi.vflip              = 0;
 
     cfg.isp.mp_enable = true;
     cfg.isp.mp_flexa  = true;
