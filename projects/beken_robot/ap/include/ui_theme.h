@@ -70,6 +70,7 @@ typedef enum {
     UI_THEME_ICON_RESET,
     UI_THEME_ICON_LANG,
     UI_THEME_ICON_CAR,
+    UI_THEME_ICON_BLUETOOTH,
 } ui_theme_icon_kind_t;
 
 void ui_theme_apply_screen(lv_obj_t *screen);

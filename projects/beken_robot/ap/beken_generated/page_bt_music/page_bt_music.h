@@ -11,6 +11,7 @@ extern "C" {
 #endif
 
 int page_bt_music_enter(void);
+void page_bt_music_show_low_mem_hint(void);
 
 #ifdef __cplusplus
 }

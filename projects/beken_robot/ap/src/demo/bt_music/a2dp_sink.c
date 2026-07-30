@@ -60,10 +60,9 @@ static uint8_t s_user_spk_enable = 1;
 static uint8_t s_mix_multi_channel = 1;
 static uint8_t s_a2dp_sink_inited = 0;
 static uint8_t s_a2dp_connected = 0;
+static uint8_t s_remote_playback = 0;
 static uint8_t s_bt_manager_index = 0xFF;
 static uint8_t s_codec_type = CODEC_AUDIO_SBC;
-
-static const char *a2dp_sink_play_status_to_str(uint8_t play_status);
 
 static int a2dp_sink_queue_push(uint8_t type, const void *data, uint16_t len, uint32_t timeout_ms)
 {
@@ -226,6 +225,14 @@ static void a2dp_sink_gap_event_cb(bk_gap_bt_cb_event_t event, bk_bt_gap_cb_para
     switch (event)
     {
     case BK_BT_GAP_ACL_DISCONN_CMPL_STAT_EVT:
+        /* ACL can drop without a clean A2DP DISCONNECTED callback; force the
+         * audio/UI path back to idle so we don't keep "playing" on a dead link. */
+        if (s_a2dp_connected)
+        {
+            LOGW("ACL disconnect, force a2dp stop\n");
+            s_a2dp_connected = 0;
+            (void)a2dp_sink_queue_push(BT_AUDIO_A2DP_STOP_MSG, NULL, 0, BEKEN_NO_WAIT);
+        }
         if (s_acl_disconnect_sema)
         {
             rtos_set_semaphore(&s_acl_disconnect_sema);
@@ -235,14 +242,6 @@ static void a2dp_sink_gap_event_cb(bk_gap_bt_cb_event_t event, bk_bt_gap_cb_para
     case BK_BT_GAP_LINK_KEY_NOTIF_EVT:
         if (param)
         {
-            LOGI("%s save default volume for new linkkey %02x:%02x:%02x:%02x:%02x:%02x\n",
-                 __func__,
-                 param->link_key_notif.bda[5],
-                 param->link_key_notif.bda[4],
-                 param->link_key_notif.bda[3],
-                 param->link_key_notif.bda[2],
-                 param->link_key_notif.bda[1],
-                 param->link_key_notif.bda[0]);
             bluetooth_storage_save_volume(param->link_key_notif.bda, DEFAULT_A2DP_VOLUME);
         }
         break;
@@ -307,8 +306,6 @@ static void a2dp_sink_wait_acl_disconnect(void)
             return;
         }
     }
-
-    LOGI("%s wait acl disconnect state=%u\n", __func__, state);
     ret = rtos_get_semaphore(&s_acl_disconnect_sema, ACL_DISCONNECT_TIMEOUT_MS);
     if (ret != BK_OK)
     {
@@ -337,13 +334,13 @@ static void a2dp_sink_demo_task(void *arg)
                 const bk_a2dp_mcc_t *codec = (const bk_a2dp_mcc_t *)msg.data;
                 spk_task_start_vote |= (1 << BK_A2DP_AUDIO_OPEN_VOTE_A2DP);
                 s_codec_type = codec->type;
-                LOGI("BT_AUDIO_A2DP_START_MSG\n");
                 bt_music_on_stream_start();
 
                 if (a2dp_sink_audio_start(codec,
                                           spk_task_start_vote,
                                           s_mix_multi_channel,
-                                          a2dp_sink_get_local_volume()) != BK_OK)
+                                          (s_remote_playback == BK_AVRCP_PLAYBACK_PLAYING) ?
+                                          a2dp_sink_get_local_volume() : 0) != BK_OK)
                 {
                     LOGE("audio player open failed\n");
                 }
@@ -351,7 +348,7 @@ static void a2dp_sink_demo_task(void *arg)
             break;
 
         case BT_AUDIO_A2DP_STOP_MSG:
-            LOGI("BT_AUDIO_A2DP_STOP_MSG\n");
+            s_remote_playback = BK_AVRCP_PLAYBACK_STOPPED;
             bt_music_on_stream_stop();
             spk_task_start_vote &= ~(1 << BK_A2DP_AUDIO_OPEN_VOTE_A2DP);
             a2dp_sink_audio_stop();
@@ -366,7 +363,6 @@ static void a2dp_sink_demo_task(void *arg)
             if (msg.data && msg.len == sizeof(uint8_t))
             {
                 uint8_t enable = *msg.data;
-                LOGI("BT_AUDIO_USER_START_MSG %d\n", enable);
                 if (enable)
                 {
                     spk_task_start_vote |= (1 << BK_A2DP_AUDIO_OPEN_VOTE_USER);
@@ -389,8 +385,11 @@ static void a2dp_sink_demo_task(void *arg)
         case BT_AUDIO_VOLUME_UPDATE_MSG:
             if (msg.data && msg.len == sizeof(uint8_t))
             {
-                LOGI("BT_AUDIO_VOLUME_UPDATE_MSG vol: %d\n", *(uint8_t *)msg.data);
-                a2dp_sink_audio_set_gain(*(uint8_t *)msg.data);
+                uint8_t vol = *(uint8_t *)msg.data;
+                if (s_remote_playback == BK_AVRCP_PLAYBACK_PLAYING)
+                {
+                    a2dp_sink_audio_set_gain(vol);
+                }
             }
             break;
 
@@ -398,18 +397,19 @@ static void a2dp_sink_demo_task(void *arg)
             if (msg.data && msg.len == sizeof(uint8_t))
             {
                 uint8_t play_status = *(uint8_t *)msg.data;
-                LOGI("AVRCP CT play status changed: %s(0x%x)\n",
-                     a2dp_sink_play_status_to_str(play_status),
-                     play_status);
-                /* Mirror phone-side play/pause so UI + rhythm stay in sync. */
+                s_remote_playback = play_status;
+                /* Mirror phone-side play/pause for UI/rhythm; mute/unmute
+                 * speaker when the phone pauses without tearing down A2DP. */
                 if (play_status == BK_AVRCP_PLAYBACK_PLAYING)
                 {
                     bt_music_on_stream_start();
+                    a2dp_sink_audio_set_gain(a2dp_sink_get_local_volume());
                 }
                 else if (play_status == BK_AVRCP_PLAYBACK_PAUSED ||
                          play_status == BK_AVRCP_PLAYBACK_STOPPED)
                 {
                     bt_music_on_stream_stop();
+                    a2dp_sink_audio_set_gain(0);
                 }
             }
             break;
@@ -418,37 +418,13 @@ static void a2dp_sink_demo_task(void *arg)
             if (msg.data && msg.len >= sizeof(a2dp_sink_avrcp_elem_attr_msg_t))
             {
                 a2dp_sink_avrcp_elem_attr_msg_t *rsp = (a2dp_sink_avrcp_elem_attr_msg_t *)msg.data;
-                LOGI("AVRCP CT elem attr rsp status %d count %d %02x:%02x:%02x:%02x:%02x:%02x\n",
-                     rsp->status,
-                     rsp->attr_count,
-                     rsp->remote_bda[5],
-                     rsp->remote_bda[4],
-                     rsp->remote_bda[3],
-                     rsp->remote_bda[2],
-                     rsp->remote_bda[1],
-                     rsp->remote_bda[0]);
-
-                for (uint32_t i = 0; i < rsp->attr_count; ++i)
-                {
-                    LOGI("AVRCP CT elem attr 0x%x charset 0x%x len %u\n",
-                         rsp->attr_array[i].attr_id,
-                         rsp->attr_array[i].attr_text_charset,
-                         rsp->attr_array[i].attr_length);
-                    if (rsp->attr_array[i].attr_text && rsp->attr_array[i].attr_length)
-                    {
-                        LOGI("AVRCP CT elem attr text: %.*s\n",
-                             (int)rsp->attr_array[i].attr_length,
-                             (char *)rsp->attr_array[i].attr_text);
-                    }
-                }
-
+                (void)rsp;
                 a2dp_sink_avrcp_elem_attr_msg_free(rsp);
                 msg.data = NULL;
             }
             break;
 
         case BT_AUDIO_EXIT_MSG:
-            LOGI("BT_AUDIO_EXIT_MSG\n");
             a2dp_sink_msg_release(&msg);
             spk_task_start_vote &= ~(1 << BK_A2DP_AUDIO_OPEN_VOTE_A2DP);
             a2dp_sink_audio_stop();
@@ -466,8 +442,6 @@ static void a2dp_sink_demo_task(void *arg)
 static int a2dp_sink_task_init(void)
 {
     bk_err_t ret;
-
-    LOGI("%s\n", __func__);
 
     if (s_a2dp_sink_thread || s_a2dp_sink_msg_queue)
     {
@@ -498,7 +472,6 @@ static int a2dp_sink_task_init(void)
         s_a2dp_sink_thread = NULL;
     }
 
-    LOGI("%s end\n", __func__);
     return ret;
 }
 
@@ -506,11 +479,9 @@ static void a2dp_sink_task_deinit(void)
 {
     if (s_a2dp_sink_thread)
     {
-        LOGI("%s wait demo task end\n", __func__);
         a2dp_sink_queue_push(BT_AUDIO_EXIT_MSG, NULL, 0, BEKEN_WAIT_FOREVER);
         rtos_thread_join(&s_a2dp_sink_thread);
         s_a2dp_sink_thread = NULL;
-        LOGI("%s demo task end !!!\n", __func__);
     }
 
     if (s_a2dp_sink_msg_queue)
@@ -541,7 +512,6 @@ static void on_a2dp_evt(bk_a2dp_sink_evt_t evt, void *arg, void *user_data)
     case BK_A2DP_SINK_EVT_DISCONNECTED:
         if (evt == BK_A2DP_SINK_EVT_DISCONNECTED)
         {
-            LOGI("A2DP disconnected\n");
             s_a2dp_connected = 0;
             if (s_a2dp_connect_sema)
             {
@@ -579,8 +549,6 @@ static void on_avrcp_tg_evt(bk_avrcp_tg_evt_t evt, void *arg, void *user_data)
 {
     (void)user_data;
 
-    LOGI("%s event: %d\n", __func__, evt);
-
     switch (evt)
     {
     case BK_AVRCP_TG_EVT_VOLUME_CHANGED:
@@ -591,32 +559,9 @@ static void on_avrcp_tg_evt(bk_avrcp_tg_evt_t evt, void *arg, void *user_data)
     }
 }
 
-static const char *a2dp_sink_play_status_to_str(uint8_t play_status)
-{
-    switch (play_status)
-    {
-    case BK_AVRCP_PLAYBACK_STOPPED:
-        return "stopped";
-    case BK_AVRCP_PLAYBACK_PLAYING:
-        return "playing";
-    case BK_AVRCP_PLAYBACK_PAUSED:
-        return "paused";
-    case BK_AVRCP_PLAYBACK_FWD_SEEK:
-        return "forward seek";
-    case BK_AVRCP_PLAYBACK_REV_SEEK:
-        return "reverse seek";
-    case BK_AVRCP_PLAYBACK_ERROR:
-        return "error";
-    default:
-        return "unknown";
-    }
-}
-
 static void on_avrcp_ct_evt(bk_avrcp_ct_evt_t evt, void *arg, void *user_data)
 {
     (void)user_data;
-
-    LOGI("%s event: %d\n", __func__, evt);
 
     switch (evt)
     {
@@ -631,16 +576,7 @@ static void on_avrcp_ct_evt(bk_avrcp_ct_evt_t evt, void *arg, void *user_data)
     }
 
     case BK_AVRCP_CT_EVT_TRACK_CHANGED:
-    {
-        uint64_t track_id = 0;
-        if (arg)
-        {
-            track_id = *(uint64_t *)arg;
-        }
-        LOGI("AVRCP CT track changed: %llu\n", (unsigned long long)track_id);
-        bk_avrcp_ct_get_attr(BK_AVRCP_MEDIA_ATTR_ID_TITLE);
         break;
-    }
 
     case BK_AVRCP_CT_EVT_ELEM_ATTR_RSP:
     {
@@ -654,6 +590,11 @@ static void on_avrcp_ct_evt(bk_avrcp_ct_evt_t evt, void *arg, void *user_data)
         break;
     }
 
+    case BK_AVRCP_CT_EVT_CONNECTED:
+    case BK_AVRCP_CT_EVT_DISCONNECTED:
+    case BK_AVRCP_CT_EVT_PLAY_POS_CHANGED:
+        break;
+
     default:
         LOGW("Unhandled AVRCP CT event: %d\n", evt);
         break;
@@ -665,8 +606,6 @@ int a2dp_sink_demo_init(uint8_t aac_supported, uint8_t auto_accept_conn)
     bk_a2dp_sink_cfg_t sink_cfg;
     bk_avrcp_ct_cfg_t avrcp_ct_cfg;
     bk_avrcp_tg_cfg_t avrcp_tg_cfg;
-
-    LOGI("%s\n", __func__);
 
     if (aac_supported)
     {
@@ -740,45 +679,30 @@ int a2dp_sink_demo_init(uint8_t aac_supported, uint8_t auto_accept_conn)
 
         bk_bt_avrcp_ct_sdp_feature_operation(BK_AVRCP_SDP_FEATURE_API_METHOD_GET_ALLOWED, &allow);
         bk_bt_avrcp_ct_sdp_feature_operation(BK_AVRCP_SDP_FEATURE_API_METHOD_GET_CURRENT_ENABLE, &feat);
-        LOGI("%s current ct enable 0x%x\n", __func__, feat);
         feat &= ~(BK_AVRCP_SDP_FEATURE_CT_CAT_2 | BK_AVRCP_SDP_FEATURE_CT_CAT_3 | BK_AVRCP_SDP_FEATURE_CT_CAT_4
                         | BK_AVRCP_SDP_FEATURE_CT_SUPPORT_BROWSING | BK_AVRCP_SDP_FEATURE_CT_SUPPORT_CA_GIP | BK_AVRCP_SDP_FEATURE_CT_SUPPORT_CA_GI | BK_AVRCP_SDP_FEATURE_CT_SUPPORT_CA_GLT);
         feat &= allow;
         bk_bt_avrcp_ct_sdp_feature_operation(BK_AVRCP_SDP_FEATURE_API_METHOD_SET, &feat);
         feat = 0;
-        allow = 0;
-        bk_bt_avrcp_ct_sdp_feature_operation(BK_AVRCP_SDP_FEATURE_API_METHOD_GET_CURRENT_ENABLE, &feat);
-        LOGI("%s current ct enable 0x%x\n", __func__, feat);
-        feat = 0;
 
         bk_bt_avrcp_tg_sdp_feature_operation(BK_AVRCP_SDP_FEATURE_API_METHOD_GET_ALLOWED, &allow);
         bk_bt_avrcp_tg_sdp_feature_operation(BK_AVRCP_SDP_FEATURE_API_METHOD_GET_CURRENT_ENABLE, &feat);
-        LOGI("%s current tg enable 0x%x\n", __func__, feat);
         feat &= ~(BK_AVRCP_SDP_FEATURE_TG_CAT_1 | BK_AVRCP_SDP_FEATURE_TG_CAT_3 | BK_AVRCP_SDP_FEATURE_TG_CAT_4
                         | BK_AVRCP_SDP_FEATURE_TG_PLAYER_APP_SET | BK_AVRCP_SDP_FEATURE_TG_GROUP_NAV | BK_AVRCP_SDP_FEATURE_TG_SUPPORT_BROWSING | BK_AVRCP_SDP_FEATURE_TG_SUPPORT_MULT_MEDIA_PA
                         | BK_AVRCP_SDP_FEATURE_TG_SUPPORT_CA);
         feat &= allow;
         bk_bt_avrcp_tg_sdp_feature_operation(BK_AVRCP_SDP_FEATURE_API_METHOD_SET, &feat);
-        feat = 0;
-        allow = 0;
-        bk_bt_avrcp_tg_sdp_feature_operation(BK_AVRCP_SDP_FEATURE_API_METHOD_GET_CURRENT_ENABLE, &feat);
-        LOGI("%s current tg enable 0x%x\n", __func__, feat);
-        feat = 0;
     }
 #endif
 
     bk_avrcp_tg_emit_current_volume();
 
-    LOGI("%s initial volume %d\n", __func__, a2dp_sink_get_local_volume());
     s_a2dp_sink_inited = 1;
-    LOGI("%s end\n", __func__);
     return BK_OK;
 }
 
 int a2dp_sink_demo_deinit(void)
 {
-    LOGI("%s\n", __func__);
-
     if (!s_a2dp_sink_inited)
     {
         LOGE("%s already deinit\n", __func__);
@@ -812,7 +736,6 @@ int a2dp_sink_demo_deinit(void)
 
     s_a2dp_connected = 0;
     s_a2dp_sink_inited = 0;
-    LOGI("%s end\n", __func__);
     return BK_OK;
 }
 
@@ -823,7 +746,6 @@ int32_t a2dp_sink_demo_wait_player_end(void)
 
 void a2dp_sink_demo_audio_spk_enable(uint8_t enable)
 {
-    LOGI("%s %d\n", __func__, enable);
     s_user_spk_enable = enable;
     if (a2dp_sink_queue_push(BT_AUDIO_USER_START_MSG, &enable, sizeof(enable), BEKEN_NO_WAIT) == BK_OK &&
         s_audio_player_en_sema)
@@ -831,15 +753,13 @@ void a2dp_sink_demo_audio_spk_enable(uint8_t enable)
         int ret = rtos_get_semaphore(&s_audio_player_en_sema, A2DP_SPK_ENABLE_TIMEOUT_MS);
         if (ret != BK_OK)
         {
-            LOGW("%s wait audio player vote timeout ret=%d\n", __func__, ret);
+            LOGW("audio spk enable vote timeout ret=%d\n", ret);
         }
     }
-    LOGI("%s end\n", __func__);
 }
 
 void a2dp_sink_demo_set_mix(uint8_t enable)
 {
-    LOGI("%s %d\n", __func__, enable);
     s_mix_multi_channel = enable;
 }
 
@@ -858,25 +778,10 @@ int32_t a2dp_sink_demo_try_connect(void)
         return BK_FAIL;
     }
 
-    LOGW("%s current bt manager status %d %d\n",
-         __func__, bt_manager_get_connect_state(), s_a2dp_connected);
-
     if ((bt_manager_get_connect_state() == BT_STATE_LINK_CONNECTED ||
          bt_manager_get_connect_state() == BT_STATE_PROFILE_CONNECTED) &&
         !s_a2dp_connected)
     {
-        const uint8_t *device = bt_manager_get_connected_device();
-        if (device)
-        {
-            LOGW("%s start connect a2dp profile %02x:%02x:%02x:%02x:%02x:%02x\n",
-                 __func__,
-                 device[5],
-                 device[4],
-                 device[3],
-                 device[2],
-                 device[1],
-                 device[0]);
-        }
         ret = bk_a2dp_sink_connect(bt_manager_get_connected_device());
         if (ret != BK_OK)
         {
@@ -902,7 +807,6 @@ int32_t a2dp_sink_demo_try_disconnect_current(void)
             }
         }
 
-        LOGW("%s disconnecting a2dp\n", __func__);
         ret = bk_a2dp_sink_disconnect(bt_manager_get_connected_device());
         if (ret != BK_OK)
         {
@@ -910,15 +814,10 @@ int32_t a2dp_sink_demo_try_disconnect_current(void)
         }
         else
         {
-            LOGW("%s wait disconnect a2dp sem\n", __func__);
             ret = rtos_get_semaphore(&s_a2dp_connect_sema, 5000);
             if (ret != BK_OK)
             {
                 LOGE("%s wait disconnect a2dp sem err %d\n", __func__, ret);
-            }
-            else
-            {
-                LOGW("%s wait disconnect a2dp success\n", __func__);
             }
         }
     }
@@ -932,7 +831,6 @@ int32_t a2dp_sink_demo_try_disconnect_current(void)
         s_a2dp_connect_sema = NULL;
     }
 
-    LOGW("%s end\n", __func__);
     return ret;
 }
 #endif /* CONFIG_BT */

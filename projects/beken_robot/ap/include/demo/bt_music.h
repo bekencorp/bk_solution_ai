@@ -34,14 +34,7 @@ void bt_music_dance_toggle(void);
 bool bt_music_is_dancing(void);
 bool bt_music_is_playing(void);
 
-/** Latest low/mid/high band energies (0..100) for the UI meter. */
-void bt_music_get_bands(uint8_t *low, uint8_t *mid, uint8_t *high);
-
-/** Latest per-bin spectrum (0..100 each) for the UI visualizer; @p count bars. */
-void bt_music_get_spectrum(uint8_t *bands, uint8_t count);
-
-/** Latest per-joint pose levels (0..100 each): 5 fingers + 1 base. Mirrors the
- *  hand so each UI bar maps 1:1 to a servo. */
+/** Latest per-joint pose levels (0..100 each): 5 fingers + 1 base. */
 void bt_music_get_pose_levels(uint8_t *levels, uint8_t count);
 
 /** True when a phone is connected over A2DP. */

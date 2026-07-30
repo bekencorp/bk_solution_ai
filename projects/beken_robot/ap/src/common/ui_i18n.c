@@ -59,6 +59,13 @@ static const char *const s_tr[STR_ID_COUNT][UI_LANG_COUNT] = {
 
     [STR_LANG_NATIVE_ZH]   = { "中文",                  "中文" },
     [STR_LANG_NATIVE_EN]   = { "English",               "English" },
+
+    [STR_BT_MUSIC_CONNECTED]     = { "已连接",           "Connected" },
+    [STR_BT_MUSIC_SEARCHING]     = { "连接中",           "Connecting" },
+    [STR_BT_MUSIC_CONNECT_PHONE]= { "请先连接手机",     "Connect phone first" },
+    [STR_BT_MUSIC_LOW_MEM]       = { "内存占用较高，请退出其他功能后重试",
+                                      "Memory busy now.\n"
+                                      "Please exit other demos, then open Bluetooth Music again." },
 };
 
 const char *ui_tr(ui_str_id_t id)

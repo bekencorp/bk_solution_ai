@@ -171,6 +171,7 @@ static const char *icon_text(ui_theme_icon_kind_t kind)
     case UI_THEME_ICON_USB:      return LV_SYMBOL_USB;
     case UI_THEME_ICON_RESET:    return LV_SYMBOL_REFRESH;
     case UI_THEME_ICON_LANG:     return "文A";
+    case UI_THEME_ICON_BLUETOOTH: return LV_SYMBOL_BLUETOOTH;
     case UI_THEME_ICON_NONE:
     default:                     return LV_SYMBOL_LIST;
     }
@@ -191,6 +192,7 @@ static bool icon_uses_symbol(ui_theme_icon_kind_t kind)
     case UI_THEME_ICON_VOLUME:
     case UI_THEME_ICON_USB:
     case UI_THEME_ICON_RESET:
+    case UI_THEME_ICON_BLUETOOTH:
         return true;
     default:
         return false;

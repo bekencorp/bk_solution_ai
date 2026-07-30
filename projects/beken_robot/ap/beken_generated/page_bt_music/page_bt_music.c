@@ -3,8 +3,7 @@
  * @brief Bluetooth A2DP music page -- "Glass Spectrum" (design scheme 2).
  *
  * Layout (385 x 320):
- *   - top status bar: connection dot + state text (ASCII; remote CJK metadata is
- *     intentionally not shown, the sparse font subset can't render it);
+ *   - top status bar: connection dot + state text (i18n via lv_font_ali_16);
  *   - a cyan/purple "glass" panel with lightweight accent lines and 6 rainbow
  *     bars, one per hand joint (5 fingers low->high freq + wrist/base);
  *   - bottom row like the reference: prev / play / next / vol- / vol+ /
@@ -20,29 +19,22 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#include <components/log.h>
 #include <os/os.h>
 
 #include "lvgl.h"
 #include "beken_ui.h"
-#include "event_runtime.h"
 #include "page_hooks.h"
 #include "ui_nav_router.h"
 #include "ui_list_menu.h"
-#include "ui_theme.h"
+#include "ui_i18n.h"
 #include "demo/bt_music.h"
 
 #ifdef ROBOT_TEST
 
-#define TAG "page_bt_music"
-#define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
-
-#define BTM_TEXT_FONT  (&lv_font_ali_16)   /* ASCII labels/captions */
+#define BTM_TEXT_FONT  (&lv_font_ali_16)
 
 /* ---- Neon palette (dark cyber theme) ---- */
 #define C_BG_BOTTOM    0x05060f
-#define C_PANEL        0x0c1a3d   /* glass panel fill (drawn semi-transparent) */
-#define C_PANEL_EDGE   0x5ce1ff   /* cyan panel edge */
 #define C_BAR_TRACK    0x101934
 #define C_BTN_BG       0x111936
 #define C_BTN_BORDER   0x3d7cff
@@ -54,9 +46,6 @@
 #define C_LINK_OK      0x36e07f   /* connected (green) */
 #define C_LINK_OFF     0x6b7aa0   /* disconnected (dim) */
 #define C_DIVIDER      0x1c2746
-#define C_GRID         0x1d3764
-#define C_GLOW_CYAN    0x00dfff
-#define C_GLOW_PURPLE  0xb75cff
 #define C_ROBOT_ON     0xb75cff
 #define C_ROBOT_OFF    0x52658f
 
@@ -77,6 +66,7 @@
 #define BTM_BAR_VIS_GAIN     0.96f  /* compression starts before the top */
 #define BTM_BAR_TOP_COMPRESS 0.12f  /* stronger compression near 100 */
 #define BTM_IMM_TIMEOUT_MS   3000U
+#define BTM_TRANSPORT_DEBOUNCE_MS 300U
 #define BTM_IMM_BAR_W        38
 #define BTM_IMM_BAR_GAP      17
 #define BTM_IMM_BAR_TOP      30
@@ -112,6 +102,7 @@ static float s_disp[BTM_BARS];
 static float s_peak[BTM_BARS];
 static bool  s_immersive;
 static uint32_t s_last_touch_ms;
+static uint32_t s_last_transport_ms;
 static uint32_t s_tick;
 
 /* Cached UI states so the ~per-second refreshes only touch LVGL on change. */
@@ -121,7 +112,9 @@ static int s_ui_playing = -1;
 
 static void set_immersive(bool enable);
 static void refresh_hand(void);
-void page_bt_music_show_low_mem_hint(void);
+static void dismiss_toast(void);
+static void show_toast(const char *message, const lv_font_t *font);
+static void show_i18n_toast(ui_str_id_t id, const char *en_symbol);
 
 /* ---------------- small builders ---------------- */
 
@@ -385,9 +378,10 @@ static void chrome_draw_cb(lv_event_t *e)
     bool linked = (s_ui_linked > 0);
 
     draw_rect(layer, 28, 24, 9, 9, linked ? C_LINK_OK : C_LINK_OFF, LV_OPA_COVER, 5);
-    draw_text(layer,
-              linked ? LV_SYMBOL_BLUETOOTH " Connected" : LV_SYMBOL_BLUETOOTH " Searching",
-              46, 18, LOGICAL_SCREEN_WIDTH - 72, 18, BTM_TEXT_FONT,
+    draw_text(layer, LV_SYMBOL_BLUETOOTH, 46, 18, 16, 18, LV_FONT_DEFAULT,
+              linked ? C_TITLE : C_LINK_OFF, LV_TEXT_ALIGN_LEFT);
+    draw_text(layer, ui_tr(linked ? STR_BT_MUSIC_CONNECTED : STR_BT_MUSIC_SEARCHING),
+              62, 18, LOGICAL_SCREEN_WIDTH - 88, 18, BTM_TEXT_FONT,
               linked ? C_TITLE : C_LINK_OFF, LV_TEXT_ALIGN_LEFT);
     draw_rect(layer, 16, 46, LOGICAL_SCREEN_WIDTH - 32, 1, C_DIVIDER, LV_OPA_COVER, 0);
 
@@ -399,8 +393,30 @@ static void chrome_draw_cb(lv_event_t *e)
     draw_robot_button(layer);
 }
 
+static bool action_needs_link(btm_action_t action)
+{
+    return action == BTM_ACT_VOL_DOWN ||
+           action == BTM_ACT_PREV ||
+           action == BTM_ACT_PLAY ||
+           action == BTM_ACT_NEXT ||
+           action == BTM_ACT_VOL_UP;
+}
+
 static void dispatch_action(btm_action_t action)
 {
+    if (action_needs_link(action) && !bt_music_is_connected()) {
+        show_i18n_toast(STR_BT_MUSIC_CONNECT_PHONE, LV_SYMBOL_BLUETOOTH);
+        return;
+    }
+
+    if (action_needs_link(action)) {
+        uint32_t now = (uint32_t)rtos_get_time();
+        if ((uint32_t)(now - s_last_transport_ms) < BTM_TRANSPORT_DEBOUNCE_MS) {
+            return;
+        }
+        s_last_transport_ms = now;
+    }
+
     switch (action) {
     case BTM_ACT_VOL_DOWN:
         bt_music_vol_down();
@@ -477,17 +493,7 @@ static void set_play_symbol(bool playing)
     }
 }
 
-/* Reposition/resize the SAME 6 bars + caps between the compact and the
- * full-screen "immersive" geometry, so immersive reuses the main visualizer
- * instead of building a second full set of objects. */
-static void layout_bars(bool immersive)
-{
-    (void)immersive;
-    if (s_visualizer != NULL && lv_obj_is_valid(s_visualizer)) {
-        lv_obj_invalidate(s_visualizer);
-    }
-}
-
+/* Reposition/resize bars between compact and immersive geometry. */
 static void set_immersive(bool enable)
 {
     if (enable == s_immersive) {
@@ -499,7 +505,9 @@ static void set_immersive(bool enable)
     }
 
     s_immersive = enable;
-    layout_bars(enable);
+    if (s_visualizer != NULL && lv_obj_is_valid(s_visualizer)) {
+        lv_obj_invalidate(s_visualizer);
+    }
 
     if (s_chrome != NULL && lv_obj_is_valid(s_chrome)) {
         if (enable) {
@@ -573,8 +581,9 @@ static void meter_timer_cb(lv_timer_t *timer)
         set_immersive(true);
     }
 
+    set_play_symbol(playing);
+
     if ((++s_tick % 12U) == 0U) {
-        set_play_symbol(playing);
         refresh_hand();
         refresh_status();
     }
@@ -584,6 +593,7 @@ static void meter_timer_cb(lv_timer_t *timer)
 
 static void bt_music_page_close(void)
 {
+    dismiss_toast();
     set_immersive(false);
     if (s_meter_timer != NULL) {
         lv_timer_delete(s_meter_timer);
@@ -604,6 +614,7 @@ static void clear_refs(void)
     s_immersive = false;
     s_tick = 0;
     s_last_touch_ms = 0;
+    s_last_transport_ms = 0;
     s_ui_linked = -1;
     s_ui_dancing = -1;
     s_ui_playing = -1;
@@ -631,7 +642,7 @@ static void on_screen_prev(bk_lv_ui_t *ui)
 static void on_screen_next(bk_lv_ui_t *ui)
 {
     (void)ui;
-    bt_music_play_pause();
+    dispatch_action(BTM_ACT_PLAY);
 }
 
 static const ui_page_nav_ops_t s_bt_music_nav_ops = {
@@ -645,20 +656,39 @@ static const ui_page_nav_ops_t s_bt_music_nav_ops = {
 
 static void toast_close_cb(lv_timer_t *timer)
 {
+    (void)timer;
     if (s_toast != NULL && lv_obj_is_valid(s_toast)) {
         lv_obj_del(s_toast);
     }
     s_toast = NULL;
     s_toast_timer = NULL;
-    lv_timer_delete(timer);
 }
 
-/* Shown (on the top layer, so it floats over the menu) when the page is
- * refused for low memory, so the user knows it's busy, not broken. */
-void page_bt_music_show_low_mem_hint(void)
+/* ---------------- toast hints ---------------- */
+
+static void dismiss_toast(void)
 {
+    if (s_toast_timer != NULL) {
+        lv_timer_t *t = s_toast_timer;
+        s_toast_timer = NULL;
+        lv_timer_delete(t);
+    }
     if (s_toast != NULL && lv_obj_is_valid(s_toast)) {
-        return;   /* one at a time */
+        lv_obj_del(s_toast);
+    }
+    s_toast = NULL;
+}
+
+static void show_toast(const char *message, const lv_font_t *font)
+{
+    if (message == NULL || message[0] == '\0') {
+        return;
+    }
+    if (font == NULL) {
+        font = LV_FONT_DEFAULT;
+    }
+    if (s_toast != NULL && lv_obj_is_valid(s_toast)) {
+        dismiss_toast();
     }
 
     s_toast = lv_obj_create(lv_layer_top());
@@ -677,11 +707,10 @@ void page_bt_music_show_low_mem_hint(void)
     lv_obj_t *lbl = lv_label_create(s_toast);
     lv_obj_set_width(lbl, LOGICAL_SCREEN_WIDTH - 56 - 28);
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_font(lbl, LV_FONT_DEFAULT, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(lbl, font, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(lbl, lv_color_hex(C_TITLE), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_label_set_text(lbl, LV_SYMBOL_WARNING " Memory busy now.\n"
-                           "Please exit other demos, then open Bluetooth Music again.");
+    lv_label_set_text(lbl, message);
     lv_obj_center(lbl);
 
     s_toast_timer = lv_timer_create(toast_close_cb, 1000, NULL);
@@ -695,10 +724,25 @@ void page_bt_music_show_low_mem_hint(void)
     }
 }
 
+static void show_i18n_toast(ui_str_id_t id, const char *en_symbol)
+{
+    if (en_symbol != NULL && ui_i18n_get_lang() == UI_LANG_EN) {
+        char buf[96];
+        lv_snprintf(buf, sizeof(buf), "%s %s", en_symbol, ui_tr(id));
+        show_toast(buf, LV_FONT_DEFAULT);
+    } else {
+        show_toast(ui_tr(id), BTM_TEXT_FONT);
+    }
+}
+
+void page_bt_music_show_low_mem_hint(void)
+{
+    show_i18n_toast(STR_BT_MUSIC_LOW_MEM, LV_SYMBOL_WARNING);
+}
+
 int page_bt_music_enter(void)
 {
-    bk_lv_ui_t *ui = &bk_lv_tool_ui;
-    (void)ui;
+    dismiss_toast();
 
     if (s_meter_timer != NULL) {
         lv_timer_delete(s_meter_timer);
@@ -781,7 +825,6 @@ int page_bt_music_enter(void)
             lv_timer_set_repeat_count(s_kick_timer, 1);
         }
     }
-    LOGI("bt_music page entered\r\n");
     return 0;
 }
 

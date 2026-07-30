@@ -772,7 +772,6 @@ int bt_rhythm_init(void)
     }
 
     s_inited = 1;
-    LOGI("bt_rhythm inited (%u servos)\n", BT_RHYTHM_SERVO_COUNT);
     return 0;
 }
 
@@ -800,8 +799,10 @@ void bt_rhythm_set_enabled(bool enable)
             return;
         }
     }
+    if (s_enabled == enable) {
+        return;
+    }
     s_enabled = enable;
-    LOGI("rhythm dance %s\n", enable ? "ON" : "OFF");
 }
 
 bool bt_rhythm_is_enabled(void)
@@ -811,8 +812,10 @@ bool bt_rhythm_is_enabled(void)
 
 void bt_rhythm_set_hand_output(bool enable)
 {
+    if (s_hand_output == enable) {
+        return;
+    }
     s_hand_output = enable;
-    LOGI("rhythm hand output %s\n", enable ? "ON" : "OFF");
 }
 
 bool bt_rhythm_hand_output_enabled(void)

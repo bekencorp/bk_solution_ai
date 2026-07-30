@@ -273,16 +273,16 @@ int demo_category_cloud_enter(void)
 /* ------------------------------------------------------------------ */
 static const char *const s_fun_items[UI_LANG_COUNT][3] = {
     { "音乐播放",  "图传播放", "蓝牙音乐" },
-    { "Music",     "Video",    "Bluetooth Music" },
+    { "Music",     "Video",    "BT Music" },
 };
 static const char *const s_fun_descs[UI_LANG_COUNT][3] = {
     { "音乐控制",  "实时图传", "手机音乐" },
-    { "Playback",  "Live",     "Phone music" },
+    { "Playback",  "Live",     "Phone playback" },
 };
 static const ui_theme_icon_kind_t s_fun_icons[] = {
     UI_THEME_ICON_MUSIC,
     UI_THEME_ICON_VIDEO,
-    UI_THEME_ICON_MUSIC,
+    UI_THEME_ICON_BLUETOOTH,
 };
 #define FUN_ITEM_COUNT ((int)(sizeof(s_fun_items[0]) / sizeof(s_fun_items[0][0])))
 

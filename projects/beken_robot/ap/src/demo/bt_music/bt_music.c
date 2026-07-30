@@ -6,9 +6,9 @@
  *   - bt_music_init():  lightweight, called once at boot by demo_registry. We do
  *                       NOT bring up the classic-BT stack here to avoid touching
  *                       boot / BLE provisioning ordering.
- *   - bt_music_start(): lazy one-time BT bring-up (bt_manager + A2DP sink), frees
- *                       the DAC from the voice engine, starts the rhythm engine
- *                       (hand begins to groove) and enters the bt_music page.
+ *   - bt_music_start(): enter the bt_music page on the LVGL thread first (same
+ *                       pattern as music / robot_video / sound_localization),
+ *                       then lazy one-time BT bring-up on the worker thread.
  *   - bt_music_stop():  parks the hand, tears down audio/A2DP/classic-BT and
  *                       releases IRAM so other demos can use the heap.
  *
@@ -18,7 +18,6 @@
 #include <os/os.h>
 #include <stdio.h>
 #include <stdbool.h>
-#include <components/system.h>
 #include <components/log.h>
 #if CONFIG_BT
 #include "components/bluetooth/bk_dm_bluetooth.h"
@@ -31,11 +30,8 @@
 #include "demo/bt_rhythm.h"
 #include "demo/bt_music.h"
 #include "audio_engine.h"
+#include "page_bt_music.h"
 #include "lvgl.h"
-
-/* Implemented in beken_generated/page_bt_music/page_bt_music.c. */
-int page_bt_music_enter(void);
-void page_bt_music_show_low_mem_hint(void);
 
 #define TAG "bt_music"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -49,7 +45,8 @@ void page_bt_music_show_low_mem_hint(void);
 #define BT_MUSIC_TEARDOWN_WAIT_MS 8000U
 
 typedef enum {
-    BT_MUSIC_EVT_PAIRING = 0,
+    BT_MUSIC_EVT_BRINGUP = 0,
+    BT_MUSIC_EVT_PAIRING,
     BT_MUSIC_EVT_VOL_UP,
     BT_MUSIC_EVT_VOL_DOWN,
     BT_MUSIC_EVT_PLAY_PAUSE,
@@ -71,9 +68,9 @@ static bool s_dance_user_enabled = true;
 static bool s_page_active;
 static bool s_render_ready;
 static bool s_playing;
-static lv_timer_t *s_page_enter_timer = NULL;
 #if CONFIG_BT
-static uint8_t s_bt_ready;       /* classic BT stack brought up */
+static uint8_t s_bt_ready;
+static beken_semaphore_t s_transport_slot;
 #endif
 
 static void bt_music_apply_rhythm_state(void)
@@ -124,7 +121,6 @@ static int bt_music_bringup(void)
     }
 
     s_bt_ready = 1;
-    LOGI("classic BT + A2DP sink up, name=%s\n", local_name);
 #endif
     return 0;
 }
@@ -147,15 +143,93 @@ static void bt_music_bringdown_locked(bool pause_remote)
     (void)a2dp_sink_demo_deinit();
     (void)bt_manager_deinit();
     s_bt_ready = 0;
+    if (s_transport_slot != NULL) {
+        (void)rtos_set_semaphore(&s_transport_slot);
+    }
+}
 
-    LOGI("classic BT + A2DP sink down\n");
+static void bt_music_transport_done(void)
+{
+    if (s_transport_slot != NULL) {
+        (void)rtos_set_semaphore(&s_transport_slot);
+    }
+}
+
+static bool bt_music_try_post_transport(bt_music_evt_type_t type)
+{
+    if (s_transport_slot == NULL ||
+        rtos_get_semaphore(&s_transport_slot, 0) != BK_OK) {
+        return false;
+    }
+
+    bt_music_evt_t evt = { .type = (uint8_t)type, .arg = 0 };
+    if (rtos_push_to_queue(&s_queue, &evt, BEKEN_NO_WAIT) != BK_OK) {
+        bt_music_transport_done();
+        return false;
+    }
+    return true;
+}
+
+static bool bt_music_avrcp_ready(void)
+{
+    return s_bt_ready && bt_music_is_connected();
+}
+
+static void bt_music_run_avrcp_transport(bt_music_evt_type_t type)
+{
+    if (!bt_music_avrcp_ready()) {
+        bt_music_transport_done();
+        return;
+    }
+
+    switch (type) {
+    case BT_MUSIC_EVT_VOL_UP:
+        (void)bk_avrcp_ct_vol_up();
+        break;
+    case BT_MUSIC_EVT_VOL_DOWN:
+        (void)bk_avrcp_ct_vol_down();
+        break;
+    case BT_MUSIC_EVT_PLAY_PAUSE:
+        if (s_playing) {
+            (void)bk_avrcp_ct_pause();
+        } else {
+            (void)bk_avrcp_ct_play();
+        }
+        break;
+    case BT_MUSIC_EVT_NEXT:
+        (void)bk_avrcp_ct_next();
+        break;
+    case BT_MUSIC_EVT_PREV:
+        (void)bk_avrcp_ct_prev();
+        break;
+    default:
+        break;
+    }
+    bt_music_transport_done();
 }
 #endif
+
+static void bt_music_bringup_failed_async(void *arg);
+static void bt_music_post(bt_music_evt_type_t type, uint32_t arg);
 
 static void bt_music_handle(const bt_music_evt_t *evt)
 {
     switch (evt->type) {
 #if CONFIG_BT
+    case BT_MUSIC_EVT_BRINGUP:
+        if (bt_music_bringup() != 0) {
+            lv_async_call(bt_music_bringup_failed_async, NULL);
+            break;
+        }
+        /* User may swipe back while bring-up was still running on the worker. */
+        if (!s_page_active) {
+            bt_music_post(BT_MUSIC_EVT_TEARDOWN, 0);
+            break;
+        }
+        if (!a2dp_sink_demo_is_connected()) {
+            bt_music_post(BT_MUSIC_EVT_PAIRING, 0);
+        }
+        break;
     case BT_MUSIC_EVT_TEARDOWN:
         bt_music_bringdown_locked(evt->arg != 0);
         break;
@@ -166,52 +240,21 @@ static void bt_music_handle(const bt_music_evt_t *evt)
         {
             uint8_t recon_addr[6] = {0};
             if (bluetooth_storage_get_newest_linkkey_info(recon_addr, NULL) >= 0) {
-                LOGI("bt_music reconnect %02x:%02x:%02x:%02x:%02x:%02x\n",
-                     recon_addr[5], recon_addr[4], recon_addr[3],
-                     recon_addr[2], recon_addr[1], recon_addr[0]);
                 bt_manager_start_reconnect(recon_addr, 1);
             } else {
-                LOGI("bt_music no bonded phone, enter pairing mode\n");
                 bk_bt_enter_pairing_mode(1);
             }
         }
         break;
     case BT_MUSIC_EVT_VOL_UP:
-        if (!s_bt_ready) {
-            break;
-        }
-        bk_avrcp_ct_vol_up();
-        break;
     case BT_MUSIC_EVT_VOL_DOWN:
-        if (!s_bt_ready) {
-            break;
-        }
-        bk_avrcp_ct_vol_down();
-        break;
     case BT_MUSIC_EVT_PLAY_PAUSE:
-        if (!s_bt_ready) {
-            break;
-        }
-        if (s_playing) {
-            bk_avrcp_ct_pause();
-            s_playing = false;
-        } else {
-            bk_avrcp_ct_play();
-            s_playing = true;
-        }
-        bt_music_apply_rhythm_state();
-        break;
     case BT_MUSIC_EVT_NEXT:
-        if (!s_bt_ready) {
-            break;
-        }
-        bk_avrcp_ct_next();
-        break;
     case BT_MUSIC_EVT_PREV:
-        if (!s_bt_ready) {
-            break;
-        }
-        bk_avrcp_ct_prev();
+        bt_music_run_avrcp_transport((bt_music_evt_type_t)evt->type);
+        break;
+#else
+    case BT_MUSIC_EVT_BRINGUP:
         break;
 #endif
     case BT_MUSIC_EVT_DANCE_TOGGLE:
@@ -238,12 +281,29 @@ static void bt_music_task(void *arg)
     }
 }
 
+static bool bt_music_is_transport_evt(bt_music_evt_type_t type)
+{
+    return type == BT_MUSIC_EVT_PLAY_PAUSE ||
+           type == BT_MUSIC_EVT_NEXT ||
+           type == BT_MUSIC_EVT_PREV ||
+           type == BT_MUSIC_EVT_VOL_UP ||
+           type == BT_MUSIC_EVT_VOL_DOWN;
+}
+
 static void bt_music_post(bt_music_evt_type_t type, uint32_t arg)
 {
     if (s_queue == NULL) {
         LOGW("queue not ready, drop %d\n", type);
         return;
     }
+#if CONFIG_BT
+    /* Same idea as bk_avrcp_ct_service passthrough_sema: only one transport
+     * command in flight. bk_avrcp_ct_* blocks until PASSTHROUGH_RSP. */
+    if (bt_music_is_transport_evt(type)) {
+        (void)bt_music_try_post_transport(type);
+        return;
+    }
+#endif
     bt_music_evt_t evt = { .type = (uint8_t)type, .arg = arg };
     (void)rtos_push_to_queue(&s_queue, &evt, BEKEN_NO_WAIT);
 }
@@ -272,42 +332,35 @@ int bt_music_init(void)
         rtos_init_semaphore(&s_teardown_done, 1) != BK_OK) {
         LOGE("teardown semaphore init failed\n");
     }
+#if CONFIG_BT
+    if (s_transport_slot == NULL &&
+        rtos_init_semaphore(&s_transport_slot, 1) != BK_OK) {
+        LOGE("transport slot sem init failed\n");
+    } else if (s_transport_slot != NULL) {
+        (void)rtos_set_semaphore(&s_transport_slot);
+    }
+#endif
     LOGI("bt_music init ok\n");
     return 0;
 }
 
-/* ---------------- deferred UI entry ---------------- */
+/* ---------------- bringup failure (page already visible) ---------------- */
 
-static void bt_music_deferred_page_enter(lv_timer_t *timer)
+static void bt_music_bringup_failed_async(void *arg)
 {
-    (void)timer;
-    s_page_enter_timer = NULL;
-    if (page_bt_music_enter() != 0) {
-        LOGW("bt_music page rejected by low heap, stop backend\n");
-        (void)bt_music_stop();
-    }
-}
+    (void)arg;
 
-static void bt_music_schedule_page_enter(void)
-{
-    if (s_page_enter_timer != NULL) {
-        lv_timer_delete(s_page_enter_timer);
-        s_page_enter_timer = NULL;
-    }
-    s_page_enter_timer = lv_timer_create(bt_music_deferred_page_enter, 100, NULL);
-    if (s_page_enter_timer != NULL) {
-        lv_timer_set_repeat_count(s_page_enter_timer, 1);
-    } else {
-        if (page_bt_music_enter() != 0) {
-            LOGW("bt_music page immediate enter rejected, stop backend\n");
-            (void)bt_music_stop();
-        }
-    }
+    page_bt_music_show_low_mem_hint();
+    (void)bt_music_stop();
 }
 
 int bt_music_start(void)
 {
     uint32_t heap_before_bt;
+
+    if (s_page_active) {
+        return 0;
+    }
 
     if (bt_music_init() != 0) {
         return -1;
@@ -327,20 +380,16 @@ int bt_music_start(void)
         return -1;
     }
 
-    if (bt_music_bringup() != 0) {
-        return -1;
-    }
-    s_page_active = true;
     s_render_ready = false;
     s_dance_user_enabled = true;
     s_playing = false;
 
-#if CONFIG_BT
-    if (!a2dp_sink_demo_is_connected()) {
-        bt_music_post(BT_MUSIC_EVT_PAIRING, 0);
+    if (page_bt_music_enter() != 0) {
+        LOGW("page enter failed\n");
+        return -1;
     }
-#endif
-    bt_music_schedule_page_enter();
+    s_page_active = true;
+    bt_music_post(BT_MUSIC_EVT_BRINGUP, 0);
     return 0;
 }
 
@@ -348,10 +397,6 @@ int bt_music_stop(void)
 {
     bool was_playing = s_playing;
 
-    if (s_page_enter_timer != NULL) {
-        lv_timer_delete(s_page_enter_timer);
-        s_page_enter_timer = NULL;
-    }
     s_page_active = false;
     s_render_ready = false;
     s_playing = false;
@@ -391,16 +436,6 @@ void bt_music_dance_toggle(void) { bt_music_post(BT_MUSIC_EVT_DANCE_TOGGLE, 0); 
 bool bt_music_is_dancing(void)   { return s_dance_user_enabled; }
 bool bt_music_is_playing(void)   { return s_playing; }
 
-void bt_music_get_bands(uint8_t *low, uint8_t *mid, uint8_t *high)
-{
-    bt_rhythm_get_bands(low, mid, high);
-}
-
-void bt_music_get_spectrum(uint8_t *bands, uint8_t count)
-{
-    bt_rhythm_get_spectrum(bands, count);
-}
-
 void bt_music_get_pose_levels(uint8_t *levels, uint8_t count)
 {
     bt_rhythm_get_pose_levels(levels, count);
@@ -409,6 +444,12 @@ void bt_music_get_pose_levels(uint8_t *levels, uint8_t count)
 bool bt_music_is_connected(void)
 {
 #if CONFIG_BT
+    if (!s_bt_ready) {
+        return false;
+    }
+    if (bt_manager_get_connect_state() < BT_STATE_LINK_CONNECTED) {
+        return false;
+    }
     return a2dp_sink_demo_is_connected() != 0;
 #else
     return false;
@@ -417,12 +458,18 @@ bool bt_music_is_connected(void)
 
 void bt_music_on_stream_start(void)
 {
+    if (s_playing) {
+        return;
+    }
     s_playing = true;
     bt_music_apply_rhythm_state();
 }
 
 void bt_music_on_stream_stop(void)
 {
+    if (!s_playing) {
+        return;
+    }
     s_playing = false;
     bt_music_apply_rhythm_state();
 }
