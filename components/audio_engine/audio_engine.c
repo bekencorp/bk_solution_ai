@@ -171,23 +171,33 @@ static beken_mutex_t       s_worker_lock;
 static beken_semaphore_t   s_worker_done_sem;
 static ae_op_fn_t          s_worker_fn;
 static volatile int        s_worker_rc;
-static volatile bool       s_in_worker;
 
 static void ae_worker_entry(beken_thread_arg_t arg)
 {
     (void)arg;
-    s_in_worker = true;
     s_worker_rc = (s_worker_fn != NULL) ? s_worker_fn() : -1;
-    s_in_worker = false;
     rtos_set_semaphore(&s_worker_done_sem);
     s_worker_fn = NULL;
     s_worker_thread = NULL;
     rtos_delete_thread(NULL);
 }
 
+/*
+ * True only when the *calling* thread is the ae_worker thread itself, i.e. a
+ * genuine re-entrant cross-call (start_inner -> stop, etc.) that must run
+ * inline to avoid re-dispatching to (and deadlocking on) the worker.
+ *
+ * This used to test a global "worker is busy" flag, which mis-fired when a
+ * different thread/core called in while the worker was busy: that caller then
+ * bypassed s_worker_lock and ran the heavy start/stop concurrently, racing the
+ * shared onboard-mic/ADC singleton and crashing on a freed semaphore handle
+ * (BK7259SW-2394). Comparing the thread identity keeps re-entrancy inline while
+ * forcing all cross-thread/cross-core callers through s_worker_lock, so audio
+ * engine start/stop are fully serialized.
+ */
 static bool ae_in_worker(void)
 {
-    return s_in_worker;
+    return (s_worker_thread != NULL) && rtos_is_current_thread(&s_worker_thread);
 }
 
 static int ae_worker_lock_init(void)
@@ -239,7 +249,7 @@ static int ae_worker_run(ae_op_fn_t fn)
     }
     /* Inline execute when already on the worker so internal cross-calls
      * (stop -> cleanup) do not recurse the dispatch and deadlock. */
-    if (s_in_worker) {
+    if (ae_in_worker()) {
         return fn();
     }
 
