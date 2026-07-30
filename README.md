@@ -1,131 +1,142 @@
 # Beken BK7259 Robot Solution
 
+- [中文](./README_CN.md)
+
 ## Overview
 
-The **BK7259 Robot Solution** is a reference design developed by Beken Corporation on top of the BK7259 SoC and the **Armino SMP (BK AVDK SMP)** v4.0.x architecture. It provides a turn-key robot example covering LCD UI, local voice wake-word, AI voice / vision dialog, BLE provisioning, and a rich set of sensors and peripherals.
-
-The robot solution is delivered through the **AI Solution** repository (`bk_solution_ai`); its repo root contains `projects/` / `components/` / `docs/` directly, with no extra `solution/` wrapper. The currently published reference project is `projects/beken_robot`, which uses **Agora RTC** to connect to a cloud AI Agent for voice / vision multimodal dialog.
-
+The **BK7259 Robot Solution** is an open-source, integrated hardware-and-software robot solution released by Beken. It is based on the **BK7259** SoC and depends on the Armino base SDK **BK_AVDK_SMP**. The solution provides complete end-to-end example projects covering LCD display, local voice wake-up, sound source localization, command-word recognition, AI voice and vision dialog, on-device NPU applications such as face recognition and gesture recognition, as well as BLE provisioning, Wi-Fi video transmission, H.264 encoding/decoding, and a variety of sensors and peripherals.
 
 ## Documentation
 
-- Chinese sources: `docs/bk7259/zh_CN/` (intro, quick start, HW reference, developer guide, reference projects, third-party).
-- English sources: `docs/bk7259/en/`.
+- [BK7259 Robot Solution online documentation](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/index.html)
+- [Armino SMP SDK (BK AVDK SMP)](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7259/en/v4.0.1/index.html)
 
-## Getting the code
+## Hardware
 
-### 1. Armino SMP SDK (BK7259 v4.0.1)
+The hardware for this solution is the BK7259 Robot Development Kit. The kit integrates the BK7259 SoC, an LCD display, a MIPI CSI camera, a dual-microphone array, and a speaker, along with common robot peripherals such as ToF distance sensing, ambient light, G-Sensor, NFC, LED, vibration motor, buttons, a 4G module, and SD NAND.
+[Development kit hardware materials](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/hw-reference/index.html)
+[BK7259 Datasheet](https://docs.bekencorp.com/spec/BK7259/BK7259_Datasheet.pdf)
+Development kit purchase link: coming soon.
 
-**GitLab**
+## Version Strategy
+
+This solution uses a "maintenance branch + release tag" version management approach:
+
+- `release/v4.0.1` is the ongoing maintenance branch, used for feature iteration and bug fixes of this version series. It always contains the latest code, but may include changes that have not yet completed full release testing.
+- `release/v4.0.1.x` are formal release tags, for example `release/v4.0.1.1` and `release/v4.0.1.2`. Each tag has gone through the complete test and release process and can be used for mass production.
+- The BK7259 Robot Solution and the Armino SMP SDK must use exactly the same version tag. For example, when the solution code uses `release/v4.0.1.4`, the SDK must also use `release/v4.0.1.4`.
+
+We recommend that customers choose the tag with the highest version number in the `release/v4.0.1.x` series for development and mass production. Only use the `release/v4.0.1` branch when you need to try the latest features or participate in development.
+
+## Get the Code
+
+The BK7259 Robot Solution and the Armino SMP SDK are published simultaneously on GitHub, Gitee, and GitLab. Choose a code source based on your network environment and access permissions.
+
+BK7259 Robot Solution:
+
+- GitHub: <https://github.com/bekencorp/bk_solution_ai>
+- Gitee: <https://gitee.com/bekencorp/bk_solution_ai>
+- GitLab: <https://gitlab.bekencorp.com/armino/smp_solution/bk_solution_ai>
+
+Armino SMP SDK:
+
+- GitHub: <https://github.com/bekencorp/bk_avdk_smp>
+- Gitee: <https://gitee.com/bekencorp/bk_avdk_smp>
+- GitLab: <https://gitlab.bekencorp.com/armino/bk_avdk_smp>
+
+GitHub and Gitee are publicly accessible. GitLab is open to enterprise customers only; enterprise customers who need access should contact their FAE or sales representative to apply for permission.
+
+**Note for Windows users:** When using Git for Windows to get the code, we recommend disabling automatic line-ending conversion before cloning, to avoid scripts or source files being converted to CRLF and causing build failures. This is not required on Linux, macOS, or WSL.
 
 ```bash
-mkdir -p ~/armino
-cd ~/armino
-git clone https://gitlab.bekencorp.com/armino/bk_avdk_smp.git -b release/v4.0.1
+git config --global core.autocrlf false
 ```
 
-**GitHub**
+If the code has already been cloned, changing this setting will not automatically restore the files; we recommend re-cloning after applying it.
+
+The commands below use GitHub and the `release/v4.0.1.6` tag as an example. **When actually getting the code, choose the latest released tag, and make sure the solution code and the SDK use exactly the same tag.** When using another code source, simply replace the corresponding repository URL.
 
 ```bash
-mkdir -p ~/armino
-cd ~/armino
-git clone https://github.com/bekencorp/bk_avdk_smp.git -b release/v4.0.1
+mkdir -p ~/armino && cd ~/armino
+
+# Armino SMP SDK
+git clone --branch release/v4.0.1.6 https://github.com/bekencorp/bk_avdk_smp.git
+
+# BK7259 Robot Solution
+git clone --branch release/v4.0.1.6 https://github.com/bekencorp/bk_solution_ai.git
 ```
 
-### 2. BK7259 Robot solution (the AI Solution repo)
+For more details on getting the code, see [Quick Start](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/get-started/index.html).
 
-Browse the repo at: [bk_solution_ai (release/v4.0.1)](https://gitlab.bekencorp.com/armino/smp_solution/bk_solution_ai/-/tree/release/v4.0.1?ref_type=heads).
+## Set Up the Build Environment
 
-**GitLab**
+Armino SMP supports both local builds and Docker builds. Choose one of the following methods to set up the build environment based on your development platform.
+
+### Local Build on Linux
+
+Enter the SDK directory and run the environment setup script:
 
 ```bash
-mkdir -p ~/armino
-cd ~/armino
-git clone https://gitlab.bekencorp.com/armino/smp_solution/bk_solution_ai.git -b release/v4.0.1
+# The setup script is located in the bk_avdk_smp repository
+cd ~/armino/bk_avdk_smp
+sudo bash tools/env_tools/setup/armino_env_setup.sh
 ```
 
-**GitHub** (when made public)
+### Local Build on Windows
 
-```bash
-mkdir -p ~/armino
-cd ~/armino
-git clone https://github.com/bekencorp/bk_solution_ai.git -b release/v4.0.1
-```
+Download and install [Armino Bash](https://dl.bekencorp.com/tools/arminosdk/WindowsInstaller/Armino-Bash-Setup_0.3.0.exe).
 
-## Build environment
+### Docker Build
 
-`Armino SMP` provides both **local** (recommended; Windows / Linux) and **Docker** (Linux / macOS / Windows) build environments. Refer to the SMP *Quick Start* online docs for environment scripts, the Armino Bash on Windows, Docker images and `dbuild` usage.
+The Docker build image is [`bekencorp/armino-idk`](https://hub.docker.com/r/bekencorp/armino-idk/tags). Choose an image tag of `1.5` or higher; it supports Windows / Linux / macOS.
 
-## Building
+For detailed setup steps, see [Armino SMP Quick Start: Environment deployment and build](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7259/en/v4.0.1/get-started/index.html).
 
-The examples below use the `beken_robot` project (repo root = `~/armino/bk_solution_ai`, project at `projects/beken_robot`).
+## Build the Project
 
-**Option 1: pass `SDK_DIR` on the command line**
+Using the `beken_robot` project as an example (located at `projects/beken_robot`), build locally by pointing `SDK_DIR` to the Armino SMP SDK:
 
 ```bash
 cd ~/armino/bk_solution_ai/projects/beken_robot
-make clean SDK_DIR=~/armino/bk_avdk_smp
-make bk7259 SDK_DIR=~/armino/bk_avdk_smp
+make bk7259 SDK_DIR=~/armino/bk_avdk_smp        # or export SDK_DIR first, then run make bk7259
 ```
 
-**Option 2: `export SDK_DIR`**
+Docker builds are also supported (use `./dbuild.sh` on Linux / macOS, and `.\dbuild.ps1` in Windows PowerShell):
 
 ```bash
 cd ~/armino/bk_solution_ai/projects/beken_robot
 export SDK_DIR=~/armino/bk_avdk_smp
-make clean
-make bk7259
-```
-
-**Option 3: Docker (Linux / macOS)**
-
-```bash
-cd ~/armino/bk_solution_ai/projects/beken_robot
-export SDK_DIR=~/armino/bk_avdk_smp
-./dbuild.sh make clean
 ./dbuild.sh make bk7259
 ```
 
-**Option 4: Docker (Windows PowerShell)**
+After a successful build, the firmware file used for flashing is located at the following path (relative to the `bk_solution_ai/` repository root):
 
-```powershell
-cd C:\armino\bk_solution_ai\projects\beken_robot
-$env:SDK_DIR = "C:\armino\bk_avdk_smp"
-.\dbuild.ps1 make clean
-.\dbuild.ps1 make bk7259
-```
-
-## Reference project
-
-### `beken_robot` (Agora RTC variant)
-
-A complete robot reference implementation on BK7259 + Armino SMP v4.0.x:
-
-- **Display**: 360x390 MIPI LCD (`jd9855` panel), LVGL UI with 10 demo pages (boot logo, main menu, provisioning, sound source localization, AI dialog, vision recognition, command words, music, volume, etc.).
-- **Audio**: dual on-board microphones + speaker; AEC / NS, local wake words "Ni Hao Bo Tong / Zai Jian Bo Tong", prompt tones; AI dialog over Agora RTC + OPUS.
-- **Vision**: MIPI CSI camera capture, uploaded over Agora RTC for vision question-answer mode.
-- **Network**: WiFi STA + BLE provisioning (BK App), with a 4G cellular module slot reserved; once provisioned, the WiFi icon appears in the main menu.
-- **Sensors / peripherals**: 4 push buttons (S2 / S4 / S5 are functional on the V1 board), ToF, ambient light, G-Sensor, NFC, LED indicator, vibration motor, servo; battery / charger reserved.
-- **Storage / OTA**: partitions and SD-NAND assets; factory config and OTA hooks.
-
-Full project notes, key map, UI flow and Kconfig settings live in the online docs under *Reference projects → BK7259 Robot project*.
-
-## Flashing firmware
-
-After a successful build, the binary is at (relative to the repo root `bk_solution_ai/`):
-
-```
+```text
 projects/beken_robot/build/bk7259/beken_robot/package/all-app.bin
 ```
 
-Flash it with the Beken `BKFIL` tool over UART.
+For detailed build commands, see [Quick Start](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/get-started/index.html).
 
-## Power-up & provisioning
+## Flash the Firmware
 
-- After power-up, the LCD shows the blue "BK7259 robot solution" logo. Use the V1 board key map (see the online docs under *Reference projects → BK7259 Robot project*) to enter the main menu.
-- From the main menu choose **Provisioning → Start** (short press the *Confirm* key) and complete BLE provisioning with BK App. Once successful, the WiFi icon appears in the upper-right corner.
+You can flash the firmware using either of the following methods:
 
-## App
+- Download and use the [BKFIL local flashing tool](https://dl.bekencorp.com/tools/bkfil/v4)
+- Use the [BKFIL web flashing tool](https://connect.aclsemi.com/)
 
-- BK App download: [app download notes](https://docs.bekencorp.com/arminodoc/bk_app/app/en/v2.0.1/app_download/index.html) (sign in with email).
-- Provisioning and device-management steps: see *Quick Start* and *Reference projects* in the online docs.
+When flashing, select the `all-app.bin` firmware file generated in the previous section.
+
+For the detailed flashing process, see [Armino SMP Quick Start](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7259/en/v4.0.1/get-started/index.html).
+
+## Reference Projects
+
+| Project | Main features | Details |
+| --- | --- | --- |
+| [beken_robot](../projects/beken_robot/) | LCD / LVGL display, local voice wake-up, sound source localization, AI voice and vision dialog, BLE provisioning, NPU vision recognition, multi-sensor and peripheral control, Wi-Fi video transmission, SD NAND storage, and more. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/projects/beken_robot/index.html) |
+
+## Beken Resources
+
+- [Beken official website](https://www.bekencorp.com/)
+- [Armino developer forum](https://armino.bekencorp.com/)
+- [Beken documentation center](https://docs.bekencorp.com/)
+- WeChat Channels: Beken Corporation
