@@ -142,10 +142,11 @@ int asr_stop_service(void)
     if (!audio_engine_is_running()) {
         return 0;
     }
+    int ret = (AUDIO_ENGINE_SUCCESS == audio_engine_stop()) ? 0 : -1;
 #if CONFIG_BEKEN_KWS
     (void)audio_engine_asr_switch_model(AUDIO_ENGINE_KWS_MODEL_WAKEUP);
 #endif
-    return (AUDIO_ENGINE_SUCCESS == audio_engine_stop()) ? 0 : -1;
+    return ret;
 #else
     return 0;
 #endif

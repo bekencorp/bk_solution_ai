@@ -233,6 +233,8 @@ static void page_asr_on_init(bk_lv_ui_t *ui)
 
 static void page_asr_on_destroy(bk_lv_ui_t *ui)
 {
+    asr_stop_service();
+
     ui_nav_unregister_screen(ui->page_8);
     if (s_anim_timer != NULL) {
         lv_timer_del(s_anim_timer);
