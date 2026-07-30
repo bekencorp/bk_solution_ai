@@ -16,7 +16,7 @@
  * Unmapped events (double-click, etc.) are ignored for now -- extend
  * the switch below as needed.
  *
- * Special case: overlay demos (palm tracking, yoloface detection, ...)
+ * Special case: overlay demos (palm tracking, yoloface detection, hand gesture, car tracking, ...)
  * call lv_vendor_stop() to pause LVGL and take over the framebuffer.
  * The normal ui_nav_dispatch_event path stops working because
  * lv_screen_active() no longer updates. Before the switch we therefore
@@ -32,6 +32,7 @@
 #include "palm_detection.h"
 #include "yoloface_detection.h"
 #include "hand_gesture_detection.h"
+#include "demo/car_tracking.h"
 
 #include <key_adapter.h>
 #include <components/log.h>
@@ -42,7 +43,7 @@
 static bool ui_key_overlay_demo_active(void)
 {
     return palm_detection_is_active() || yoloface_detection_is_active()
-        || hand_gesture_detection_is_active();
+        || hand_gesture_detection_is_active() || car_detection_is_active();
 }
 
 static bool ui_key_overlay_exit_event(key_event_t event)
@@ -72,6 +73,11 @@ static void ui_key_overlay_exit(void)
     if (hand_gesture_detection_is_active()) {
         LOGI("exit hand gesture overlay\r\n");
         (void)hand_gesture_detection_exit_to_menu();
+        return;
+    }
+    if (car_detection_is_active()) {
+        LOGI("exit car tracking overlay\r\n");
+        (void)car_detection_exit_to_menu();
     }
 }
 
