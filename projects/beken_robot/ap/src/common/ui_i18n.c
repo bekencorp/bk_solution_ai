@@ -40,6 +40,11 @@ static const char *const s_tr[STR_ID_COUNT][UI_LANG_COUNT] = {
 
     [STR_VOLUME_TITLE]     = { "音量",                  "Volume" },
 
+    [STR_MUSIC_PREV]       = { "上一首",                "PREV" },
+    [STR_MUSIC_PLAY]       = { "播放",                  "PLAY" },
+    [STR_MUSIC_STOP]       = { "停止",                  "STOP" },
+    [STR_MUSIC_NEXT]       = { "下一首",                "NEXT" },
+
     [STR_DEMO_CENTER_TITLE]= { "Demo中心",              "Demo Center" },
 
     [STR_SETTINGS_TITLE]   = { "设备设置",              "Settings" },
@@ -106,6 +111,7 @@ static void invalidate_cached_pages(void)
         { &bk_lv_tool_ui.page_2,  destroy_page_page_2  },  /* home */
         { &bk_lv_tool_ui.page_4,  destroy_page_page_4  },  /* provisioning */
         { &bk_lv_tool_ui.page_8,  destroy_page_page_8  },  /* asr */
+        { &bk_lv_tool_ui.page_9,  destroy_page_page_9  },  /* music */
         { &bk_lv_tool_ui.page_10, destroy_page_page_10 },  /* volume */
     };
     for (size_t i = 0; i < sizeof(pages) / sizeof(pages[0]); i++) {

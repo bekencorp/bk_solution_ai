@@ -17,6 +17,7 @@
 #include "custom_func.h"
 #include "event_runtime.h"
 #include "page_hooks.h"
+#include "ui_i18n.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -68,7 +69,7 @@ void init_page_page_9(bk_lv_ui_t *bk_ui)
     lv_obj_set_size(bk_ui->page_9_button_play, 92, 44);
     lv_obj_set_pos(bk_ui->page_9_button_play, 20, PAGE9_BUTTON_Y);
     bk_ui->page_9_button_play_label = lv_label_create(bk_ui->page_9_button_play);
-    lv_label_set_text(bk_ui->page_9_button_play_label, "PREV");
+    lv_label_set_text(bk_ui->page_9_button_play_label, ui_tr(STR_MUSIC_PREV));
     lv_obj_align(bk_ui->page_9_button_play_label, LV_ALIGN_CENTER, 0, 0);
     page9_style_btn(bk_ui->page_9_button_play);
 
@@ -76,7 +77,7 @@ void init_page_page_9(bk_lv_ui_t *bk_ui)
     lv_obj_set_size(bk_ui->page_9_button_stop, 92, 44);
     lv_obj_set_pos(bk_ui->page_9_button_stop, 134, PAGE9_BUTTON_Y);
     bk_ui->page_9_button_stop_label = lv_label_create(bk_ui->page_9_button_stop);
-    lv_label_set_text(bk_ui->page_9_button_stop_label, "PLAY");
+    lv_label_set_text(bk_ui->page_9_button_stop_label, ui_tr(STR_MUSIC_PLAY));
     lv_obj_align(bk_ui->page_9_button_stop_label, LV_ALIGN_CENTER, 0, 0);
     page9_style_btn(bk_ui->page_9_button_stop);
 
@@ -84,7 +85,7 @@ void init_page_page_9(bk_lv_ui_t *bk_ui)
     lv_obj_set_size(bk_ui->page_9_button_next, 92, 44);
     lv_obj_set_pos(bk_ui->page_9_button_next, 248, PAGE9_BUTTON_Y);
     bk_ui->page_9_button_next_label = lv_label_create(bk_ui->page_9_button_next);
-    lv_label_set_text(bk_ui->page_9_button_next_label, "NEXT");
+    lv_label_set_text(bk_ui->page_9_button_next_label, ui_tr(STR_MUSIC_NEXT));
     lv_obj_align(bk_ui->page_9_button_next_label, LV_ALIGN_CENTER, 0, 0);
     page9_style_btn(bk_ui->page_9_button_next);
 

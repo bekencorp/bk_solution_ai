@@ -12,6 +12,7 @@
 #include "page_hooks.h"
 #include "demo/music.h"
 #include "ui_touch_gesture.h"
+#include "ui_i18n.h"
 
 #ifdef ROBOT_TEST
 
@@ -145,7 +146,7 @@ static void refresh_text(bk_lv_ui_t *ui)
     }
     if (ui->page_9_button_stop_label) {
         lv_label_set_text(ui->page_9_button_stop_label,
-                          music_is_playing() ? "STOP" : "PLAY");
+                          ui_tr(music_is_playing() ? STR_MUSIC_STOP : STR_MUSIC_PLAY));
     }
 }
 
