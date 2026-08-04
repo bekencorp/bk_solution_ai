@@ -81,17 +81,8 @@ static void ui_key_overlay_exit(void)
     }
 }
 
-void bk_key_app_notify_ui_nav(uint8_t event)
+static ui_nav_event_t ui_key_to_nav_event(key_event_t key)
 {
-    key_event_t key = (key_event_t)event;
-
-    if (ui_key_overlay_demo_active()) {
-        if (ui_key_overlay_exit_event(key)) {
-            ui_key_overlay_exit();
-        }
-        return;
-    }
-
     ui_nav_event_t nav = UI_NAV_EVENT_COUNT;
 
     switch (key) {
@@ -114,6 +105,27 @@ void bk_key_app_notify_ui_nav(uint8_t event)
 #endif
     default:
         break;
+    }
+
+    return nav;
+}
+
+void bk_key_app_notify_ui_nav(uint8_t event)
+{
+    key_event_t key = (key_event_t)event;
+    ui_nav_event_t nav = ui_key_to_nav_event(key);
+
+    if (ui_key_overlay_demo_active()) {
+        if (yoloface_solution_ui_is_active() && nav < UI_NAV_EVENT_COUNT) {
+            LOGI("solution key %u -> nav %d\r\n", (unsigned)event, (int)nav);
+            ui_nav_dispatch_event(nav);
+            return;
+        }
+        if (ui_key_overlay_exit_event(key)) {
+            ui_key_overlay_exit();
+            return;
+        }
+        return;
     }
 
     if (nav >= UI_NAV_EVENT_COUNT) {

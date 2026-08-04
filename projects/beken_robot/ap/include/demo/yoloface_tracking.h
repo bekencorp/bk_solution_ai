@@ -49,6 +49,7 @@ int yoloface_solution_enroll_request(void);
 int yoloface_solution_enroll_cancel(void);
 bool yoloface_solution_enroll_is_active(void);
 int yoloface_solution_verify_request(void);
+bool yoloface_solution_ui_is_active(void);
 int yoloface_solution_archive_enter_request(void);
 int yoloface_solution_archive_query(yoloface_archive_info_t *info);
 int yoloface_solution_archive_delete(uint32_t profile_id);

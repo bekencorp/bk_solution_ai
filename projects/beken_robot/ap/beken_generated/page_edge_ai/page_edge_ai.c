@@ -55,6 +55,7 @@
 #define STATUS_CLEAR_TASK_SIZE (1024 * 2)
 #define STATUS_CLEAR_TASK_NAME "solution_status_clear"
 #define FACE_PROMPT_DEBOUNCE_MS 800
+#define SOLUTION_BUTTON_COUNT 4
 
 typedef enum {
     ARCH_OP_QUERY = 0,
@@ -63,12 +64,17 @@ typedef enum {
 
 static lv_obj_t *s_solution_screen;
 static lv_obj_t *s_solution_status_label;
+static lv_obj_t *s_solution_buttons[SOLUTION_BUTTON_COUNT];
+static uint32_t s_solution_selected;
 static lv_obj_t *s_archive_screen;
 static lv_obj_t *s_archive_status_label;
 static lv_obj_t *s_archive_panel;
 static lv_obj_t *s_archive_rows[YOLOFACE_ARCHIVE_MAX_ITEMS];
+static lv_obj_t *s_archive_delete_btn;
+static lv_obj_t *s_archive_return_btn;
 static yoloface_archive_info_t s_archive_info;
 static uint32_t s_archive_selected;
+static uint32_t s_archive_focus;
 static beken_thread_t s_archive_thread;
 static volatile bool s_archive_busy;
 static volatile bool s_archive_active;
@@ -224,10 +230,50 @@ static lv_obj_t *create_solution_button(lv_obj_t *parent, const char *text,
     return btn;
 }
 
+static void set_nav_button_selected(lv_obj_t *btn, bool selected)
+{
+    if (btn == NULL || !lv_obj_is_valid(btn)) {
+        return;
+    }
+
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x2d75b9),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(btn, selected ? 2 : 0,
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(btn, lv_color_hex(0x32d5ff),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_color(btn, lv_color_hex(0x32d5ff),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(btn, selected ? 8 : 0,
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(btn, selected ? LV_OPA_30 : LV_OPA_TRANSP,
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+}
+
+static void solution_refresh_nav(void)
+{
+    for (uint32_t i = 0; i < SOLUTION_BUTTON_COUNT; i++) {
+        set_nav_button_selected(s_solution_buttons[i], i == s_solution_selected);
+    }
+}
+
 static uint32_t archive_visible_count(void)
 {
     return s_archive_info.profile_count > YOLOFACE_ARCHIVE_MAX_ITEMS ?
            YOLOFACE_ARCHIVE_MAX_ITEMS : s_archive_info.profile_count;
+}
+
+static uint32_t archive_focus_count(void)
+{
+    return archive_visible_count() + 2;
+}
+
+static void archive_refresh_controls(void)
+{
+    uint32_t visible = archive_visible_count();
+
+    set_nav_button_selected(s_archive_delete_btn, s_archive_focus == visible);
+    set_nav_button_selected(s_archive_return_btn, s_archive_focus == visible + 1);
 }
 
 static void archive_clear_rows(void)
@@ -292,9 +338,13 @@ static void archive_refresh_view(void)
                  (unsigned)item->feature_count);
         lv_label_set_text(lv_obj_get_child(s_archive_rows[i], 0), text);
         lv_obj_set_style_bg_color(s_archive_rows[i],
-                                  i == s_archive_selected ? lv_color_hex(0x2d75b9) :
+                                  i == s_archive_focus ? lv_color_hex(0x32d5ff) :
                                   lv_color_hex(0x1a2230),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(s_archive_rows[i], i == s_archive_focus ? 2 : 0,
+                                      LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_color(s_archive_rows[i], lv_color_hex(0xffffff),
+                                      LV_PART_MAIN | LV_STATE_DEFAULT);
     }
     if (s_archive_panel != NULL && lv_obj_is_valid(s_archive_panel)) {
         int content_h = (int)visible * (ARCH_ROW_H + ARCH_ROW_GAP);
@@ -302,6 +352,7 @@ static void archive_refresh_view(void)
                                   content_h > ARCH_PANEL_H ? LV_SCROLLBAR_MODE_ON :
                                   LV_SCROLLBAR_MODE_OFF);
     }
+    archive_refresh_controls();
 }
 
 static void archive_apply_query_result(const yoloface_archive_info_t *info, const char *fail_text)
@@ -318,6 +369,9 @@ static void archive_apply_query_result(const yoloface_archive_info_t *info, cons
     s_archive_info = *info;
     if (s_archive_selected >= archive_visible_count()) {
         s_archive_selected = 0;
+    }
+    if (s_archive_focus >= archive_focus_count()) {
+        s_archive_focus = 0;
     }
     archive_refresh_view();
 }
@@ -399,6 +453,7 @@ static void archive_row_click_cb(lv_event_t *e)
     uintptr_t index = (uintptr_t)lv_event_get_user_data(e);
     if (index < archive_visible_count()) {
         s_archive_selected = (uint32_t)index;
+        s_archive_focus = (uint32_t)index;
         archive_refresh_view();
     }
 }
@@ -688,11 +743,51 @@ static void solution_on_screen_prev(bk_lv_ui_t *ui)
     }
 }
 
+static void solution_on_focus_prev(bk_lv_ui_t *ui)
+{
+    (void)ui;
+
+    s_solution_selected = (s_solution_selected + SOLUTION_BUTTON_COUNT - 1) %
+                          SOLUTION_BUTTON_COUNT;
+    solution_refresh_nav();
+}
+
+static void solution_on_focus_next(bk_lv_ui_t *ui)
+{
+    (void)ui;
+
+    s_solution_selected = (s_solution_selected + 1) % SOLUTION_BUTTON_COUNT;
+    solution_refresh_nav();
+}
+
+static void solution_on_confirm(bk_lv_ui_t *ui)
+{
+    (void)ui;
+
+    switch (s_solution_selected) {
+    case 0:
+        solution_enroll_click_cb(NULL);
+        break;
+    case 1:
+        solution_verify_click_cb(NULL);
+        break;
+    case 2:
+        solution_query_click_cb(NULL);
+        break;
+    case 3:
+        solution_reset_click_cb(NULL);
+        break;
+    default:
+        break;
+    }
+}
+
 static const ui_page_nav_ops_t s_solution_nav_ops = {
-    .on_focus_prev = NULL,
-    .on_focus_next = NULL,
+    .on_focus_prev = solution_on_focus_prev,
+    .on_focus_next = solution_on_focus_next,
     .on_screen_prev = solution_on_screen_prev,
-    .on_screen_next = NULL,
+    .on_screen_next = solution_on_confirm,
+    .on_confirm_long = solution_on_confirm,
 };
 
 static void archive_on_screen_prev(bk_lv_ui_t *ui)
@@ -701,11 +796,70 @@ static void archive_on_screen_prev(bk_lv_ui_t *ui)
     archive_return_click_cb(NULL);
 }
 
+static void archive_on_focus_prev(bk_lv_ui_t *ui)
+{
+    uint32_t count;
+
+    (void)ui;
+    count = archive_focus_count();
+    if (count == 0) {
+        return;
+    }
+
+    s_archive_focus = (s_archive_focus + count - 1) % count;
+    if (s_archive_focus < archive_visible_count()) {
+        s_archive_selected = s_archive_focus;
+        if (s_archive_rows[s_archive_focus] != NULL &&
+            lv_obj_is_valid(s_archive_rows[s_archive_focus])) {
+            lv_obj_scroll_to_view(s_archive_rows[s_archive_focus], LV_ANIM_OFF);
+        }
+    }
+    archive_refresh_view();
+}
+
+static void archive_on_focus_next(bk_lv_ui_t *ui)
+{
+    uint32_t count;
+
+    (void)ui;
+    count = archive_focus_count();
+    if (count == 0) {
+        return;
+    }
+
+    s_archive_focus = (s_archive_focus + 1) % count;
+    if (s_archive_focus < archive_visible_count()) {
+        s_archive_selected = s_archive_focus;
+        if (s_archive_rows[s_archive_focus] != NULL &&
+            lv_obj_is_valid(s_archive_rows[s_archive_focus])) {
+            lv_obj_scroll_to_view(s_archive_rows[s_archive_focus], LV_ANIM_OFF);
+        }
+    }
+    archive_refresh_view();
+}
+
+static void archive_on_confirm(bk_lv_ui_t *ui)
+{
+    uint32_t visible;
+
+    (void)ui;
+    visible = archive_visible_count();
+    if (s_archive_focus < visible) {
+        s_archive_selected = s_archive_focus;
+        archive_refresh_view();
+    } else if (s_archive_focus == visible) {
+        archive_delete_click_cb(NULL);
+    } else {
+        archive_return_click_cb(NULL);
+    }
+}
+
 static const ui_page_nav_ops_t s_archive_nav_ops = {
-    .on_focus_prev = NULL,
-    .on_focus_next = NULL,
+    .on_focus_prev = archive_on_focus_prev,
+    .on_focus_next = archive_on_focus_next,
     .on_screen_prev = archive_on_screen_prev,
-    .on_screen_next = NULL,
+    .on_screen_next = archive_on_confirm,
+    .on_confirm_long = archive_on_confirm,
 };
 
 void page_edge_ai_solution_destroy(void)
@@ -726,11 +880,14 @@ void page_edge_ai_solution_destroy(void)
     s_archive_screen = NULL;
     s_archive_status_label = NULL;
     s_archive_panel = NULL;
+    s_archive_delete_btn = NULL;
+    s_archive_return_btn = NULL;
     for (uint32_t i = 0; i < YOLOFACE_ARCHIVE_MAX_ITEMS; i++) {
         s_archive_rows[i] = NULL;
     }
     memset(&s_archive_info, 0, sizeof(s_archive_info));
     s_archive_selected = 0;
+    s_archive_focus = 0;
 
     if (s_solution_screen != NULL && lv_obj_is_valid(s_solution_screen)) {
         ui_nav_unregister_screen(s_solution_screen);
@@ -738,6 +895,10 @@ void page_edge_ai_solution_destroy(void)
     }
     s_solution_screen = NULL;
     s_solution_status_label = NULL;
+    for (uint32_t i = 0; i < SOLUTION_BUTTON_COUNT; i++) {
+        s_solution_buttons[i] = NULL;
+    }
+    s_solution_selected = 0;
 }
 
 int page_edge_ai_archive_enter(void)
@@ -758,6 +919,7 @@ int page_edge_ai_archive_enter(void)
         lv_screen_load(s_archive_screen);
         (void)ui_nav_register_screen(s_archive_screen, &s_archive_nav_ops);
         s_archive_selected = 0;
+        s_archive_focus = 0;
         (void)archive_start_task(ARCH_OP_QUERY, 0);
         return 0;
     }
@@ -782,19 +944,20 @@ int page_edge_ai_archive_enter(void)
     lv_obj_set_style_bg_opa(s_archive_panel, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_bottom(s_archive_panel, ARCH_ROW_GAP, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    lv_obj_t *delete_btn = create_solution_button(s_archive_screen, "删除",
+    s_archive_delete_btn = create_solution_button(s_archive_screen, "删除",
                                                   286, 104, 78, 40);
-    lv_obj_add_event_cb(delete_btn, archive_delete_click_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_archive_delete_btn, archive_delete_click_cb, LV_EVENT_CLICKED, NULL);
 
-    lv_obj_t *return_btn = create_solution_button(s_archive_screen, "返回",
+    s_archive_return_btn = create_solution_button(s_archive_screen, "返回",
                                                   286, 166, 78, 40);
-    lv_obj_add_event_cb(return_btn, archive_return_click_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_archive_return_btn, archive_return_click_cb, LV_EVENT_CLICKED, NULL);
 
     bk_page_attach_right_swipe_gesture(s_archive_screen);
     lv_screen_load(s_archive_screen);
     (void)ui_nav_register_screen(s_archive_screen, &s_archive_nav_ops);
 
     s_archive_selected = 0;
+    s_archive_focus = 0;
     (void)archive_start_task(ARCH_OP_QUERY, 0);
     return 0;
 }
@@ -805,6 +968,10 @@ int page_edge_ai_solution_enter(void)
         ui_nav_unregister_screen(s_solution_screen);
         lv_obj_del(s_solution_screen);
     }
+    for (uint32_t i = 0; i < SOLUTION_BUTTON_COUNT; i++) {
+        s_solution_buttons[i] = NULL;
+    }
+    s_solution_selected = 0;
 
     s_solution_screen = lv_obj_create(NULL);
     lv_obj_set_size(s_solution_screen, SOL_SCREEN_W, SOL_SCREEN_H);
@@ -854,6 +1021,7 @@ int page_edge_ai_solution_enter(void)
         lv_obj_t *btn = create_solution_button(s_solution_screen, s_solution_btn_titles[i],
                                                SOL_BUTTON_X, y,
                                                SOL_BUTTON_W, SOL_BUTTON_H);
+        s_solution_buttons[i] = btn;
         if (i == 0) {
             lv_obj_add_event_cb(btn, solution_enroll_click_cb, LV_EVENT_CLICKED, NULL);
         } else if (i == 1) {
@@ -867,6 +1035,7 @@ int page_edge_ai_solution_enter(void)
 
     bk_page_attach_right_swipe_gesture(s_solution_screen);
     lv_screen_load(s_solution_screen);
+    solution_refresh_nav();
     (void)ui_nav_register_screen(s_solution_screen, &s_solution_nav_ops);
     return 0;
 }
