@@ -1464,6 +1464,26 @@ static void yoloface_detection_start_task(void *arg)
         goto fail;
     }
 
+    /* Load the model BEFORE sizing the frame buffer / opening the ISP camera:
+     * AvdkVideoReatorOSD::init() and OpenISPCamera() both derive sizes from the
+     * model's width/height/format, which are only valid after s_model->init().
+     * Deferring it left the ISP SP channel at 0x0 ("Invalid pixel format"), so
+     * the camera never reached ENABLE and every frame read failed. */
+    if (!reuse_model) {
+        s_model->LogEnable(true);
+        ret = s_model->init();
+        if (ret != BK_OK) {
+            bk_printf("yoloface_detection_start_task: model init failed (%d)\n", ret);
+#if CONFIG_LVGL
+            if (ret == -1) {
+                model_init_failed = true;
+            }
+#endif
+            goto fail;
+        }
+    }
+    s_yoloface_model_ready = true;
+
     ret = s_video_reator->init(false);
     if (ret != BK_OK) {
         bk_printf("yoloface_detection_start_task: init failed (%d)\n", ret);
@@ -1483,21 +1503,6 @@ static void yoloface_detection_start_task(void *arg)
         bk_printf("yoloface_detection_start_task: OpenDisplay failed (%d)\n", ret);
         goto fail;
     }
-
-    if (!reuse_model) {
-        s_model->LogEnable(true);
-        ret = s_model->init();
-        if (ret != BK_OK) {
-            bk_printf("yoloface_detection_start_task: model init failed (%d)\n", ret);
-#if CONFIG_LVGL
-            if (ret == -1) {
-                model_init_failed = true;
-            }
-#endif
-            goto fail;
-        }
-    }
-    s_yoloface_model_ready = true;
 
 #if CONFIG_LVGL
     if (s_yoloface_lvgl_camera_blend) {
