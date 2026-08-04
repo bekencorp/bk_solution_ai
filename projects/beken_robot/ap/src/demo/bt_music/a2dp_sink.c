@@ -16,6 +16,7 @@
 
 #include "components/log.h"
 #include "a2dp_sink_audio.h"
+#include "spk_service.h"
 #include "demo/bt_a2dp_config.h"
 #include "demo/a2dp_sink.h"
 #include "demo/bt_rhythm.h"
@@ -967,6 +968,13 @@ int a2dp_sink_demo_stop(void)
         s_bt_manager_up = 0;
     }
     bt_manager_clear_reconnect_info();
+
+    /* a2dp_sink_audio_stop() only detaches A2DP; shared DAC stays in idle
+     * linger. Tear it down before resume wifi / audio_engine reclaim DMA. */
+    if (spk_service_deinit() != BK_OK) {
+        LOGW("%s spk_service_deinit fail\n", __func__);
+    }
+
     return ret;
 }
 
