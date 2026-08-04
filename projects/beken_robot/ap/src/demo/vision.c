@@ -61,7 +61,11 @@ int vision_start(void)
     LOGI("Vision recognition -> page_7\r\n");
     /* Kick the camera/video-engine bring-up as early as possible (before the
      * page loads and independent of the sconf RTC op queue) so the local
-     * preview appears promptly instead of waiting behind a prior mode op. */
+     * preview appears promptly instead of waiting behind a prior mode op.
+     * Safe w.r.t. an in-flight exit: prestart only sets the want latch / worker;
+     * video_engine_init is serialized on s_vision_video_lock with deinit, and
+     * page_vision_preview refuses to start until video_engine_is_preview_ready()
+     * (false for the whole stop/deinit barrier */
     (void)bk_sconf_vision_video_prestart();
     return page_vision_enter();
 }
