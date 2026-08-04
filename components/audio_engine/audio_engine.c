@@ -136,7 +136,7 @@ static volatile int32_t s_wakeup_phsm2 = 0;
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
 audio_engine_prompt_tone_handle_t g_audio_engine_prompt_tone = NULL;
 #endif
-uint8_t g_volume_level = 7;   // volume level, not gain.
+uint32_t g_volume_level = 7;   // volume level, not gain.
 
 /*
  * Volume ladder (dB). Levels 1..10 are the original -36 dB-anchored ladder.
@@ -315,7 +315,6 @@ static int audio_engine_volume_init(void)
 
     #if CONFIG_BK_FACTORY_CONFIG
     int g_volume_level_size = 0;
-
     g_volume_level_size = bk_config_read("volume", (void *)&g_volume_level, 4);
     if (g_volume_level_size != 4)
     {

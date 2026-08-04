@@ -220,7 +220,8 @@ FaceRecognitionModel::FaceRecognitionModel()
       verify_model_file_path_(nullptr),
       verify_result_callback_(nullptr),
       enroll_result_callback_(nullptr),
-      verify_enabled_(false)
+      verify_enabled_(false),
+      runtimes_initialized_(false)
 {
     name = "FaceRecognitionModel";
     width = kDetectInputW;
@@ -270,8 +271,12 @@ void FaceRecognitionModel::setVerifyEnabled(bool enable)
 
 int FaceRecognitionModel::init(void)
 {
+    if (runtimes_initialized_) {
+        return 0;
+    }
+
     resourceLoad();
-    return 0;
+    return runtimes_initialized_ ? 0 : -1;
 }
 
 int FaceRecognitionModel::deinit(void)
@@ -288,6 +293,8 @@ void FaceRecognitionModel::resolverLoad(void)
 
 void FaceRecognitionModel::resourceLoad(void)
 {
+    runtimes_initialized_ = false;
+
     name = "FaceRecognitionModel";
     width = kDetectInputW;
     height = kDetectInputH;
@@ -312,13 +319,18 @@ void FaceRecognitionModel::resourceLoad(void)
         verifier_->setModelFilePath(verify_model_file_path_);
     }
 
-    if (detector_ != nullptr && !detector_->init()) {
+    if (detector_ == nullptr || !detector_->init()) {
         MicroPrintf("FaceRecognition detector runtime init failed\r\n");
-    }
-    if (verifier_ != nullptr && !verifier_->init()) {
-        MicroPrintf("FaceRecognition verify runtime init failed\r\n");
+        return;
     }
 
+    if (verifier_ == nullptr || !verifier_->init()) {
+        MicroPrintf("FaceRecognition verify runtime init failed\r\n");
+        detector_->deinit();
+        return;
+    }
+
+    runtimes_initialized_ = true;
     MicroPrintf("FaceRecognitionModel resourceLoad detect=%s verify=%s\r\n",
                 modelFilePath, verify_model_file_path_);
 }
@@ -332,6 +344,7 @@ void FaceRecognitionModel::resourceUnload(void)
     if (verifier_ != nullptr) {
         verifier_->deinit();
     }
+    runtimes_initialized_ = false;
 }
 
 void FaceRecognitionModel::releaseDetectorInterpreter(void)

@@ -5,7 +5,7 @@
 #include "AvdkDetectionModel.h"
 
 constexpr int kFaceEmbeddingDim = 512;
-constexpr float kFaceVerifySameThreshold = 0.6f;
+constexpr float kFaceVerifySameThreshold = 0.7f;
 
 struct FaceVerifyResult {
     bool valid;
@@ -52,4 +52,5 @@ private:
     faceVerifyResultCallbackT verify_result_callback_;
     faceEnrollResultCallbackT enroll_result_callback_;
     volatile bool verify_enabled_;
+    bool runtimes_initialized_;
 };
