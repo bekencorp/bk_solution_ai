@@ -27,7 +27,12 @@
 #include "ui_nav_router.h"
 #include "ui_list_menu.h"
 #include "ui_i18n.h"
+#include "demo/a2dp_sink.h"
 #include "demo/bt_music.h"
+#include "demo/bt_rhythm.h"
+#if CONFIG_BT
+#include "bt_manager.h"
+#endif
 
 #ifdef ROBOT_TEST
 
@@ -53,7 +58,7 @@
  * 6 bars = the 6 hand joints (NOT a generic spectrum): bars 0..4 are the five
  * fingers in low-freq -> high-freq order (bar0 = pinky/lowest, bar4 =
  * thumb/highest), bar5 = the wrist/base rotation. Each bar mirrors that servo's
- * live travel via bt_music_get_pose_levels(). */
+ * live travel via bt_rhythm_get_pose_levels(). */
 #define BTM_BARS            6
 #define BTM_BAR_W           34
 #define BTM_BAR_GAP         20
@@ -65,7 +70,7 @@
 #define BTM_BAR_VIS_MAX      84.0f  /* UI-only cap: hand can be 100, bar won't look full */
 #define BTM_BAR_VIS_GAIN     0.96f  /* compression starts before the top */
 #define BTM_BAR_TOP_COMPRESS 0.12f  /* stronger compression near 100 */
-#define BTM_IMM_TIMEOUT_MS   3000U
+#define BTM_IMM_TIMEOUT_MS   5000U
 #define BTM_TRANSPORT_DEBOUNCE_MS 300U
 #define BTM_IMM_BAR_W        38
 #define BTM_IMM_BAR_GAP      17
@@ -110,11 +115,71 @@ static int s_ui_linked  = -1;
 static int s_ui_dancing = -1;
 static int s_ui_playing = -1;
 
+#define BTM_KEY_ACTION_COUNT  6
+static const btm_action_t s_transport_actions[BTM_KEY_ACTION_COUNT] = {
+    BTM_ACT_VOL_DOWN, BTM_ACT_PREV, BTM_ACT_PLAY, BTM_ACT_NEXT, BTM_ACT_VOL_UP,
+    BTM_ACT_ROBOT,
+};
+static int s_key_focus_idx = 2; /* default: play/pause */
+static bool s_exit_pending;
+static bool s_dance_user_enabled = true;
+static bool s_render_ready;
+static bool s_playing;
+
+static void apply_rhythm_state(void)
+{
+    bt_rhythm_set_enabled(s_render_ready && s_playing);
+    bt_rhythm_set_hand_output(s_dance_user_enabled);
+}
+
+static void on_a2dp_stream_start(void)
+{
+    if (s_playing) {
+        return;
+    }
+    s_playing = true;
+    apply_rhythm_state();
+}
+
+static void on_a2dp_stream_stop(void)
+{
+    if (!s_playing) {
+        return;
+    }
+    s_playing = false;
+    apply_rhythm_state();
+}
+
+static void enable_speaker_after_first_paint(void)
+{
+#if CONFIG_BT
+    s_render_ready = true;
+    apply_rhythm_state();
+    a2dp_sink_demo_audio_spk_enable(1);
+#endif
+}
+
+static bool phone_is_connected(void)
+{
+#if CONFIG_BT
+    if (!a2dp_sink_demo_is_active()) {
+        return false;
+    }
+    if (bt_manager_get_connect_state() < BT_STATE_LINK_CONNECTED) {
+        return false;
+    }
+    return a2dp_sink_demo_is_connected() != 0;
+#else
+    return false;
+#endif
+}
+
 static void set_immersive(bool enable);
 static void refresh_hand(void);
 static void dismiss_toast(void);
 static void show_toast(const char *message, const lv_font_t *font);
 static void show_i18n_toast(ui_str_id_t id, const char *en_symbol);
+static void clear_refs(void);
 
 /* ---------------- small builders ---------------- */
 
@@ -201,15 +266,33 @@ static void draw_text(lv_layer_t *layer, const char *text, int x, int y, int w, 
 }
 
 static void draw_button_base(lv_layer_t *layer, int x, int y, int w, int h,
-                             bool primary, bool active_border)
+                             bool primary, bool state_active, bool key_focus)
 {
-    uint32_t border = primary ? C_RING : (active_border ? C_ROBOT_ON : C_BTN_BORDER);
-    int border_w = primary ? 2 : (active_border ? 2 : 1);
+    int border_w;
+    uint32_t border;
+
+    if (key_focus) {
+        /* Key focus: bright cyan ring, distinct from play default and robot ON. */
+        border = C_RING;
+        border_w = 3;
+    } else if (primary) {
+        border = C_RING;
+        border_w = 2;
+    } else if (state_active) {
+        border = C_ROBOT_ON;
+        border_w = 2;
+    } else {
+        border = C_BTN_BORDER;
+        border_w = 1;
+    }
+
     int radius = h / 2;
 
-    draw_rect(layer, x, y, w, h, border, primary ? LV_OPA_COVER : LV_OPA_80, radius);
+    draw_rect(layer, x, y, w, h, border,
+              (primary && !key_focus) ? LV_OPA_80 : LV_OPA_COVER, radius);
     draw_rect(layer, x + border_w, y + border_w, w - border_w * 2, h - border_w * 2,
-              primary ? C_PLAY_1 : C_BTN_BG, LV_OPA_COVER, radius - border_w);
+              primary ? C_PLAY_1 : C_BTN_BG, LV_OPA_COVER,
+              (radius > border_w) ? (radius - border_w) : 0);
 }
 
 static void get_button_area(btm_action_t action, int *x, int *y, int *w, int *h)
@@ -255,14 +338,9 @@ static bool point_in_button(const lv_point_t *p, btm_action_t action)
 
 static btm_action_t action_from_point(const lv_point_t *p)
 {
-    static const btm_action_t s_actions[] = {
-        BTM_ACT_VOL_DOWN, BTM_ACT_PREV, BTM_ACT_PLAY,
-        BTM_ACT_NEXT, BTM_ACT_VOL_UP, BTM_ACT_ROBOT,
-    };
-
-    for (uint32_t i = 0; i < sizeof(s_actions) / sizeof(s_actions[0]); i++) {
-        if (point_in_button(p, s_actions[i])) {
-            return s_actions[i];
+    for (uint32_t i = 0; i < BTM_KEY_ACTION_COUNT; i++) {
+        if (point_in_button(p, s_transport_actions[i])) {
+            return s_transport_actions[i];
         }
     }
     return BTM_ACT_NONE;
@@ -349,8 +427,9 @@ static void draw_transport_button(lv_layer_t *layer, btm_action_t action)
     int x, y, w, h;
     get_button_area(action, &x, &y, &w, &h);
     bool primary = (action == BTM_ACT_PLAY);
+    bool focused = (action == s_transport_actions[s_key_focus_idx]);
 
-    draw_button_base(layer, x, y, w, h, primary, false);
+    draw_button_base(layer, x, y, w, h, primary, false, focused);
     draw_text(layer, button_symbol(action), x, y, w, h,
               LV_FONT_DEFAULT, primary ? 0x04122e : C_BTN_FG, LV_TEXT_ALIGN_CENTER);
 }
@@ -359,9 +438,10 @@ static void draw_robot_button(lv_layer_t *layer)
 {
     int x, y, w, h;
     bool dancing = (s_ui_dancing > 0);
+    bool focused = (s_transport_actions[s_key_focus_idx] == BTM_ACT_ROBOT);
 
     get_button_area(BTM_ACT_ROBOT, &x, &y, &w, &h);
-    draw_button_base(layer, x, y, w, h, false, dancing);
+    draw_button_base(layer, x, y, w, h, false, dancing && !focused, focused);
     draw_robot_icon(layer, x, y, h);
     draw_text(layer, dancing ? "beken claw:on" : "beken claw:off",
               x, y + 2, w, h - 4, LV_FONT_DEFAULT,
@@ -404,7 +484,7 @@ static bool action_needs_link(btm_action_t action)
 
 static void dispatch_action(btm_action_t action)
 {
-    if (action_needs_link(action) && !bt_music_is_connected()) {
+    if (action_needs_link(action) && !phone_is_connected()) {
         show_i18n_toast(STR_BT_MUSIC_CONNECT_PHONE, LV_SYMBOL_BLUETOOTH);
         return;
     }
@@ -419,22 +499,23 @@ static void dispatch_action(btm_action_t action)
 
     switch (action) {
     case BTM_ACT_VOL_DOWN:
-        bt_music_vol_down();
+        a2dp_sink_demo_vol_down();
         break;
     case BTM_ACT_PREV:
-        bt_music_prev();
+        a2dp_sink_demo_prev();
         break;
     case BTM_ACT_PLAY:
-        bt_music_play_pause();
+        a2dp_sink_demo_play_pause();
         break;
     case BTM_ACT_NEXT:
-        bt_music_next();
+        a2dp_sink_demo_next();
         break;
     case BTM_ACT_VOL_UP:
-        bt_music_vol_up();
+        a2dp_sink_demo_vol_up();
         break;
     case BTM_ACT_ROBOT:
-        bt_music_dance_toggle();
+        s_dance_user_enabled = !s_dance_user_enabled;
+        apply_rhythm_state();
         refresh_hand();
         break;
     default:
@@ -460,7 +541,7 @@ static void chrome_click_cb(lv_event_t *e)
 
 static void refresh_status(void)
 {
-    bool linked = bt_music_is_connected();
+    bool linked = phone_is_connected();
     if (s_ui_linked == (int)linked) {
         return;
     }
@@ -472,7 +553,7 @@ static void refresh_status(void)
 
 static void refresh_hand(void)
 {
-    bool dancing = bt_music_is_dancing();
+    bool dancing = s_dance_user_enabled;
     if (s_ui_dancing == (int)dancing) {
         return;
     }
@@ -536,7 +617,7 @@ static void meter_kick_cb(lv_timer_t *timer)
     if (s_meter_timer != NULL) {
         lv_timer_resume(s_meter_timer);
     }
-    bt_music_enable_speaker_after_first_paint();
+    enable_speaker_after_first_paint();
     s_kick_timer = NULL;
     lv_timer_delete(timer);
 }
@@ -548,9 +629,9 @@ static void meter_timer_cb(lv_timer_t *timer)
      * is still the real pose level, but the display value is compressed so the
      * UI leaves headroom and doesn't look pinned near full. */
     uint8_t sp[BTM_BARS] = {0};
-    bt_music_get_pose_levels(sp, BTM_BARS);
+    bt_rhythm_get_pose_levels(sp, BTM_BARS);
     uint32_t now = (uint32_t)rtos_get_time();
-    bool playing = bt_music_is_playing();
+    bool playing = s_playing;
 
     for (int i = 0; i < BTM_BARS; i++) {
         float target = pose_to_bar_value(sp[i]);
@@ -591,7 +672,8 @@ static void meter_timer_cb(lv_timer_t *timer)
 
 /* ---------------- navigation ---------------- */
 
-static void bt_music_page_close(void)
+/* Tear down BT/audio/timers; shared by every page-exit path. */
+static void bt_music_page_teardown(void)
 {
     dismiss_toast();
     set_immersive(false);
@@ -603,7 +685,30 @@ static void bt_music_page_close(void)
         lv_timer_delete(s_kick_timer);
         s_kick_timer = NULL;
     }
-    bt_music_stop();
+#if CONFIG_BT
+    a2dp_sink_demo_set_playback_listener(NULL, NULL);
+#endif
+    s_render_ready = false;
+    s_playing = false;
+    if (g_demo_bt_music.stop != NULL) {
+        (void)g_demo_bt_music.stop();
+    }
+}
+
+/* Right-swipe (ui_touch) and S4-double both dispatch SCREEN_PREV -> here. */
+static void bt_music_exit_to_menu(bk_lv_ui_t *ui)
+{
+    if (ui == NULL) {
+        return;
+    }
+    bt_music_page_teardown();
+    (void)ui_demo_return_to_menu();
+    if (s_screen != NULL && lv_obj_is_valid(s_screen)) {
+        ui_nav_unregister_screen(s_screen);
+        lv_obj_del(s_screen);
+    }
+    s_screen = NULL;
+    clear_refs();
 }
 
 static void clear_refs(void)
@@ -618,36 +723,71 @@ static void clear_refs(void)
     s_ui_linked = -1;
     s_ui_dancing = -1;
     s_ui_playing = -1;
+    s_key_focus_idx = 2;
     for (int i = 0; i < BTM_BARS; i++) {
         s_disp[i] = (float)BTM_BAR_MIN;
         s_peak[i] = (float)BTM_BAR_MIN;
     }
 }
 
+static void apply_key_focus(void)
+{
+    note_user_touch();
+    if (s_chrome != NULL && lv_obj_is_valid(s_chrome)) {
+        lv_obj_invalidate(s_chrome);
+    }
+}
+
+static void on_focus_prev(bk_lv_ui_t *ui)
+{
+    (void)ui;
+    s_key_focus_idx = (s_key_focus_idx + BTM_KEY_ACTION_COUNT - 1) % BTM_KEY_ACTION_COUNT;
+    apply_key_focus();
+}
+
+static void on_focus_next(bk_lv_ui_t *ui)
+{
+    (void)ui;
+    s_key_focus_idx = (s_key_focus_idx + 1) % BTM_KEY_ACTION_COUNT;
+    apply_key_focus();
+}
+
+static void bt_music_exit_async(void *arg)
+{
+    bk_lv_ui_t *ui = (bk_lv_ui_t *)arg;
+
+    s_exit_pending = false;
+    bt_music_exit_to_menu(ui);
+}
+
 static void on_screen_prev(bk_lv_ui_t *ui)
 {
-    if (ui == NULL) {
+    /* Key nav enters via ui_nav_dispatch_event() on the key task (disp_lock).
+     * a2dp_sink_demo_stop() may block while tearing down BT; defer to LVGL
+     * thread so the key task returns immediately (touch swipe already LVGL). */
+    if (s_exit_pending) {
         return;
     }
-    bt_music_page_close();
-    (void)ui_demo_return_to_menu();
-    if (s_screen != NULL && lv_obj_is_valid(s_screen)) {
-        ui_nav_unregister_screen(s_screen);
-        lv_obj_del(s_screen);
+    s_exit_pending = true;
+#if CONFIG_BT
+    a2dp_sink_demo_begin_teardown();
+#endif
+    if (lv_async_call(bt_music_exit_async, ui) != LV_RESULT_OK) {
+        s_exit_pending = false;
+        bt_music_exit_to_menu(ui);
     }
-    s_screen = NULL;
-    clear_refs();
 }
 
 static void on_screen_next(bk_lv_ui_t *ui)
 {
     (void)ui;
-    dispatch_action(BTM_ACT_PLAY);
+    note_user_touch();
+    dispatch_action(s_transport_actions[s_key_focus_idx]);
 }
 
 static const ui_page_nav_ops_t s_bt_music_nav_ops = {
-    .on_focus_prev = NULL,
-    .on_focus_next = NULL,
+    .on_focus_prev = on_focus_prev,
+    .on_focus_next = on_focus_next,
     .on_screen_prev = on_screen_prev,
     .on_screen_next = on_screen_next,
 };
@@ -758,6 +898,13 @@ int page_bt_music_enter(void)
     }
     s_screen = NULL;
     clear_refs();
+    s_exit_pending = false;
+    s_dance_user_enabled = true;
+    s_render_ready = false;
+    s_playing = false;
+#if CONFIG_BT
+    a2dp_sink_demo_set_playback_listener(on_a2dp_stream_start, on_a2dp_stream_stop);
+#endif
 
     /* ---- screen: flat dark ---- */
     s_screen = lv_obj_create(NULL);
