@@ -183,6 +183,16 @@ int video_engine_deinit(void);
 bool video_engine_is_running(void);
 
 /**
+ * @brief Whether local preview may be started safely.
+ *
+ * Unlike video_engine_is_running(), this is false while stop/deinit is in
+ * progress (is_started may still be true during a long camera/H.264 close).
+ * UI code must use this before video_engine_preview_start() so a rapid Vision
+ * re-enter cannot attach preview to an engine that is mid-teardown
+ */
+bool video_engine_is_preview_ready(void);
+
+/**
  * @brief Start local RGB565 preview from the running MIPI camera SP channel.
  *
  * The preview path is a secondary local consumer. It does not own the camera

@@ -1330,11 +1330,22 @@ int bk_sconf_exit_ai_mode(int from_vision)
 
     LOGI("%s from_vision=%d\r\n", __func__, from_vision);
 
+#if CONFIG_BK_VIDEO_ENGINE
+    if (from_vision) {
+        /* Drop the want latch before the (possibly multi-second) RTC stop so a
+         * concurrent Vision re-enter's prestart worker cannot bring the camera
+         * back up underneath this exit, then race preview against our deinit
+         * Re-enter sets want=true again and either the queued
+         * ENTER op or a blocked prestart worker will bring video back up after
+         * we release s_vision_video_lock. */
+        s_vision_video_want = false;
+    }
+#endif
+
     ret = bk_sconf_stop_rtc();
 
 #if CONFIG_BK_VIDEO_ENGINE
     if (from_vision) {
-        /* Cancel any pending pre-start, then tear down (after RTC stop). */
         s_vision_video_want = false;
         bk_sconf_vision_video_down_locked();
     }

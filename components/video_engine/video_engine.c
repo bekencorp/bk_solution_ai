@@ -128,6 +128,35 @@ typedef struct {
 /* Global video engine context */
 static video_engine_ctx_t *g_video_engine_ctx = NULL;
 static video_engine_camera_type_t curr_cam_type = VIDEO_ENGINE_CAMERA_UNKNOWN;
+/*
+ * Set for the whole video_engine_stop()/deinit() critical section. Preview
+ * must not start while this is true: is_started/camera_opened can still look
+ * valid during a long MIPI/H.264 close, and a concurrent preview_start was the
+ * BK7259SW-2665 UAF (ve_preview blocked on a semaphore torn down by stop).
+ *
+ * SMP (CPU2/CPU3): a plain store is not enough for cross-core visibility.
+ * video_engine_raise_shutting_down() publishes via preview_lock
+ * acquire/release so the other core's later lock in preview_start sees the
+ * flag before create_thread.
+ */
+static volatile bool s_video_engine_shutting_down = false;
+
+#if CONFIG_VIDEO_ENGINE_USE_MIPI_CAMERA
+static void video_engine_raise_shutting_down(void)
+{
+    s_video_engine_shutting_down = true;
+    /* Release-acquire publish to the other AP core. */
+    if (g_video_engine_ctx != NULL && g_video_engine_ctx->preview_lock != NULL) {
+        rtos_lock_mutex(&g_video_engine_ctx->preview_lock);
+        rtos_unlock_mutex(&g_video_engine_ctx->preview_lock);
+    }
+}
+#else
+static void video_engine_raise_shutting_down(void)
+{
+    s_video_engine_shutting_down = true;
+}
+#endif
 
 static void video_engine_transfer_task(void *arg);
 
@@ -433,6 +462,11 @@ int video_engine_deinit(void)
         LOGD("%s: g_video_engine_ctx is NULL, already deinitialized\n", __func__);
         return BK_OK;
     }
+
+    /* Keep the barrier raised across stop + ctx free so a concurrent
+     * preview_start cannot observe a half-destroyed engine. Publish to the
+     * other SMP core before teardown work begins. */
+    video_engine_raise_shutting_down();
     
     ret = video_engine_stop();
     if (ret != BK_OK) {
@@ -449,7 +483,10 @@ int video_engine_deinit(void)
 #endif
 
     os_free(g_video_engine_ctx);
+    /* Null the pointer before clearing the flag so unlocked readers that see
+     * shutting_down==false cannot observe a stale non-NULL ctx (SMP). */
     g_video_engine_ctx = NULL;
+    s_video_engine_shutting_down = false;
     
     LOGI("%s: Video engine deinitialized successfully\n", __func__);
     
@@ -930,9 +967,12 @@ int video_engine_preview_start(const video_engine_preview_config_t *config)
 {
     bk_err_t ret;
 
-    if (g_video_engine_ctx == NULL || !g_video_engine_ctx->camera_opened)
+    if (!video_engine_is_preview_ready())
     {
-        LOGW("%s: camera not ready\n", __func__);
+        LOGW("%s: camera not ready (running=%d shutting_down=%d)\n",
+             __func__,
+             (int)video_engine_is_running(),
+             (int)s_video_engine_shutting_down);
         return BK_FAIL;
     }
     if (curr_cam_type != VIDEO_ENGINE_CAMERA_MIPI)
@@ -952,8 +992,20 @@ int video_engine_preview_start(const video_engine_preview_config_t *config)
         LOGE("%s: unsupported rotate=%u\n", __func__, config->rotate);
         return BK_FAIL;
     }
+
+    /* Serialize with stop()/preview_stop() on the other AP core. */
+    rtos_lock_mutex(&g_video_engine_ctx->preview_lock);
+    if (s_video_engine_shutting_down ||
+        !g_video_engine_ctx->is_started ||
+        !g_video_engine_ctx->camera_opened)
+    {
+        rtos_unlock_mutex(&g_video_engine_ctx->preview_lock);
+        LOGW("%s: camera not ready under lock\n", __func__);
+        return BK_FAIL;
+    }
     if (g_video_engine_ctx->preview_running)
     {
+        rtos_unlock_mutex(&g_video_engine_ctx->preview_lock);
         LOGI("%s: already running\n", __func__);
         return BK_OK;
     }
@@ -962,9 +1014,11 @@ int video_engine_preview_start(const video_engine_preview_config_t *config)
      * retry once the old one has fully exited (preview_task_handle == NULL). */
     if (g_video_engine_ctx->preview_task_handle != NULL)
     {
+        rtos_unlock_mutex(&g_video_engine_ctx->preview_lock);
         LOGW("%s: previous preview task still exiting, retry later\n", __func__);
         return BK_FAIL;
     }
+    rtos_unlock_mutex(&g_video_engine_ctx->preview_lock);
 
     uint16_t rot_w = (config->rotate == 90 || config->rotate == 270) ?
                      config->height : config->width;
@@ -989,6 +1043,11 @@ int video_engine_preview_start(const video_engine_preview_config_t *config)
 
     if (!g_video_engine_ctx->preview_sp_opened)
     {
+        if (!video_engine_is_preview_ready())
+        {
+            LOGW("%s: abort SP open, engine shutting down\n", __func__);
+            return BK_FAIL;
+        }
         camera_board_config_t *board_config = app_camera_board_config_get();
         if (board_config == NULL)
         {
@@ -1029,8 +1088,20 @@ int video_engine_preview_start(const video_engine_preview_config_t *config)
         return BK_FAIL;
     }
 
-    /* Commit state and hand buffer ownership to the worker atomically. */
+    /* Commit state and hand buffer ownership to the worker atomically.
+     * Re-check shutting_down under the lock: stop() may have begun while we
+     * were in malloc / SP open (BK7259SW-2665). */
     rtos_lock_mutex(&g_video_engine_ctx->preview_lock);
+    if (s_video_engine_shutting_down ||
+        !g_video_engine_ctx->is_started ||
+        !g_video_engine_ctx->camera_opened)
+    {
+        rtos_unlock_mutex(&g_video_engine_ctx->preview_lock);
+        LOGW("%s: abort commit, engine went down during start\n", __func__);
+        bk_frame_buffer_free(nv12_buf);
+        bk_frame_buffer_free(rgb565_buf);
+        return BK_FAIL;
+    }
     g_video_engine_ctx->preview_in_width = config->width;
     g_video_engine_ctx->preview_in_height = config->height;
     g_video_engine_ctx->preview_out_width = out_w;
@@ -1462,7 +1533,9 @@ int video_engine_start(void)
 int video_engine_stop(void)
 {
     bk_err_t ret = BK_OK;
-    bk_err_t final_ret = BK_OK;  
+    bk_err_t final_ret = BK_OK;
+    /* deinit() raises the barrier first and clears it after freeing ctx. */
+    bool clear_shutting_down = !s_video_engine_shutting_down;
     
     if (g_video_engine_ctx == NULL) {
         LOGD("%s: g_video_engine_ctx is NULL, already stopped\n", __func__);
@@ -1476,6 +1549,10 @@ int video_engine_stop(void)
     
     LOGI("%s: Stopping video engine\n", __func__);
 
+    if (clear_shutting_down) {
+        video_engine_raise_shutting_down();
+    }
+
     (void)video_engine_preview_stop();
     
     /* Stop video transfer task */
@@ -1486,6 +1563,10 @@ int video_engine_stop(void)
             final_ret = ret;  
         }
     }
+
+    /* Catch a preview that raced past the first stop before the barrier was
+     * visible; must be idle before camera/ISP teardown. */
+    (void)video_engine_preview_stop();
     
     if (g_video_engine_ctx->camera_opened) {
         ret = video_engine_camera_close();
@@ -1496,6 +1577,10 @@ int video_engine_stop(void)
     }
     
     g_video_engine_ctx->is_started = false;
+
+    if (clear_shutting_down) {
+        s_video_engine_shutting_down = false;
+    }
     
     if (final_ret == BK_OK) {
         LOGI("%s: Video engine stopped successfully\n", __func__);
@@ -1519,4 +1604,30 @@ bool video_engine_is_running(void)
         return false;
     }
     return g_video_engine_ctx->is_started;
+}
+
+bool video_engine_is_preview_ready(void)
+{
+    video_engine_ctx_t *ctx;
+    bool ready;
+
+    /* Fast reject: must be first so unlocked readers bail out before touching
+     * ctx while the other core is inside deinit/free. */
+    if (s_video_engine_shutting_down) {
+        return false;
+    }
+
+    ctx = g_video_engine_ctx;
+    if (ctx == NULL) {
+        return false;
+    }
+
+    ready = ctx->is_started && ctx->camera_opened;
+
+    /* Recheck after field loads: deinit may have started on the other core. */
+    if (s_video_engine_shutting_down || g_video_engine_ctx != ctx) {
+        return false;
+    }
+
+    return ready;
 }
