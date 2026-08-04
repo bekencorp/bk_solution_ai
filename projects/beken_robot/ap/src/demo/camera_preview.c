@@ -117,8 +117,8 @@ extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_320x385;
 
 /* SP 640x480 NV12 (1:1 with sensor). NV12 from the UNCODED slab (16 MB
  * pool at 0x60000000); never goes anywhere near PSRAM_HEAP (920 KB). */
-#define PREVIEW_SP_W           1280
-#define PREVIEW_SP_H           720
+#define PREVIEW_SP_W           640 //1280
+#define PREVIEW_SP_H           480 //720
 #define PREVIEW_SP_NV12_BYTES  ((uint32_t)PREVIEW_SP_W * PREVIEW_SP_H * 3 / 2)
 
 /* SP read timeout: cam_thread may sit in 1s delay on MP flexa chnl before
