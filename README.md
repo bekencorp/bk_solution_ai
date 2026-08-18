@@ -14,8 +14,10 @@ The **BK7259 Robot Solution** is an open-source, integrated hardware-and-softwar
 ## Hardware
 
 The hardware for this solution is the BK7259 Robot Development Kit. The kit integrates the BK7259 SoC, an LCD display, a MIPI CSI camera, a dual-microphone array, and a speaker, along with common robot peripherals such as ToF distance sensing, ambient light, G-Sensor, NFC, LED, vibration motor, buttons, a 4G module, and SD NAND.
-[Development kit hardware materials](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/hw-reference/index.html)
-[BK7259 Datasheet](https://docs.bekencorp.com/spec/BK7259/BK7259_Datasheet.pdf)
+
+- [Development kit hardware materials](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/hw-reference/index.html)
+- [BK7259 Datasheet](https://docs.bekencorp.com/spec/BK7259/BK7259_Datasheet.pdf)
+
 Development kit purchase link: coming soon.
 
 ## Version Strategy
