@@ -33,6 +33,11 @@
 #define TAG "prov_demo"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 
+/* Firmware version advertised in the BLE provisioning core header. */
+#define ROBOT_FW_MAJOR 1
+#define ROBOT_FW_MINOR 0
+#define ROBOT_FW_PATCH 0
+
 /* Compose the provisioning device name (what the phone app scans for) using the
  * rule "bk_robot_XXXXXX" derived from the Bluetooth MAC. This is the single
  * source of truth: provisioning_init() pushes it into the BLE provisioning
@@ -51,7 +56,7 @@ static int provisioning_build_device_name(char *buf, int len)
         return -1;
     }
 
-    (void)snprintf(buf, (size_t)len, "bk_robot_%02X%02X%02X", mac[3], mac[4], mac[5]);
+    (void)snprintf(buf, (size_t)len, "BK_ROBOT_%02X%02X%02X", mac[3], mac[4], mac[5]);
     buf[len - 1] = '\0';
     return buf[0] != '\0' ? 0 : -1;
 }
@@ -137,6 +142,11 @@ int provisioning_init(void)
         bk_ble_provisioning_set_adv_name(name);
         LOGI("configured provisioning device name: %s\r\n", name);
     }
+
+    /* Core header (proto_ver + device_type=ROBOT + fw) advertised in the ADV
+     * packet per the BLE provisioning adv spec. */
+    bk_ble_provisioning_set_dev_info(BK_BLE_PROV_DEV_TYPE_ROBOT,
+                                     ROBOT_FW_MAJOR, ROBOT_FW_MINOR, ROBOT_FW_PATCH);
 #endif
     return 0;
 }
