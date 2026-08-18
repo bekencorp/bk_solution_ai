@@ -70,6 +70,7 @@ static HandGestureDetectionModel *s_model = NULL;
 #define CAR_TRACKING_SERVO_MAX            2500
 #define CAR_TRACKING_SERVO_DURATION_MS_DEFAULT    8000.0f
 #define CAR_TRACKING_SERVO_STOP_DURATION_MS_DEFAULT 20.0f
+#define CAR_TRACKING_SERVO_RESET_DURATION_MS_DEFAULT 500.0f
 #define CAR_TRACKING_SERVO_DEADZONE_PX_DEFAULT    25.0f
 #define CAR_TRACKING_SERVO_START_DEADZONE_PX_DEFAULT 40.0f
 #define CAR_TRACKING_SERVO_STOP_SETTLE_MS_DEFAULT 300U
@@ -142,6 +143,14 @@ static uint16_t car_tracking_servo_duration_ms(void)
 static uint16_t car_tracking_servo_stop_duration_ms(void)
 {
     int duration = car_tracking_servo_round(CAR_TRACKING_SERVO_STOP_DURATION_MS_DEFAULT);
+
+    duration = car_tracking_servo_clamp(duration, 0, 65535);
+    return (uint16_t)duration;
+}
+
+static uint16_t car_tracking_servo_reset_duration_ms(void)
+{
+    int duration = car_tracking_servo_round(CAR_TRACKING_SERVO_RESET_DURATION_MS_DEFAULT);
 
     duration = car_tracking_servo_clamp(duration, 0, 65535);
     return (uint16_t)duration;
@@ -243,6 +252,27 @@ static void car_tracking_servo_reset(void)
               s_car_tracking_servo2);
 }
 
+static void car_tracking_servo2_reset_position(void)
+{
+    const uint16_t duration_ms = car_tracking_servo_reset_duration_ms();
+    bk_err_t ret = bk_hiwonder_car_set_pwm_servo(2,
+                                                 CAR_TRACKING_SERVO_2_INIT,
+                                                 duration_ms);
+    if (ret == BK_OK) {
+        s_car_tracking_servo2 = CAR_TRACKING_SERVO_2_INIT;
+        s_car_tracking_servo2_start = CAR_TRACKING_SERVO_2_INIT;
+        s_car_tracking_servo2_target = CAR_TRACKING_SERVO_2_INIT;
+        s_car_tracking_servo2_start_ms = (uint32_t)rtos_get_time();
+        s_car_tracking_servo2_stop_ms = 0;
+        s_car_tracking_servo2_duration_ms = duration_ms;
+        s_car_tracking_servo2_running = false;
+        bk_printf("car_tracking_servo: reset servo2=%d duration=%u\n",
+                  CAR_TRACKING_SERVO_2_INIT, duration_ms);
+    } else {
+        bk_printf("car_tracking_servo: reset servo2 failed ret=%d\n", ret);
+    }
+}
+
 static void car_tracking_chassis_set(int vx_dir, int turn_dir)
 {
     if (vx_dir > 0) {
@@ -280,6 +310,18 @@ static void car_tracking_chassis_set(int vx_dir, int turn_dir)
 static void car_tracking_chassis_stop(void)
 {
     car_tracking_chassis_set(0, 0);
+}
+
+static void car_tracking_chassis_force_stop(void)
+{
+    bk_err_t ret = bk_hiwonder_car_run(0.0f, 0.0f);
+    if (ret == BK_OK) {
+        s_car_tracking_chassis_vx_dir = 0;
+        s_car_tracking_chassis_turn_dir = 0;
+        bk_printf("car_tracking_chassis: force stop\n");
+    } else {
+        bk_printf("car_tracking_chassis: force stop failed ret=%d\n", ret);
+    }
 }
 
 static int car_tracking_turn_dir_from_dx(float dx)
@@ -561,6 +603,7 @@ static void car_detection_start_task(void *arg)
     s_model->setModelFilePath(CAR_TRACKING_HAND_GESTURE_MODEL_SD_PATH);
 #if CAR_TRACKING_CONTROL
     car_tracking_servo_reset();
+    car_tracking_servo2_reset_position();
 #endif
 
     s_video_reator = new AvdkVideoReatorOSD(s_model);
@@ -763,6 +806,11 @@ static int car_detection_stop(void)
             return ret;
         }
     }
+
+#if CAR_TRACKING_CONTROL
+    car_tracking_chassis_force_stop();
+    car_tracking_servo2_reset_position();
+#endif
 
     box_detection_path_clear();
 
