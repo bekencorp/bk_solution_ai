@@ -55,6 +55,10 @@ static void apply_listening_view(void)
         lv_label_set_text(s_label_state, ui_tr(STR_ASR_LISTENING));
     }
     if (s_label_hint) {
+        const lv_font_t *hint_font = (ui_i18n_get_lang() == UI_LANG_EN) ?
+                                     &lv_font_zh_demo_16 : &lv_font_zh_demo_20;
+        lv_obj_set_style_text_font(s_label_hint, hint_font,
+                                   LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_label_set_text(s_label_hint, ui_tr(STR_ASR_HINT));
         lv_obj_clear_flag(s_label_hint, LV_OBJ_FLAG_HIDDEN);
     }
@@ -107,29 +111,31 @@ static void on_phrase_recognized(const char *phrase)
     if (phrase == NULL) {
         return;
     }
+    const bool use_cn_text = (ui_i18n_get_lang() != UI_LANG_EN);
+
     if ((strcmp(phrase, "nihaobaotong") == 0) || (strcmp(phrase, "nihaobotong") == 0)) {
         snprintf(s_action_text, sizeof(s_action_text), "%s", ui_tr(STR_ASR_HELLO));
-        s_action_text_is_cn = true;
+        s_action_text_is_cn = use_cn_text;
         s_action_text_letter_space = 0;
     } else if (strcmp(phrase, "zaijianbotong") == 0) {
         snprintf(s_action_text, sizeof(s_action_text), "%s", ui_tr(STR_ASR_BYE));
-        s_action_text_is_cn = true;
+        s_action_text_is_cn = use_cn_text;
         s_action_text_letter_space = 0;
     } else if (strcmp(phrase, "qianjin") == 0) {
-        snprintf(s_action_text, sizeof(s_action_text), "前进");
-        s_action_text_is_cn = true;
-        s_action_text_letter_space = 8;
+        snprintf(s_action_text, sizeof(s_action_text), "%s", ui_tr(STR_ASR_FORWARD));
+        s_action_text_is_cn = use_cn_text;
+        s_action_text_letter_space = use_cn_text ? 8 : 0;
     } else if (strcmp(phrase, "houtui") == 0) {
-        snprintf(s_action_text, sizeof(s_action_text), "后退");
-        s_action_text_is_cn = true;
-        s_action_text_letter_space = 8;
+        snprintf(s_action_text, sizeof(s_action_text), "%s", ui_tr(STR_ASR_BACK));
+        s_action_text_is_cn = use_cn_text;
+        s_action_text_letter_space = use_cn_text ? 8 : 0;
     } else if (strcmp(phrase, "zuozhuanwan") == 0) {
-        snprintf(s_action_text, sizeof(s_action_text), "左转弯");
-        s_action_text_is_cn = true;
+        snprintf(s_action_text, sizeof(s_action_text), "%s", ui_tr(STR_ASR_TURN_LEFT));
+        s_action_text_is_cn = use_cn_text;
         s_action_text_letter_space = 0;
     } else if (strcmp(phrase, "youzhuanwan") == 0) {
-        snprintf(s_action_text, sizeof(s_action_text), "右转弯");
-        s_action_text_is_cn = true;
+        snprintf(s_action_text, sizeof(s_action_text), "%s", ui_tr(STR_ASR_TURN_RIGHT));
+        s_action_text_is_cn = use_cn_text;
         s_action_text_letter_space = 0;
     } else {
         apply_listening_view();
