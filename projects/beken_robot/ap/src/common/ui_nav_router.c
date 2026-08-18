@@ -9,7 +9,11 @@
 #include "ui_nav_router.h"
 
 #include "beken_ui.h"
+#include "demo/car_tracking.h"
 #include "event_runtime.h"
+#include "hand_gesture_detection.h"
+#include "palm_detection.h"
+#include "yoloface_detection.h"
 
 #include <common/bk_err.h>
 #include <common/bk_include.h>
@@ -218,6 +222,39 @@ static void nav_cli_print_help(void)
     BK_LOGI(NAV_CLI_TAG, "         asr music volume robot_video\n");
 }
 
+static bool nav_cli_exit_overlay_if_active(void)
+{
+    if (yoloface_solution_ui_is_active()) {
+        return false;
+    }
+
+    if (palm_detection_is_active()) {
+        BK_LOGI(NAV_CLI_TAG, "exit palm tracking overlay\n");
+        (void)palm_detection_exit_to_menu();
+        return true;
+    }
+
+    if (yoloface_detection_is_active()) {
+        BK_LOGI(NAV_CLI_TAG, "exit yoloface detection overlay\n");
+        (void)yoloface_detection_exit_to_menu();
+        return true;
+    }
+
+    if (hand_gesture_detection_is_active()) {
+        BK_LOGI(NAV_CLI_TAG, "exit hand gesture overlay\n");
+        (void)hand_gesture_detection_exit_to_menu();
+        return true;
+    }
+
+    if (car_detection_is_active()) {
+        BK_LOGI(NAV_CLI_TAG, "exit car tracking overlay\n");
+        (void)car_detection_exit_to_menu();
+        return true;
+    }
+
+    return false;
+}
+
 static int nav_cli_active_page_id(lv_obj_t *active)
 {
     bk_lv_ui_t *ui = &bk_lv_tool_ui;
@@ -311,6 +348,9 @@ static void nav_cli_cmd(char *pcWriteBuffer, int xWriteBufferLen,
         return;
     }
     if (os_strcmp(sub, "prev") == 0) {
+        if (nav_cli_exit_overlay_if_active()) {
+            return;
+        }
         BK_LOGI(NAV_CLI_TAG, "dispatch SCREEN_PREV\n");
         ui_nav_dispatch_event(UI_NAV_EVENT_SCREEN_PREV);
         return;
