@@ -25,6 +25,7 @@ typedef struct {
     bool active;
     bool stopping;
     bool suspended;
+    bool drop_next_camera_frame;
     bk_camera_lvgl_blend_config_t config;
     lv_camera_blend_async_handle_t async_handle;
     beken_mutex_t box_mutex;
@@ -260,10 +261,20 @@ bk_err_t bk_camera_lvgl_blend_push_camera_frame(void *frame, uint32_t frame_size
         return BK_ERR_PARAM;
     }
 
-    if (!s_blend.active || s_blend.stopping || s_blend.suspended ||
-        s_blend.async_handle == NULL) {
+    if (!s_blend.active || s_blend.stopping || s_blend.async_handle == NULL) {
         app_gpu_frame_free(frame);
-        return s_blend.suspended ? BK_OK : BK_FAIL;
+        return BK_FAIL;
+    }
+
+    if (s_blend.drop_next_camera_frame) {
+        s_blend.drop_next_camera_frame = false;
+        app_gpu_frame_free(frame);
+        return BK_OK;
+    }
+
+    if (s_blend.suspended) {
+        app_gpu_frame_free(frame);
+        return BK_OK;
     }
 
     lv_camera_blend_camera_frame_t camera = {
@@ -292,12 +303,7 @@ bk_err_t bk_camera_lvgl_blend_update_lvgl_frame(void *frame, int (*release_cb)(v
         return BK_FAIL;
     }
 
-    if (s_blend.suspended) {
-        if (release_cb != NULL) {
-            (void)release_cb(frame);
-        }
-        return BK_OK;
-    }
+    s_blend.drop_next_camera_frame = true;
 
     return lv_camera_blend_async_update_lvgl_frame(s_blend.async_handle,
                                                    frame,
