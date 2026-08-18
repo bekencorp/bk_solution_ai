@@ -14,8 +14,10 @@
 ## 硬件
 
 本方案硬件使用 BK7259 机器人开发套件。该套件集成了 BK7259 主控芯片、LCD 显示屏、MIPI CSI 摄像头、双麦阵列、扬声器，以及 ToF 距离感应、环境光、G-Sensor、NFC、LED、震动马达、按键、4G 模组、SD NAND 等机器人常用外设。
-[开发套件硬件资料](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/zh_CN/v4.0.1/hw-reference/index.html)
-[BK7259 Datasheet](https://docs.bekencorp.com/spec/BK7259/BK7259_Datasheet.pdf)
+
+- [开发套件硬件资料](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/zh_CN/v4.0.1/hw-reference/index.html)
+- [BK7259 Datasheet](https://docs.bekencorp.com/spec/BK7259/BK7259_Datasheet.pdf)
+
 开发套件购买链接：即将上架。
 
 ## 版本策略
@@ -46,7 +48,7 @@ Armino SMP SDK：
 
 GitHub 和 Gitee 可公开访问。GitLab 仅面向企业客户开放；企业客户如需访问，请联系对接的 FAE 或销售人员申请开通权限。
 
-**Windows 用户注意：**使用 Git for Windows 获取代码时，建议在克隆前关闭自动换行符转换，避免脚本或源文件被转换为 CRLF 而导致编译失败。Linux、macOS 和 WSL 环境无需执行。
+**Windows 用户注意**：使用 Git for Windows 获取代码时，建议在克隆前关闭自动换行符转换，避免脚本或源文件被转换为 CRLF 而导致编译失败。Linux、macOS 和 WSL 环境无需执行。
 
 ```bash
 git config --global core.autocrlf false
