@@ -29,9 +29,7 @@ CONFIG_BEKEN_KWS_SCRATCH_USE_PSRAM=y
 CONFIG_ADK=y
 CONFIG_ADK_USE_PSRAM=y
 CONFIG_ADK_AEC_V3_ALGORITHM=y
-# The Non-Secure AP linker maps .dtcm_noinit into the constrained AP SRAM;
-# allocate the 32 KB AEC scratch buffer dynamically from PSRAM instead.
-# CONFIG_ADK_AEC_V3_USE_DTCM is not set
+CONFIG_ADK_AEC_V3_USE_DTCM=y
 CONFIG_ADK_AEC_V3_ALGORITHM_COMPONENT_V2=y
 CONFIG_ADK_EQ_ALGORITHM=y
 CONFIG_ADK_G711_DECODER=y
@@ -244,8 +242,8 @@ CONFIG_SLAVE_HEART_BEAT=n
 # CONFIG_SUPPORT_WWDT is not set
 # CONFIG_SYSTICK_32K is not set
 
-# Align with secureboot_xip: L2 controller is not reachable for NS AP on the
-# cross-bus path; leaving it on hangs before UART and can trip CP WDT.
+# Keep NS AP away from the PL310 control window. The AP Secure Shim performs
+# a minimal read/write accessibility probe before entering Non-Secure state.
 # U9e: restore GENERAL_DMA so audio demos / ring_buffer can link and run.
 # CONFIG_L2_CACHE_ENABLE is not set
 CONFIG_GENERAL_DMA=y
