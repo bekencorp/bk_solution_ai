@@ -69,6 +69,7 @@ extern int msc_storage_deinit(void);
 
 #define USB_SW_LEVEL_USB   (CONFIG_BOARD_USB_SWITCH_USB_LEVEL ? 1 : 0)
 #define USB_SW_LEVEL_UART  (CONFIG_BOARD_USB_SWITCH_USB_LEVEL ? 0 : 1)
+#define USB_REENUMERATION_DELAY_MS 100u
 
 /* -----------------------------------------------------------------------
  *  Low-level GPIO helper: claim a free GPIO, disable pulls, drive a level.
@@ -425,25 +426,22 @@ static bk_err_t board_usb_msc_down(void) { return BK_OK; }
 
 bk_err_t board_usb_switch_to_uart(void)
 {
-    /* ONLY flip the FSW3157A mux back to CH340. We deliberately KEEP the USB
-     * device MSC stack initialised.
-     *
-     * Flipping the mux already tears D+/D- away from the host, so the PC sees
-     * a clean unplug on its own -- we do not need msc_storage_deinit() for
-     * that. Crucially, keeping the controller up means the next USB->on switch
-     * is a plain hot-replug (mux flip only), NOT a usbd_deinitialize() +
-     * usbd_initialize() cycle. That repeated re-init is exactly what hung the
-     * second UART->USB switch on BK7259 and left the PC with no drive.
-     *
-     * MSC is torn down only on demand by board_usb_switch_prepare_nand_access()
-     * when the AP itself needs the SD-NAND through FatFs. */
-    bk_err_t err = board_drive_gpio(CONFIG_BOARD_USB_SWITCH_GPIO,
-                                    USB_SW_LEVEL_UART);
+    /* Disconnect the active gadget before selecting the already-powered CH340.
+     * The mux break time alone is too short for a host to detect an unplug. */
+    int msc_was_initialized = s_usb_msc_initialized;
+    bk_err_t err = board_usb_msc_down();
+    if (err != BK_OK) {
+        return err;
+    }
+    if (msc_was_initialized) {
+        rtos_delay_milliseconds(USB_REENUMERATION_DELAY_MS);
+    }
+
+    err = board_drive_gpio(CONFIG_BOARD_USB_SWITCH_GPIO, USB_SW_LEVEL_UART);
     if (err == BK_OK) {
         s_usb_sw_in_usb_mode = 0;
-        LOGI("USB-switch: Type-C -> CH340 UART (GPIO_%d = %u)%s\n",
-             CONFIG_BOARD_USB_SWITCH_GPIO, USB_SW_LEVEL_UART,
-             s_usb_msc_initialized ? " [MSC kept up for fast re-plug]" : "");
+        LOGI("USB-switch: Type-C -> CH340 UART (GPIO_%d = %u)\n",
+             CONFIG_BOARD_USB_SWITCH_GPIO, USB_SW_LEVEL_UART);
     }
     return err;
 }
@@ -456,10 +454,8 @@ int board_usb_switch_in_usb_mode(void)
 bk_err_t board_usb_switch_prepare_nand_access(void)
 {
     /* The AP-side FatFS cannot grab the SD-NAND while the CherryUSB MSC
-     * layer holds the SDIO. Flip the mux back to CH340 (if needed) AND tear
-     * MSC down so a subsequent f_mount on drive 1 works. Unlike the plain
-     * UART toggle, this path DOES deinit MSC on purpose; it is rare (CLI /
-     * AP file access) and the caller typically reboots afterwards. */
+     * layer holds the SDIO. Flip the mux back to CH340 (if needed) and tear
+     * MSC down so a subsequent f_mount on drive 1 works. */
     if (s_usb_sw_in_usb_mode) {
         bk_err_t err = board_drive_gpio(CONFIG_BOARD_USB_SWITCH_GPIO,
                                         USB_SW_LEVEL_UART);
@@ -476,15 +472,17 @@ bk_err_t board_usb_switch_to_usb(void)
 {
     board_sd_nand_power_on();
 
-    /* Flip the FSW3157A mux to BK7259 USB FIRST, then bring MSC up. This is
-     * the ordering that reliably enumerates on the first switch (running
-     * msc_storage_init() while the data lines were still on CH340, with no
-     * host present, hung the init). On a repeat switch MSC is already up --
-     * board_usb_switch_to_uart() keeps it alive -- so this call is then just
-     * the mux flip = a plain hot-replug, avoiding the fragile usbd re-init
-     * that used to hang and left the PC without a drive. */
-    bk_err_t err = board_drive_gpio(CONFIG_BOARD_USB_SWITCH_GPIO,
-                                    USB_SW_LEVEL_USB);
+    if (s_usb_sw_in_usb_mode) {
+        return board_usb_msc_up();
+    }
+
+    /* Select BK7259 while its pull-up is disabled, keep the bus detached long
+     * enough for the host to drop CH340, then start MSC and assert attach. */
+    bk_err_t err = board_usb_msc_down();
+    if (err != BK_OK) {
+        return err;
+    }
+    err = board_drive_gpio(CONFIG_BOARD_USB_SWITCH_GPIO, USB_SW_LEVEL_USB);
     if (err != BK_OK) {
         return err;
     }
@@ -494,14 +492,13 @@ bk_err_t board_usb_switch_to_usb(void)
     LOGW("CH340 UART path is now disconnected from the Type-C port.\n");
 
 #if BOARD_HAVE_USB_MSC
-    /* First switch: bring MSC up now (host already sees the flipped D+).
-     * Repeat switch: idempotent no-op because MSC was kept alive. */
-    (void)board_usb_msc_up();
+    rtos_delay_milliseconds(USB_REENUMERATION_DELAY_MS);
+    return board_usb_msc_up();
 #else
     LOGW("USB DEVICE / MSC not compiled in -> PC will see no U-disk.\n");
     LOGW("Enable CONFIG_USB_DEVICE=y + CONFIG_USBD_MSC=y in defconfig.\n");
-#endif
     return BK_OK;
+#endif
 }
 
 #if CONFIG_CLI
