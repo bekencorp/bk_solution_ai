@@ -34,13 +34,6 @@ bool robot_video_is_connected(void);
 void robot_video_register_connected_sink(void (*sink)(void));
 
 /**
- * @brief UI sink for the "video connecting..." notification, used when the
- *        App link drops. The page hook registers a function that resets the
- *        status label under the LVGL lock.
- */
-void robot_video_register_connecting_sink(void (*sink)(void));
-
-/**
  * @brief Called by robot_ctrl_service when the link comes up. Forwards
  *        to the UI hook (no-op if the page is not active).
  *
@@ -48,13 +41,6 @@ void robot_video_register_connecting_sink(void (*sink)(void));
  * existing call sites (e.g. robot_ctrl_service) compiling.
  */
 void page_11_set_video_connected(void);
-
-/**
- * @brief Called by robot_ctrl_service when the App link drops. Forwards to
- *        the UI hook to reset the status label back to "video connecting..."
- *        (no-op if the page is not active).
- */
-void page_11_set_video_connecting(void);
 
 extern const bk_demo_iface_t g_demo_robot_video;
 
