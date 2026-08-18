@@ -506,8 +506,6 @@ static int cam_prev_sdnand_mount(void)
         LOGE("sdnand: board_sd_nand_power_on FAILED\n");
         return -1;
     }
-    LOGI("sdnand: power ON done, settle %u ms\n",
-         (unsigned)PHOTO_SDNAND_POWER_SETTLE_MS);
     rtos_delay_milliseconds(PHOTO_SDNAND_POWER_SETTLE_MS);
 
     FATFS *fs = (FATFS *)os_malloc(sizeof(FATFS));
@@ -515,11 +513,8 @@ static int cam_prev_sdnand_mount(void)
         LOGE("sdnand: FATFS alloc FAILED\n");
         goto err_poweroff;
     }
-    LOGI("sdnand: FATFS alloc OK, calling f_mount(\"%s\") ...\n",
-         PHOTO_SDNAND_DRIVE_PATH);
 
     FRESULT fr = f_mount(fs, PHOTO_SDNAND_DRIVE_PATH, 1);
-    LOGI("sdnand: f_mount returned fr=%d\n", (int)fr);
     if (fr == FR_NO_FILESYSTEM) {
         LOGW("sdnand: FR_NO_FILESYSTEM -> running f_mkfs ...\n");
         uint8_t *mkfs_buf = (uint8_t *)os_malloc(PHOTO_SDNAND_MKFS_BUF_SIZE);

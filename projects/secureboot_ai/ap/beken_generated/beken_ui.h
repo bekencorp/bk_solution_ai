@@ -171,6 +171,7 @@ void destroy_page_page_10(bk_lv_ui_t *bk_ui);
 void init_page_page_11(bk_lv_ui_t *bk_ui);
 void destroy_page_page_11(bk_lv_ui_t *bk_ui);
 void page_11_set_video_connected(void);
+void page_11_set_video_connecting(void);
 
 /* declare image */
 LV_IMAGE_DECLARE(beken_logo_blue_321x147_RGB565A8_NONE);

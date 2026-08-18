@@ -111,7 +111,10 @@ static void page_vision_preview_sink(const uint8_t *rgb565,
 
 static void page_vision_preview_try_start(void)
 {
-    if (!s_active || !video_engine_is_running()) {
+    /* Use preview_ready (not is_running): during stop/deinit is_started can
+     * stay true for seconds while H.264/camera close runs; starting preview
+     * against that dying engine caused MemFault. */
+    if (!s_active || !video_engine_is_preview_ready()) {
         return;
     }
 

@@ -37,6 +37,10 @@ static const char *const s_tr[STR_ID_COUNT][UI_LANG_COUNT] = {
     [STR_ASR_RECOGNIZED]   = { "已识别",                "Recognized" },
     [STR_ASR_HELLO]        = { "你好博通",              "Hello Beken" },
     [STR_ASR_BYE]          = { "再见博通",              "Bye Beken" },
+    [STR_ASR_FORWARD]      = { "前进",                  "Forward" },
+    [STR_ASR_BACK]         = { "后退",                  "Back" },
+    [STR_ASR_TURN_LEFT]    = { "左转弯",                "Turn Left" },
+    [STR_ASR_TURN_RIGHT]   = { "右转弯",                "Turn Right" },
 
     [STR_VOLUME_TITLE]     = { "音量",                  "Volume" },
 

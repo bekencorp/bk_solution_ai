@@ -394,9 +394,15 @@ int main(void)
 
         (void)board_usb_switch_init();
 
-        /* SD-NAND debug mount skipped: bk_sdio_host_init currently hangs on
-         * this board (SPE). Re-enable camera_preview_sdnand_debug_init() when
-         * SDIO host path is fixed. Production: CONFIG_CAM_PREVIEW_SDNAND_DEBUG=0. */
+        /* Debug-only: power on SD-NAND and mount the FATFS volume once
+         * for the whole app lifetime. Each camera_preview_take_photo()
+         * then persists its HW-encoded JPEG with just mkdir + write
+         * (no per-shot power_on / SDIO enum / FAT scan tax). The
+         * matching unmount + power_off is intentionally omitted -- see
+         * camera_preview_sdnand_debug_init() doc for the LCD-blacks-out
+         * regression that drove this decision. Toggle off in defconfig
+         * (CONFIG_CAM_PREVIEW_SDNAND_DEBUG=0) for production builds. */
+        (void)camera_preview_sdnand_debug_init();
 
     #if CONFIG_BK_SMART_CONFIG
         bk_sconf_init();
