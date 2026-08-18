@@ -21,6 +21,7 @@
 #include "demo/demo_catalog.h"
 #include "demo/yoloface_tracking.h"
 #include "page_hooks.h"
+#include "ui_i18n.h"
 #include "ui_nav_router.h"
 
 #if CONFIG_APP_EVT
@@ -91,6 +92,7 @@ static int s_reset_worker_rc;
 static char s_solution_status_pending[64];
 static volatile uint32_t s_solution_status_seq;
 static volatile uint32_t s_solution_status_clear_seq;
+static ui_lang_t s_archive_lang = UI_LANG_COUNT;
 #if CONFIG_APP_EVT
 static bool s_face_prompt_last_valid;
 static app_evt_type_t s_face_prompt_last_event;
@@ -103,11 +105,99 @@ static void archive_row_click_cb(lv_event_t *e);
 static void solution_status_apply_async(void *arg);
 static void solution_status_clear_async(void *arg);
 
-static const char *const s_solution_btn_titles[4] = {
-    "录入",
-    "验证",
-    "查询",
-    "重置",
+typedef enum {
+    SOL_STR_ENROLL = 0,
+    SOL_STR_VERIFY,
+    SOL_STR_QUERY,
+    SOL_STR_RESET,
+    SOL_STR_ARCHIVE_TITLE,
+    SOL_STR_ARCHIVE_DELETE,
+    SOL_STR_ARCHIVE_RETURN,
+    SOL_STR_ARCHIVE_EMPTY,
+    SOL_STR_ARCHIVE_STATS_FMT,
+    SOL_STR_ARCHIVE_ROW_FMT,
+    SOL_STR_QUERY_FAILED,
+    SOL_STR_DELETE_SUCCESS,
+    SOL_STR_DELETE_FAILED,
+    SOL_STR_BUSY,
+    SOL_STR_QUERY_THREAD_FAILED,
+    SOL_STR_NO_DELETABLE_PROFILE,
+    SOL_STR_DELETING,
+    SOL_STR_DB_CLEARED,
+    SOL_STR_BUSY_WAIT,
+    SOL_STR_CLEAR_FAILED,
+    SOL_STR_CLEAR_THREAD_FAILED,
+    SOL_STR_CLEAR_CONFIRM,
+    SOL_STR_CLEARING,
+    SOL_STR_NO_FACE,
+    SOL_STR_ENROLL_FAILED_RETRY,
+    SOL_STR_VERIFYING,
+    SOL_STR_VERIFY_FAILED_RETRY,
+    SOL_STR_QUERYING,
+    SOL_STR_CAMERA_PREVIEW,
+    SOL_STR_KEEP_FRONTAL,
+    SOL_STR_VERIFY_PASSED,
+    SOL_STR_VERIFY_FAILED,
+    SOL_STR_ENROLL_COMPLETE_FMT,
+    SOL_STR_ENROLL_SUCCESS_CONTINUE_FMT,
+    SOL_STR_SAVING,
+    SOL_STR_STORAGE_THREAD_NOT_READY,
+    SOL_STR_STORAGE_NOT_READY,
+    SOL_STR_ENROLLING,
+    SOL_STR_ENROLL_CANCELED,
+    SOL_STR_COUNT,
+} solution_str_id_t;
+
+static const char *const s_solution_tr[SOL_STR_COUNT][UI_LANG_COUNT] = {
+    [SOL_STR_ENROLL] = { "录入", "Enroll" },
+    [SOL_STR_VERIFY] = { "验证", "Verify" },
+    [SOL_STR_QUERY] = { "查询", "Query" },
+    [SOL_STR_RESET] = { "重置", "Reset" },
+    [SOL_STR_ARCHIVE_TITLE] = { "人脸档案", "Face Archive" },
+    [SOL_STR_ARCHIVE_DELETE] = { "删除", "Delete" },
+    [SOL_STR_ARCHIVE_RETURN] = { "返回", "Back" },
+    [SOL_STR_ARCHIVE_EMPTY] = { "暂无人脸档案", "No face profiles" },
+    [SOL_STR_ARCHIVE_STATS_FMT] = { "档案:%u 样本:%u 图片:%u",
+                                    "Profiles:%u Samples:%u Images:%u" },
+    [SOL_STR_ARCHIVE_ROW_FMT] = { "%sface_%04u  样本:%u",
+                                  "%sface_%04u  Samples:%u" },
+    [SOL_STR_QUERY_FAILED] = { "查询失败", "Query failed" },
+    [SOL_STR_DELETE_SUCCESS] = { "删除成功", "Delete success" },
+    [SOL_STR_DELETE_FAILED] = { "删除失败", "Delete failed" },
+    [SOL_STR_BUSY] = { "操作中", "Busy" },
+    [SOL_STR_QUERY_THREAD_FAILED] = { "查询线程失败", "Query thread failed" },
+    [SOL_STR_NO_DELETABLE_PROFILE] = { "暂无可删除档案", "No deletable profile" },
+    [SOL_STR_DELETING] = { "删除中", "Deleting" },
+    [SOL_STR_DB_CLEARED] = { "人脸库已清空", "Face DB cleared" },
+    [SOL_STR_BUSY_WAIT] = { "操作中,  请稍后", "Busy, please wait" },
+    [SOL_STR_CLEAR_FAILED] = { "清空失败,  请检查存储", "Clear failed, check storage" },
+    [SOL_STR_CLEAR_THREAD_FAILED] = { "清空线程失败", "Clear thread failed" },
+    [SOL_STR_CLEAR_CONFIRM] = { "再次点击清空人脸库", "Tap again to clear Face DB" },
+    [SOL_STR_CLEARING] = { "清空中", "Clearing" },
+    [SOL_STR_NO_FACE] = { "未检测到人脸", "No face detected" },
+    [SOL_STR_ENROLL_FAILED_RETRY] = { "录入失败,  请重新录入", "Enroll failed, retry" },
+    [SOL_STR_VERIFYING] = { "验证中", "Verifying" },
+    [SOL_STR_VERIFY_FAILED_RETRY] = { "验证失败,  请重试", "Verify failed, retry" },
+    [SOL_STR_QUERYING] = { "查询中", "Querying" },
+    [SOL_STR_CAMERA_PREVIEW] = { "摄像头预览", "Camera preview" },
+    [SOL_STR_KEEP_FRONTAL] = { "请保持正脸", "Keep face frontal" },
+    [SOL_STR_VERIFY_PASSED] = { "验证通过", "Verify passed" },
+    [SOL_STR_VERIFY_FAILED] = { "验证失败", "Verify failed" },
+    [SOL_STR_ENROLL_COMPLETE_FMT] = { "录入完成 %u/%u", "Enroll complete %u/%u" },
+    [SOL_STR_ENROLL_SUCCESS_CONTINUE_FMT] = { "录入成功 %u/%u,  请继续录入",
+                                              "Enroll success %u/%u, continue" },
+    [SOL_STR_SAVING] = { "保存中", "Saving" },
+    [SOL_STR_STORAGE_THREAD_NOT_READY] = { "存储线程未就绪", "Storage thread not ready" },
+    [SOL_STR_STORAGE_NOT_READY] = { "存储未就绪", "Storage not ready" },
+    [SOL_STR_ENROLLING] = { "录入中", "Enrolling" },
+    [SOL_STR_ENROLL_CANCELED] = { "已取消录入", "Enroll canceled" },
+};
+
+static const solution_str_id_t s_solution_btn_title_ids[SOLUTION_BUTTON_COUNT] = {
+    SOL_STR_ENROLL,
+    SOL_STR_VERIFY,
+    SOL_STR_QUERY,
+    SOL_STR_RESET,
 };
 
 #if CONFIG_APP_EVT
@@ -176,13 +266,107 @@ static void face_prompt_play_for_text(const char *text)
 }
 #endif
 
+static const char *solution_tr(solution_str_id_t id)
+{
+    ui_lang_t lang = ui_i18n_get_lang();
+
+    if (id >= SOL_STR_COUNT || lang >= UI_LANG_COUNT) {
+        return "";
+    }
+    return s_solution_tr[id][lang];
+}
+
+static const char *solution_status_display_text(const char *text, char *buf, size_t buf_len)
+{
+    unsigned done;
+    unsigned total;
+
+    if (text == NULL || ui_i18n_get_lang() != UI_LANG_EN) {
+        return text;
+    }
+
+    if (strcmp(text, "暂无人脸档案") == 0) {
+        return solution_tr(SOL_STR_ARCHIVE_EMPTY);
+    } else if (strcmp(text, "查询失败") == 0) {
+        return solution_tr(SOL_STR_QUERY_FAILED);
+    } else if (strcmp(text, "删除成功") == 0) {
+        return solution_tr(SOL_STR_DELETE_SUCCESS);
+    } else if (strcmp(text, "删除失败") == 0) {
+        return solution_tr(SOL_STR_DELETE_FAILED);
+    } else if (strcmp(text, "操作中") == 0) {
+        return solution_tr(SOL_STR_BUSY);
+    } else if (strcmp(text, "查询线程失败") == 0) {
+        return solution_tr(SOL_STR_QUERY_THREAD_FAILED);
+    } else if (strcmp(text, "暂无可删除档案") == 0) {
+        return solution_tr(SOL_STR_NO_DELETABLE_PROFILE);
+    } else if (strcmp(text, "删除中") == 0) {
+        return solution_tr(SOL_STR_DELETING);
+    } else if (strcmp(text, "人脸库已清空") == 0) {
+        return solution_tr(SOL_STR_DB_CLEARED);
+    } else if (strcmp(text, "操作中,  请稍后") == 0) {
+        return solution_tr(SOL_STR_BUSY_WAIT);
+    } else if (strcmp(text, "清空失败,  请检查存储") == 0) {
+        return solution_tr(SOL_STR_CLEAR_FAILED);
+    } else if (strcmp(text, "清空线程失败") == 0) {
+        return solution_tr(SOL_STR_CLEAR_THREAD_FAILED);
+    } else if (strcmp(text, "再次点击清空人脸库") == 0) {
+        return solution_tr(SOL_STR_CLEAR_CONFIRM);
+    } else if (strcmp(text, "清空中") == 0) {
+        return solution_tr(SOL_STR_CLEARING);
+    } else if (strcmp(text, "未检测到人脸") == 0) {
+        return solution_tr(SOL_STR_NO_FACE);
+    } else if (strcmp(text, "录入失败,  请重新录入") == 0) {
+        return solution_tr(SOL_STR_ENROLL_FAILED_RETRY);
+    } else if (strcmp(text, "验证中") == 0) {
+        return solution_tr(SOL_STR_VERIFYING);
+    } else if (strcmp(text, "验证失败,  请重试") == 0) {
+        return solution_tr(SOL_STR_VERIFY_FAILED_RETRY);
+    } else if (strcmp(text, "查询中") == 0) {
+        return solution_tr(SOL_STR_QUERYING);
+    } else if (strcmp(text, "摄像头预览") == 0) {
+        return solution_tr(SOL_STR_CAMERA_PREVIEW);
+    } else if (strcmp(text, "请保持正脸") == 0) {
+        return solution_tr(SOL_STR_KEEP_FRONTAL);
+    } else if (strcmp(text, "验证通过") == 0) {
+        return solution_tr(SOL_STR_VERIFY_PASSED);
+    } else if (strcmp(text, "验证失败") == 0) {
+        return solution_tr(SOL_STR_VERIFY_FAILED);
+    } else if (strcmp(text, "请先录入") == 0) {
+        return "Enroll first";
+    } else if (strcmp(text, "保存中") == 0) {
+        return solution_tr(SOL_STR_SAVING);
+    } else if (strcmp(text, "存储线程未就绪") == 0) {
+        return solution_tr(SOL_STR_STORAGE_THREAD_NOT_READY);
+    } else if (strcmp(text, "存储未就绪") == 0) {
+        return solution_tr(SOL_STR_STORAGE_NOT_READY);
+    } else if (strcmp(text, "录入中") == 0) {
+        return solution_tr(SOL_STR_ENROLLING);
+    } else if (strcmp(text, "已取消录入") == 0) {
+        return solution_tr(SOL_STR_ENROLL_CANCELED);
+    }
+
+    if (sscanf(text, "录入完成 %u/%u", &done, &total) == 2) {
+        snprintf(buf, buf_len, solution_tr(SOL_STR_ENROLL_COMPLETE_FMT), done, total);
+        return buf;
+    }
+    if (sscanf(text, "录入成功 %u/%u,  请继续录入", &done, &total) == 2) {
+        snprintf(buf, buf_len, solution_tr(SOL_STR_ENROLL_SUCCESS_CONTINUE_FMT),
+                 done, total);
+        return buf;
+    }
+
+    return text;
+}
+
 static void set_status_label_text(lv_obj_t *label, const char *text)
 {
+    char buf[64];
+
     if (label == NULL || text == NULL || !lv_obj_is_valid(label)) {
         return;
     }
 
-    lv_label_set_text(label, text);
+    lv_label_set_text(label, solution_status_display_text(text, buf, sizeof(buf)));
     face_prompt_play_for_text(text);
 }
 
@@ -313,11 +497,11 @@ static void archive_refresh_view(void)
         if (s_archive_info.profile_count == 0) {
             set_status_label_text(s_archive_status_label, "暂无人脸档案");
         } else {
-            snprintf(text, sizeof(text), "档案:%u 样本:%u 图片:%u",
+            snprintf(text, sizeof(text), solution_tr(SOL_STR_ARCHIVE_STATS_FMT),
                      (unsigned)s_archive_info.profile_count,
                      (unsigned)s_archive_info.total_features,
                      (unsigned)s_archive_info.total_ppm);
-            set_status_label_text(s_archive_status_label, text);
+            lv_label_set_text(s_archive_status_label, text);
         }
     }
 
@@ -332,7 +516,7 @@ static void archive_refresh_view(void)
         }
         lv_obj_clear_flag(s_archive_rows[i], LV_OBJ_FLAG_HIDDEN);
         yoloface_archive_item_t *item = &s_archive_info.items[i];
-        snprintf(text, sizeof(text), "%sface_%04u  样本:%u",
+        snprintf(text, sizeof(text), solution_tr(SOL_STR_ARCHIVE_ROW_FMT),
                  i == s_archive_selected ? "> " : "  ",
                  (unsigned)item->profile_id,
                  (unsigned)item->feature_count);
@@ -906,6 +1090,20 @@ int page_edge_ai_archive_enter(void)
     s_archive_active = true;
     memset(&s_archive_info, 0, sizeof(s_archive_info));
 
+    if (s_archive_screen != NULL && lv_obj_is_valid(s_archive_screen) &&
+        s_archive_lang != ui_i18n_get_lang()) {
+        ui_nav_unregister_screen(s_archive_screen);
+        lv_obj_del(s_archive_screen);
+        s_archive_screen = NULL;
+        s_archive_status_label = NULL;
+        s_archive_panel = NULL;
+        s_archive_delete_btn = NULL;
+        s_archive_return_btn = NULL;
+        for (uint32_t i = 0; i < YOLOFACE_ARCHIVE_MAX_ITEMS; i++) {
+            s_archive_rows[i] = NULL;
+        }
+    }
+
     if (s_archive_screen != NULL && lv_obj_is_valid(s_archive_screen)) {
         ui_nav_unregister_screen(s_archive_screen);
         archive_clear_rows();
@@ -924,15 +1122,18 @@ int page_edge_ai_archive_enter(void)
         return 0;
     }
 
+    s_archive_lang = ui_i18n_get_lang();
     s_archive_screen = lv_obj_create(NULL);
     lv_obj_set_size(s_archive_screen, SOL_SCREEN_W, SOL_SCREEN_H);
     lv_obj_set_scrollbar_mode(s_archive_screen, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_style_bg_color(s_archive_screen, lv_color_hex(0x050910), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(s_archive_screen, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    (void)create_label(s_archive_screen, "人脸档案", 20, 14, 180, 28,
+    (void)create_label(s_archive_screen, solution_tr(SOL_STR_ARCHIVE_TITLE),
+                       20, 14, 180, 28,
                        &lv_font_ali_25, 0xffffff);
-    s_archive_status_label = create_label(s_archive_screen, "查询中", 20, 48, 340, 24,
+    s_archive_status_label = create_label(s_archive_screen, solution_tr(SOL_STR_QUERYING),
+                                          20, 48, 340, 24,
                                           &lv_font_ali_16, 0x32d5ff);
 
     s_archive_panel = lv_obj_create(s_archive_screen);
@@ -944,11 +1145,13 @@ int page_edge_ai_archive_enter(void)
     lv_obj_set_style_bg_opa(s_archive_panel, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_bottom(s_archive_panel, ARCH_ROW_GAP, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    s_archive_delete_btn = create_solution_button(s_archive_screen, "删除",
+    s_archive_delete_btn = create_solution_button(s_archive_screen,
+                                                  solution_tr(SOL_STR_ARCHIVE_DELETE),
                                                   286, 104, 78, 40);
     lv_obj_add_event_cb(s_archive_delete_btn, archive_delete_click_cb, LV_EVENT_CLICKED, NULL);
 
-    s_archive_return_btn = create_solution_button(s_archive_screen, "返回",
+    s_archive_return_btn = create_solution_button(s_archive_screen,
+                                                  solution_tr(SOL_STR_ARCHIVE_RETURN),
                                                   286, 166, 78, 40);
     lv_obj_add_event_cb(s_archive_return_btn, archive_return_click_cb, LV_EVENT_CLICKED, NULL);
 
@@ -997,7 +1200,7 @@ int page_edge_ai_solution_enter(void)
     lv_obj_set_style_bg_opa(preview, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(preview, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_solution_status_label = create_label(cam_panel, "摄像头预览",
+    s_solution_status_label = create_label(cam_panel, solution_tr(SOL_STR_CAMERA_PREVIEW),
                                            SOL_CAMERA_BORDER_W,
                                            SOL_CAMERA_BORDER_W + SOL_CAMERA_VIEW_H,
                                            SOL_CAMERA_VIEW_W, SOL_TEXT_H,
@@ -1018,7 +1221,8 @@ int page_edge_ai_solution_enter(void)
 
     for (int i = 0; i < 4; i++) {
         int y = SOL_BUTTON_Y0 + i * (SOL_BUTTON_H + SOL_BUTTON_GAP);
-        lv_obj_t *btn = create_solution_button(s_solution_screen, s_solution_btn_titles[i],
+        lv_obj_t *btn = create_solution_button(s_solution_screen,
+                                               solution_tr(s_solution_btn_title_ids[i]),
                                                SOL_BUTTON_X, y,
                                                SOL_BUTTON_W, SOL_BUTTON_H);
         s_solution_buttons[i] = btn;
