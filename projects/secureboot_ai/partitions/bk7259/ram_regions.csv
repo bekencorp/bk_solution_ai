@@ -1,0 +1,38 @@
+# please read doc: https://docs.bekencorp.com/arminodoc/bk_idk/bk7258/zh_CN/v2.0.2/developer-guide/config_tools/bk_config_ram_regions.html
+# SRAM base addr is 0x28000000, capacity is 1280K
+# PSRAM base addr is 0x60000000
+#
+# AP_PSRAM_HEAP sizing note (2026-05):
+#   The Agora RTSA RTM image-upload first-send path performs a one-shot
+#   internal allocation of ~312 KB (aosl_malloc 319296) for its TLS /
+#   session context. Combined with the SDK's long-lived RTC + RTM state
+#   (~600-700 KB peak observed via memshow), the default 0xE6000 (920 KB)
+#   AP_PSRAM_HEAP could not satisfy that 312 KB transient and the SDK
+#   aborts on OOM (aosl_malloc_impl in agora-iot-sdk/hal/aosl/mm/mm.c
+#   has no graceful fallback). We grow AP_PSRAM_HEAP by +0x80000 (512 KB)
+#   to 0x166000 (1.4 MB) and shrink the PSRAM_MEM_SLAB_CODED slab by the
+#   same amount. Reserve another 0x1000 (4 KB) from
+#   AP_PSRAM_CODE_SECTION for AP_PSRAM_NOCACHE_HEAP while keeping the
+#   enlarged AP heap and CODED slab unchanged.
+#   The CODED slab currently only hosts the LVGL primary
+#   framebuffer (~560 KB) plus minor on-demand H.264 encoder / NN tensor
+#   buffers, with the bulk of its 13 MB idle, so giving 512 KB back is
+#   safe headroom-wise. Revisit when adding heavy NN models or a second
+#   H.264 stream that pushes CODED peak past ~11 MB.
+# Secure world reserves the first 4 KB of smem3 for the AP boot shim. AP-owned
+# SRAM/PSRAM regions use their Non-Secure aliases (0x38/0x74).
+#Name,                   Type,     Offset,     Size
+CP_SPE_RAM,              SECURE, 0x28000000, 0x014000
+AP_SPE_RAM,              SECURE, 0x28100000, 0x001000
+CP_RAM,                  SRAM, 0x28000000, 0x05F000
+SWAP,                    SRAM,           , 0x001000
+AP_HSRAM_HEAP,           SRAM, 0x38101000, 0x07F000
+AP_RAM,                  SRAM,           , 0x060000
+# SPE: AP NS must use Non-Secure PSRAM aliases (0x70/0x74), not 0x60/0x64.
+PSRAM_MEM_SLAB_UNCODED, PSRAM, 0x70000000, 0x1000000
+PSRAM_MEM_SLAB_CODED,   PSRAM, 0x74000000, 0xC27000
+CP_PSRAM_HEAP,          PSRAM,           , 0x010000
+AP_PSRAM_NOCACHE_HEAP,  PSRAM, 0x74C37000, 0x001000
+AP_PSRAM_DATA_SECTION,  PSRAM,           , 0x017C00
+AP_PSRAM_HEAP,          PSRAM,           , 0x166000
+AP_PSRAM_CODE_SECTION,  PSRAM,           , 0x26A800

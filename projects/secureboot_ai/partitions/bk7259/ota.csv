@@ -1,0 +1,5 @@
+Field,Value
+strategy,XIP_FORCE_A
+app_security_counter,3
+encrypt,TRUE
+app_version,0.0.3
