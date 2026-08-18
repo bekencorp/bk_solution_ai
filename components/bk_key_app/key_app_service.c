@@ -74,6 +74,148 @@ static void ai_agent_config(void)
 static KeyConfig_t key_config[] = KEY_DEFAULT_CONFIG_TABLE;
 #endif
 
+static void handle_system_event(uint8_t event);
+
+#if CONFIG_ROBOT_V2_ADC_KEYS
+typedef struct {
+    const char *name;
+    uint8_t short_event;
+    uint8_t long_event;
+} robot_adc_key_context_t;
+
+typedef struct {
+    adc_key_id_t key_id;
+    gpio_id_t gpio_id;
+    adc_chan_t adc_chan;
+    uint16_t voltage_low_mv;
+    uint16_t voltage_high_mv;
+    robot_adc_key_context_t context;
+} robot_adc_key_config_t;
+
+static const robot_adc_key_config_t s_robot_adc_keys[] = {
+    {
+        .key_id = 2U,
+        .gpio_id = (gpio_id_t)CONFIG_ROBOT_KEY1_ADC_GPIO,
+        .adc_chan = (adc_chan_t)CONFIG_ROBOT_KEY1_ADC_CHAN,
+        .voltage_low_mv = CONFIG_ROBOT_KEY_S2_VOLTAGE_LOW,
+        .voltage_high_mv = CONFIG_ROBOT_KEY_S2_VOLTAGE_HIGH,
+        .context = {
+            .name = "S2",
+            .short_event = ROBOT_ADC_KEY_S2_SHORT,
+            .long_event = ROBOT_ADC_KEY_S2_LONG,
+        },
+    },
+    {
+        .key_id = 3U,
+        .gpio_id = (gpio_id_t)CONFIG_ROBOT_KEY1_ADC_GPIO,
+        .adc_chan = (adc_chan_t)CONFIG_ROBOT_KEY1_ADC_CHAN,
+        .voltage_low_mv = CONFIG_ROBOT_KEY_S3_VOLTAGE_LOW,
+        .voltage_high_mv = CONFIG_ROBOT_KEY_S3_VOLTAGE_HIGH,
+        .context = {
+            .name = "S3",
+            .short_event = ROBOT_ADC_KEY_S3_SHORT,
+            .long_event = ROBOT_ADC_KEY_S3_LONG,
+        },
+    },
+    {
+        .key_id = 4U,
+        .gpio_id = (gpio_id_t)CONFIG_ROBOT_KEY2_ADC_GPIO,
+        .adc_chan = (adc_chan_t)CONFIG_ROBOT_KEY2_ADC_CHAN,
+        .voltage_low_mv = CONFIG_ROBOT_KEY_S4_VOLTAGE_LOW,
+        .voltage_high_mv = CONFIG_ROBOT_KEY_S4_VOLTAGE_HIGH,
+        .context = {
+            .name = "S4",
+            .short_event = ROBOT_ADC_KEY_S4_SHORT,
+            .long_event = ROBOT_ADC_KEY_S4_LONG,
+        },
+    },
+    {
+        .key_id = 5U,
+        .gpio_id = (gpio_id_t)CONFIG_ROBOT_KEY2_ADC_GPIO,
+        .adc_chan = (adc_chan_t)CONFIG_ROBOT_KEY2_ADC_CHAN,
+        .voltage_low_mv = CONFIG_ROBOT_KEY_S5_VOLTAGE_LOW,
+        .voltage_high_mv = CONFIG_ROBOT_KEY_S5_VOLTAGE_HIGH,
+        .context = {
+            .name = "S5",
+            .short_event = ROBOT_ADC_KEY_S5_SHORT,
+            .long_event = ROBOT_ADC_KEY_S5_LONG,
+        },
+    },
+};
+
+static adc_key_handle_t s_robot_adc_key_handles[
+    sizeof(s_robot_adc_keys) / sizeof(s_robot_adc_keys[0])];
+
+static void robot_adc_key_short_cb(void *user_data)
+{
+    const robot_adc_key_context_t *context =
+        (const robot_adc_key_context_t *)user_data;
+    LOGI("ADC KEY %s short press\r\n", context->name);
+    handle_system_event(context->short_event);
+}
+
+static void robot_adc_key_long_cb(void *user_data)
+{
+    const robot_adc_key_context_t *context =
+        (const robot_adc_key_context_t *)user_data;
+    LOGI("ADC KEY %s long press\r\n", context->name);
+    handle_system_event(context->long_event);
+}
+
+static bk_err_t robot_adc_keys_init(void)
+{
+    adc_key_driver_config_t driver_config = {
+        .size = sizeof(adc_key_driver_config_t),
+        .version = ADC_KEY_CONFIG_VERSION,
+        .sample_period_ms = CONFIG_ADC_KEY_SAMPLE_PERIOD_MS,
+        .max_channels = 2U,
+        .max_items = (uint8_t)(sizeof(s_robot_adc_keys) /
+                               sizeof(s_robot_adc_keys[0])),
+    };
+    bk_err_t ret = bk_adc_key_init_ex(&driver_config);
+
+    if (ret != BK_OK) {
+        LOGE("ADC key manager init failed: %d\r\n", ret);
+        return ret;
+    }
+
+    for (uint8_t i = 0U;
+         i < (sizeof(s_robot_adc_keys) / sizeof(s_robot_adc_keys[0]));
+         i++) {
+        const robot_adc_key_config_t *key = &s_robot_adc_keys[i];
+        adc_key_item_config_ex_t item_config = {
+            .size = sizeof(adc_key_item_config_ex_t),
+            .version = ADC_KEY_CONFIG_VERSION,
+            .key_id = key->key_id,
+            .gpio_id = key->gpio_id,
+            .adc_chan = key->adc_chan,
+            .lowest_level = key->voltage_low_mv,
+            .highest_level = key->voltage_high_mv,
+            .short_press_cb = robot_adc_key_short_cb,
+            .double_press_cb = NULL,
+            .long_press_cb = robot_adc_key_long_cb,
+            .hold_press_cb = NULL,
+            .user_data = (void *)&key->context,
+        };
+
+        ret = bk_adc_key_item_configure_ex(
+            &item_config, &s_robot_adc_key_handles[i]);
+        if (ret != BK_OK) {
+            LOGE("ADC key %s register failed: %d\r\n",
+                 key->context.name, ret);
+            (void)bk_adc_key_deinit_ex();
+            return ret;
+        }
+        LOGI("ADC key %s: gpio=%d chan=%d range=%d~%dmV\r\n",
+             key->context.name, key->gpio_id, key->adc_chan,
+             key->voltage_low_mv, key->voltage_high_mv);
+    }
+
+    LOGI("Robot V2 ADC keys initialized: 2 channels, 4 keys\r\n");
+    return BK_OK;
+}
+#endif
+
 /*Do not execute blocking or time-consuming long code in event handler
  functions. The reason is that key_thread processes messages in a
  single task in sequence. If a handler function blocks or takes too
@@ -145,6 +287,21 @@ static void handle_system_event(uint8_t event)
             break;
 #endif
 #if CONFIG_ADC_KEY
+#if CONFIG_ROBOT_V2_ADC_KEYS
+        case ROBOT_ADC_KEY_S2_SHORT:
+        case ROBOT_ADC_KEY_S2_LONG:
+        case ROBOT_ADC_KEY_S3_SHORT:
+        case ROBOT_ADC_KEY_S3_LONG:
+        case ROBOT_ADC_KEY_S4_SHORT:
+        case ROBOT_ADC_KEY_S4_LONG:
+        case ROBOT_ADC_KEY_S5_SHORT:
+        case ROBOT_ADC_KEY_S5_LONG:
+            LOGI("Robot V2 ADC key event: %u\r\n", event);
+#if CONFIG_LVGL
+            bk_key_app_notify_ui_nav(event);
+#endif
+            break;
+#else
         case ADC_KEY_S4_SHORT:
             LOGI("ADC_KEY_S4_SHORT\r\n");
 #if CONFIG_LVGL
@@ -200,6 +357,7 @@ static void handle_system_event(uint8_t event)
 #endif
             break;
 #endif
+#endif
         default:
             break;
     }
@@ -230,7 +388,11 @@ void bk_key_register_wakeup_source(void)
 void bk_key_service_init(void)
 {
 #if CONFIG_ADC_KEY
+#if CONFIG_ROBOT_V2_ADC_KEYS
+    (void)robot_adc_keys_init();
+#else
     bk_all_keys_init(handle_system_event);
+#endif
 #else
     bk_key_register_event_handler(handle_system_event);
     bk_key_driver_init(key_config, sizeof(key_config) / sizeof(KeyConfig_t));

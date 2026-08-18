@@ -8,6 +8,19 @@ extern "C" {
 #include <key_main.h>
 #include <key_adapter.h>
 
+#if CONFIG_ROBOT_V2_ADC_KEYS
+typedef enum {
+    ROBOT_ADC_KEY_S2_SHORT = USER_EVENT_START,
+    ROBOT_ADC_KEY_S2_LONG,
+    ROBOT_ADC_KEY_S3_SHORT,
+    ROBOT_ADC_KEY_S3_LONG,
+    ROBOT_ADC_KEY_S4_SHORT,
+    ROBOT_ADC_KEY_S4_LONG,
+    ROBOT_ADC_KEY_S5_SHORT,
+    ROBOT_ADC_KEY_S5_LONG,
+} robot_adc_key_event_t;
+#endif
+
 
 void bk_key_register_wakeup_source(void);
 
