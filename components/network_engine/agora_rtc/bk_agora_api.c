@@ -749,6 +749,19 @@ bk_err_t bk_agora_rtc_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len
     }
     return BK_OK;
 }
+
+bk_err_t bk_agora_rtc_interrupt_agent(void)
+{
+    char peer_uid[AGORA_RTC_USER_ACCOUNT_MAX_LEN] = {0};
+
+    if (os_strlen(channel_name) == 0) {
+        LOGE("interrupt_agent: channel not set, RTC not joined?\r\n");
+        return BK_FAIL;
+    }
+
+    os_snprintf(peer_uid, sizeof(peer_uid), "a_%s", channel_name);
+    return bk_agora_rtm_interrupt(peer_uid);
+}
 #endif /* CONFIG_AGORA_RTC_USE_STRING_UID */
 
 /* Default file path on the auto-mounted SD-NAND volume for

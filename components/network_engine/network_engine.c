@@ -569,6 +569,16 @@ int ntwk_eng_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
 #endif
 }
 
+int ntwk_eng_interrupt_agent(void)
+{
+#if CONFIG_AGORA_IOT_SDK && CONFIG_AGORA_RTC_USE_STRING_UID
+    return (BK_OK == bk_agora_rtc_interrupt_agent()) ? 0 : -1;
+#else
+    LOGW("interrupt_agent: no RTM-capable RTC backend in this build\n");
+    return -1;
+#endif
+}
+
 /**
  * @brief 接收音频数据并写入音频引擎
  * @param data 音频数据指针

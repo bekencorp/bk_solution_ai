@@ -30,6 +30,7 @@
 
 /* ConvoAI custom type for the image-upload flow. */
 #define RTM_CUSTOM_TYPE_IMAGE_UPLOAD     "image.upload"
+#define RTM_CUSTOM_TYPE_MESSAGE_INTERRUPT "message.interrupt"
 
 /* ConvoAI custom type: wraps a text "as if" the user just spoke it.
  * The server forwards the text to the LLM, replacing the ASR-from-mic
@@ -704,6 +705,39 @@ __exit:
         cJSON_Delete(root);
     }
     return ret;
+}
+
+bk_err_t bk_agora_rtm_interrupt(const char *peer_uid)
+{
+    static const char payload[] = "{\"customType\":\"message.interrupt\"}";
+    int rval;
+
+    if (!peer_uid || peer_uid[0] == '\0')
+    {
+        LOGE("interrupt: peer_uid required\n");
+        return BK_FAIL;
+    }
+    if (!s_rtm_login_success)
+    {
+        LOGE("interrupt: RTM not login yet\n");
+        return BK_FAIL;
+    }
+
+    /* Prevent a late image-ingested notification from restarting the turn. */
+    __clear_pending_image_queries();
+
+    s_rtm_msg_id++;
+    LOGI("interrupt peer=%s msg_id=%u\n", peer_uid, s_rtm_msg_id);
+    rval = agora_rtc_send_rtm_data(peer_uid, payload, sizeof(payload) - 1,
+                                   s_rtm_msg_id, RTM_CUSTOM_TYPE_MESSAGE_INTERRUPT);
+    if (rval < 0)
+    {
+        LOGE("agora_rtc_send_rtm_data interrupt failed: %d, %s\n",
+             rval, agora_rtc_err_2_str(rval));
+        return BK_FAIL;
+    }
+
+    return BK_OK;
 }
 
 #endif /* CONFIG_AGORA_RTC_USE_STRING_UID */

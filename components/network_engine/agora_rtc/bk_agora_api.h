@@ -106,6 +106,14 @@ bool bk_agora_is_agent_active(void);
  */
 bk_err_t bk_agora_rtc_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
                                             const char *query);
+
+/**
+ * @brief Interrupt the active agent turn through RTM.
+ *
+ * Also cancels pending image follow-up queries so a late image-ingested
+ * notification cannot start another explanation after the interruption.
+ */
+bk_err_t bk_agora_rtc_interrupt_agent(void);
 #endif /* CONFIG_AGORA_RTC_USE_STRING_UID */
 
 #ifdef __cplusplus

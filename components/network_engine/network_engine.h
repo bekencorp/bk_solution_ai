@@ -267,6 +267,16 @@ bool ntwk_eng_uplink_audio_is_muted(void);
 int ntwk_eng_send_image_with_query(const uint8_t *jpeg, size_t jpeg_len,
                                      const char *query);
 
+/**
+ * @brief Interrupt the active AI-agent turn.
+ *
+ * The Agora backend sends RTM custom type "message.interrupt" and cancels
+ * pending image follow-up queries. Other backends return an error.
+ *
+ * @return 0 on submit success; <0 if unsupported or not connected.
+ */
+int ntwk_eng_interrupt_agent(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -138,6 +138,15 @@ bk_err_t bk_agora_rtm_send_image_base64_with_query(const char *peer_uid,
 bk_err_t bk_agora_rtm_send_user_text(const char *peer_uid, const char *text);
 
 /**
+ * Interrupt the agent's current speech/thought turn and discard pending
+ * image follow-up queries.
+ *
+ * Sends custom type "message.interrupt" with payload:
+ *   {"customType":"message.interrupt"}
+ */
+bk_err_t bk_agora_rtm_interrupt(const char *peer_uid);
+
+/**
  * Notify the RTM layer that a previously sent image has actually been
  * ingested by the ConvoAI server (i.e. it is now part of the LLM
  * context). This is called from the RTC data-stream parser when a
