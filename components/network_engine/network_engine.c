@@ -470,6 +470,42 @@ int ntwk_eng_send_video(frame_buffer_t *frame)
     return ret;
 }
 
+int ntwk_eng_abort_video_send(bool abort)
+{
+    if (!g_ntwk_eng_ctx.initialized) {
+        return -1;
+    }
+
+    switch (g_ntwk_eng_ctx.network_type) {
+#if CONFIG_BK_TRANS_EN
+    case NETWORK_TYPE_BK_TRANS:
+        return (bk_trans_abort_video_send(abort) == BK_OK) ? 0 : -1;
+#endif
+    default:
+        /* RTC backend 的视频发送不会长时间阻塞，无需 abort */
+        (void)abort;
+        return 0;
+    }
+}
+
+int ntwk_eng_abort_audio_send(bool abort)
+{
+    if (!g_ntwk_eng_ctx.initialized) {
+        return -1;
+    }
+
+    switch (g_ntwk_eng_ctx.network_type) {
+#if CONFIG_BK_TRANS_EN
+    case NETWORK_TYPE_BK_TRANS:
+        return (bk_trans_abort_audio_send(abort) == BK_OK) ? 0 : -1;
+#endif
+    default:
+        /* RTC backend 的音频发送不会长时间阻塞，无需 abort */
+        (void)abort;
+        return 0;
+    }
+}
+
 /**
  * @brief 获取当前网络传输类型
  * @return network_type_t 网络类型枚举值

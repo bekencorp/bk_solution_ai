@@ -72,6 +72,8 @@ bk_err_t bk_trans_stop_audio_channel(void);
 bool bk_trans_is_audio_channel_connected(void);
 int bk_trans_audio_data_send(uint8_t *data_ptr, size_t data_len, audio_enc_type_t audio_type);
 int bk_trans_video_data_send(frame_buffer_t *frame);
+bk_err_t bk_trans_abort_video_send(bool abort);
+bk_err_t bk_trans_abort_audio_send(bool abort);
 bool bk_trans_is_connected(void);
 
 #ifdef __cplusplus

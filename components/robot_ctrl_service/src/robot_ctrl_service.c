@@ -34,6 +34,7 @@ static void robot_ctrl_handle_lan_event(const robot_lan_event_msg_t *msg, void *
     case ROBOT_LAN_EVT_APP_DISCONNECTED:
         LOGI("ROBOT_LAN_EVT_APP_DISCONNECTED\r\n");
         robot_ctrl_service_stop_all_runtime();
+        robot_ctrl_notify_video_disconnected();
         if (s_ctrl.started) {
             robot_lan_net_start_discovery();
         }

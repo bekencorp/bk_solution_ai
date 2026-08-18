@@ -44,6 +44,18 @@ static void connected_sink(void)
     lv_vendor_disp_unlock();
 }
 
+/* Called from src/demo/robot_video.c (any task) when the App link drops;
+ * resets the label so the page reflects the discovery/reconnect state. */
+static void connecting_sink(void)
+{
+    lv_vendor_disp_lock();
+    if (bk_lv_tool_ui.page_11_label_state != NULL &&
+        lv_obj_is_valid(bk_lv_tool_ui.page_11_label_state)) {
+        lv_label_set_text(bk_lv_tool_ui.page_11_label_state, "video connecting...");
+    }
+    lv_vendor_disp_unlock();
+}
+
 static void on_screen_prev(bk_lv_ui_t *ui)
 {
     if (ui == NULL) {
@@ -81,11 +93,13 @@ static void page_robot_video_on_init(bk_lv_ui_t *ui)
     (void)ui_nav_register_screen(ui->page_11, &page_11_nav_ops);
 
     robot_video_register_connected_sink(connected_sink);
+    robot_video_register_connecting_sink(connecting_sink);
 }
 
 static void page_robot_video_on_destroy(bk_lv_ui_t *ui)
 {
     robot_video_register_connected_sink(NULL);
+    robot_video_register_connecting_sink(NULL);
     ui_nav_unregister_screen(ui->page_11);
     if (s_start_timer != NULL) {
         lv_timer_del(s_start_timer);

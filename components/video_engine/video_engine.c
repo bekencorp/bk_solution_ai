@@ -52,8 +52,8 @@
 #define VIDEO_TRANSFER_TASK_NAME        "video_xfer"
 #define VIDEO_TRANSFER_TASK_PRIORITY    5
 #define VIDEO_TRANSFER_TASK_STACK_SIZE  (4 * 1024)
-#define VIDEO_TRANSFER_QUEUE_TIMEOUT    (BEKEN_WAIT_FOREVER)
-#define VIDEO_TRANSFER_STOP_WAIT_MS     (1000)
+#define VIDEO_TRANSFER_QUEUE_TIMEOUT    (100) //(BEKEN_WAIT_FOREVER)
+#define VIDEO_TRANSFER_STOP_WAIT_MS     (3000) //(1000)
 #define VIDEO_TRANSFER_STOP_POLL_MS     (20)
 #define VIDEO_MIPI_ENCODER_DRAIN_MS     (80)
 #define VIDEO_PREVIEW_TASK_NAME         "ve_preview"
@@ -1370,19 +1370,19 @@ int video_engine_transfer_stop(void)
 
     g_video_engine_ctx->transfer_task_running = false;
 
-    for (uint32_t waited_ms = 0;
-         g_video_engine_ctx->transfer_task_handle != NULL && waited_ms < VIDEO_TRANSFER_STOP_WAIT_MS;
-         waited_ms += VIDEO_TRANSFER_STOP_POLL_MS)
+    ntwk_eng_abort_video_send(true);
+
+    for (uint32_t waited_ms = 0; g_video_engine_ctx->transfer_task_handle != NULL; waited_ms += VIDEO_TRANSFER_STOP_POLL_MS)
     {
         rtos_delay_milliseconds(VIDEO_TRANSFER_STOP_POLL_MS);
+        if (waited_ms != 0 && (waited_ms % VIDEO_TRANSFER_STOP_WAIT_MS) == 0)
+        {
+            LOGW("%s: still waiting for transfer task to exit (%u ms)...\n",
+                 __func__, waited_ms);
+        }
     }
 
-    if (g_video_engine_ctx->transfer_task_handle != NULL)
-    {
-        LOGW("%s: transfer task did not exit within %u ms\n",
-             __func__, VIDEO_TRANSFER_STOP_WAIT_MS);
-        ret = BK_FAIL;
-    }
+    ntwk_eng_abort_video_send(false);
 
     LOGI("%s: video transfer task stopped\n", __func__);
     return ret;

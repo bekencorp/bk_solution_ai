@@ -27,10 +27,16 @@
 /* UI bridge: page_robot_video_hooks.c registers a sink for live status
  * updates pushed from robot_ctrl_service (any task). */
 static void (*s_connected_sink)(void);
+static void (*s_connecting_sink)(void);
 
 void robot_video_register_connected_sink(void (*sink)(void))
 {
     s_connected_sink = sink;
+}
+
+void robot_video_register_connecting_sink(void (*sink)(void))
+{
+    s_connecting_sink = sink;
 }
 
 int robot_video_start_service(void)
@@ -70,6 +76,14 @@ void page_11_set_video_connected(void)
     }
 }
 
+void page_11_set_video_connecting(void)
+{
+    void (*sink)(void) = s_connecting_sink;
+    if (sink != NULL) {
+        sink();
+    }
+}
+
 int robot_video_init(void) { return 0; }
 
 extern int page_robot_video_enter(void);
@@ -89,10 +103,12 @@ int robot_video_stop(void)
 #else  /* !ROBOT_TEST */
 
 void robot_video_register_connected_sink(void (*sink)(void)) { (void)sink; }
+void robot_video_register_connecting_sink(void (*sink)(void)) { (void)sink; }
 int  robot_video_start_service(void)   { return 0; }
 int  robot_video_stop_service(void)    { return 0; }
 bool robot_video_is_connected(void)    { return false; }
 void page_11_set_video_connected(void) {}
+void page_11_set_video_connecting(void) {}
 
 int robot_video_init(void)  { return 0; }
 int robot_video_start(void) { return 0; }

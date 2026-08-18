@@ -580,6 +580,24 @@ int bk_trans_video_data_send(frame_buffer_t *frame)
     return ntwk_trans_video_send((uint8_t *)frame, frame->length, video_type);
 }
 
+bk_err_t bk_trans_abort_video_send(bool abort)
+{
+    if (!s_bk_trans_inited) {
+        return BK_FAIL;
+    }
+
+    return ntwk_trans_chan_abort(NTWK_TRANS_CHAN_VIDEO, abort);
+}
+
+bk_err_t bk_trans_abort_audio_send(bool abort)
+{
+    if (!s_bk_trans_inited) {
+        return BK_FAIL;
+    }
+
+    return ntwk_trans_chan_abort(NTWK_TRANS_CHAN_AUDIO, abort);
+}
+
 bool bk_trans_is_connected(void)
 {
     return s_bk_trans_connected;

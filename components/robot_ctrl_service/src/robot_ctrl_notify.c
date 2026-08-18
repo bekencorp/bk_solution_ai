@@ -1,11 +1,19 @@
 #include "robot_ctrl_internal.h"
 
 extern void page_11_set_video_connected(void) __attribute__((weak));
+extern void page_11_set_video_connecting(void) __attribute__((weak));
 
 void robot_ctrl_notify_video_connected(void)
 {
     if (page_11_set_video_connected) {
         page_11_set_video_connected();
+    }
+}
+
+void robot_ctrl_notify_video_disconnected(void)
+{
+    if (page_11_set_video_connecting) {
+        page_11_set_video_connecting();
     }
 }
 

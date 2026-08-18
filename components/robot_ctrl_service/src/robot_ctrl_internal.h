@@ -46,6 +46,7 @@ void robot_ctrl_apply_audio_config(cJSON *audio, robot_audio_config_t *cfg);
 
 void robot_ctrl_default_solution(robot_solution_config_t *solution);
 void robot_ctrl_notify_video_connected(void);
+void robot_ctrl_notify_video_disconnected(void);
 void robot_ctrl_motion_stop_now(void);
 void robot_ctrl_reload_idle_timer(void);
 

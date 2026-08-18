@@ -156,6 +156,33 @@ int ntwk_eng_send_ctrl(const uint8_t *data, size_t size);
  */
 int ntwk_eng_send_video(frame_buffer_t *frame); 
 /**
+ * @brief 中止/恢复当前 backend 的视频发送（不关闭通道/socket）。
+ *
+ * abort=true 时，正在进行的视频发送重试会尽快返回，便于上层任务（如
+ * video_engine 传输任务）在停止时确定性地退出，避免长时间阻塞。
+ * abort=false 恢复正常发送，通常在停止流程结束后调用以复位状态。
+ *
+ * 仅对会长时间阻塞发送的 backend（如 BK_TRANS）有实际动作；RTC backend
+ * 发送不长阻塞，返回 0（no-op）。
+ *
+ * @param abort true 中止发送，false 恢复发送
+ * @return int 0 成功；<0 未初始化或 backend 不支持
+ */
+int ntwk_eng_abort_video_send(bool abort);
+/**
+ * @brief 中止/恢复音频发送路径（不关闭通道）
+ *
+ * abort=true 时，正在进行的音频发送重试会尽快返回，便于上层任务在停止时
+ * 确定性地退出，避免长时间阻塞。abort=false 恢复正常发送。
+ *
+ * 仅对会长时间阻塞发送的 backend（如 BK_TRANS）有实际动作；RTC backend
+ * 发送不长阻塞，返回 0（no-op）。
+ *
+ * @param abort true 中止发送，false 恢复发送
+ * @return int 0 成功；<0 未初始化或 backend 不支持
+ */
+int ntwk_eng_abort_audio_send(bool abort);
+/**
  * @brief 获取当前network类型
  * @return network_type_t network类型
  */
