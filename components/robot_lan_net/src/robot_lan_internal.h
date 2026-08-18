@@ -11,6 +11,7 @@ typedef struct {
     bool audio_connected;
     bool connecting;
     bool discovery_running;
+    int discovery_sock;
     beken_thread_t discovery_thread;
     beken_mutex_t lock;
     robot_lan_app_info_t app;

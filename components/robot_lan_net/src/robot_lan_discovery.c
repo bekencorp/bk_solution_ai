@@ -27,6 +27,24 @@
 
 #define ROBOT_LAN_DISCOVERY_RX_BUF_SIZE 2048
 
+static void robot_lan_discovery_close_sock(robot_lan_ctx_t *ctx)
+{
+    int sock;
+
+    if (!ctx) {
+        return;
+    }
+
+    sock = ctx->discovery_sock;
+    if (sock < 0) {
+        return;
+    }
+
+    ctx->discovery_sock = -1;
+    closesocket(sock);
+    LOGI("discovery socket closed\n");
+}
+
 static int json_get_u16(cJSON *root, const char *name)
 {
     cJSON *item = cJSON_GetObjectItem(root, name);
@@ -130,6 +148,7 @@ static void robot_lan_discovery_task(beken_thread_arg_t arg)
         LOGE("create discovery socket failed errno=%d\n", errno);
         goto exit;
     }
+    ctx->discovery_sock = sock;
 
     addr.sin_family = AF_INET;
     addr.sin_port = htons(CONFIG_BK_ROBOT_LAN_DISCOVERY_PORT);
@@ -151,8 +170,14 @@ static void robot_lan_discovery_task(beken_thread_arg_t arg)
         int len = recvfrom(sock, rx_buf, ROBOT_LAN_DISCOVERY_RX_BUF_SIZE - 1, 0,
                            (struct sockaddr *)&from, &from_len);
         if (len <= 0) {
+            if (!ctx->discovery_running) {
+                break;
+            }
             LOGW("recv App broadcast failed len=%d errno=%d\n", len, errno);
             continue;
+        }
+        if (!ctx->discovery_running) {
+            break;
         }
 
         rx_buf[len] = '\0';
@@ -173,14 +198,13 @@ static void robot_lan_discovery_task(beken_thread_arg_t arg)
     }
 
 exit:
-    if (sock >= 0) {
-        closesocket(sock);
-    }
+    robot_lan_discovery_close_sock(ctx);
     if (rx_buf) {
         os_free(rx_buf);
     }
     ctx->discovery_running = false;
     ctx->discovery_thread = NULL;
+    LOGI("discovery task exit\n");
     rtos_delete_thread(NULL);
 }
 
@@ -190,8 +214,16 @@ bk_err_t robot_lan_discovery_start_internal(void)
     if (ctx->discovery_running) {
         return BK_OK;
     }
+    for (int i = 0; ctx->discovery_thread != NULL && i < 10; i++) {
+        rtos_delay_milliseconds(10);
+    }
+    if (ctx->discovery_thread != NULL) {
+        LOGW("discovery task is still stopping\n");
+        return BK_FAIL;
+    }
 
     ctx->discovery_running = true;
+    ctx->discovery_sock = -1;
     int ret = rtos_create_thread(&ctx->discovery_thread,
                                  BEKEN_DEFAULT_WORKER_PRIORITY,
                                  "robot_disc",
@@ -211,5 +243,6 @@ bk_err_t robot_lan_discovery_stop_internal(void)
 {
     robot_lan_ctx_t *ctx = robot_lan_get_ctx_internal();
     ctx->discovery_running = false;
+    robot_lan_discovery_close_sock(ctx);
     return BK_OK;
 }

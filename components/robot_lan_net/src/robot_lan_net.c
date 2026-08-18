@@ -261,6 +261,7 @@ bk_err_t robot_lan_net_init(void)
     }
 
     os_memset(&s_lan, 0, sizeof(s_lan));
+    s_lan.discovery_sock = -1;
     if (rtos_init_mutex(&s_lan.lock) != BK_OK) {
         LOGE("init LAN mutex failed\n");
         return BK_FAIL;
