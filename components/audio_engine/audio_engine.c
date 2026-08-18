@@ -488,6 +488,7 @@ static bk_player_handle_t      s_mix_player;
 static audio_port_handle_t     s_mix_port;
 static audio_element_handle_t  s_mix_spk;
 static bool                    s_mix_inited;
+static volatile bool           s_audio_engine_stopping;
 #if CONFIG_AE_PROMPT_TONE_SOURCE_VFS
 static bool                    s_play_vfs_is_mount;
 static bool                    s_play_vfs_active;
@@ -584,23 +585,33 @@ static int mix_event_handler(int event, void *data, void *args)
     return BK_OK;
 }
 
-static void mix_deinit(void)
+static void mix_stop_player_keep_port(void)
 {
-    if (!s_mix_inited) {
-        return;
-    }
     if (s_mix_player) {
         bk_player_stop(s_mix_player);
         bk_player_set_output_port(s_mix_player, NULL);
         bk_player_destroy(s_mix_player);
         s_mix_player = NULL;
     }
+}
+
+static void mix_release_port(void)
+{
     if (s_mix_port) {
         audio_port_deinit(s_mix_port);
         s_mix_port = NULL;
     }
     s_mix_spk = NULL;
     s_mix_inited = false;
+}
+
+static void mix_deinit(void)
+{
+    if (!s_mix_inited) {
+        return;
+    }
+    mix_stop_player_keep_port();
+    mix_release_port();
 }
 
 static int mix_init(void)
@@ -783,11 +794,6 @@ static int ae_play_internal_deinit(void)
     return BK_OK;
 }
 
-static void ae_play_internal_voice_mix_invalidate(void)
-{
-    mix_deinit();
-}
-
 int audio_engine_play_stop(void)
 {
     return ae_play_internal_stop();
@@ -821,6 +827,11 @@ bool audio_engine_play_is_playing(void)
 
 static int dispatch(player_uri_info_t *uri, audio_dec_type_t dec_type)
 {
+    if (s_audio_engine_stopping) {
+        LOGI("audio engine stopping, drop playback request\n");
+        return BK_FAIL;
+    }
+
     if (audio_engine_is_running()) {
         return play_via_voice(uri, dec_type);
     }
@@ -2491,13 +2502,13 @@ static int audio_engine_stop_inner(void)
         return AUDIO_ENGINE_ERR_NOT_STARTED;
     }
 
+    s_audio_engine_stopping = true;
+
     /* The voice-mix bk_player caches the
      * spk_element pointer obtained from this voice handle. bk_voice_deinit
-     * below frees that element; if the mix player kept its cached
-     * pointer, the next prompt tone after voice_start would write into
-     * a dead port and play silent. Drop the mix player here so the next
-     * play_via_voice() rebuilds against the fresh spk_element. */
-    ae_play_internal_voice_mix_invalidate();
+     * below frees that element. Stop and destroy the producer now, but keep
+     * its ring-buffer port alive until the speaker task has stopped. */
+    mix_stop_player_keep_port();
 
     int ret = AUDIO_ENGINE_SUCCESS;
 
@@ -2564,7 +2575,12 @@ static int audio_engine_stop_inner(void)
         g_audio_engine.voice_handle = NULL;
     }
 
+    /* bk_voice_deinit() has stopped the speaker task and removed its cached
+     * multi-input ports, so the mix ring buffer can now be released safely. */
+    mix_release_port();
+
     g_audio_engine.is_started = false;
+    s_audio_engine_stopping = false;
     LOGI("Audio engine stopped successfully\n");
     return ret;
 }
