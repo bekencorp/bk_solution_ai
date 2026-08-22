@@ -40,7 +40,14 @@
 /* Hard limit imposed by the SDK on a single RTM payload. */
 #define RTM_MSG_MAX_LEN                 (31 * 1024)
 
-#define RTM_PENDING_IMAGE_QUERY_MAX     4
+#define RTM_PENDING_IMAGE_QUERY_MAX     8
+
+/* Age-out threshold for a pending image query. If neither the RTM
+ * UNREACHABLE/TIMEOUT ack nor the server-side message.info (uuid dispatch)
+ * ever arrives (e.g. the peer/agent is abnormal), the entry would linger
+ * forever, eventually filling the pool and blocking new image queries. We
+ * reclaim any entry older than this on the next enqueue attempt. */
+#define RTM_PENDING_IMAGE_QUERY_AGE_MS  10000
 
 /* Maximum length of the image uuid we generate (img_<8-hex>\0 = 13).
  * Bump for safety; ConvoAI echos it back verbatim in message.info. */
@@ -49,6 +56,7 @@
 typedef struct {
     bool used;
     uint32_t msg_id;
+    uint32_t create_ms;
     char uuid[RTM_IMAGE_UUID_MAX_LEN];
     char *peer_uid;
     char *query_text;
@@ -56,7 +64,11 @@ typedef struct {
 
 static volatile bool s_rtm_login_success = false;
 static uint32_t      s_rtm_msg_id = 0;
-static rtm_pending_image_query_t s_pending_image_queries[RTM_PENDING_IMAGE_QUERY_MAX] = {0};
+
+/* Pending image-query pool. Allocated from PSRAM at RTM init
+ * (bk_agora_rtm_start) and released at RTM deinit (bk_agora_rtm_stop);
+ * NULL when RTM is not running. */
+static rtm_pending_image_query_t *s_pending_image_queries = NULL;
 
 static const char *__rtm_state_str(rtm_msg_state_e s)
 {
@@ -124,6 +136,10 @@ static void __free_pending_image_query(rtm_pending_image_query_t *pending)
 
 static void __remove_pending_image_query(uint32_t msg_id)
 {
+    if (!s_pending_image_queries)
+    {
+        return;
+    }
     for (size_t i = 0; i < RTM_PENDING_IMAGE_QUERY_MAX; i++)
     {
         if (s_pending_image_queries[i].used && s_pending_image_queries[i].msg_id == msg_id)
@@ -136,6 +152,10 @@ static void __remove_pending_image_query(uint32_t msg_id)
 
 static void __clear_pending_image_queries(void)
 {
+    if (!s_pending_image_queries)
+    {
+        return;
+    }
     for (size_t i = 0; i < RTM_PENDING_IMAGE_QUERY_MAX; i++)
     {
         if (s_pending_image_queries[i].used)
@@ -143,6 +163,64 @@ static void __clear_pending_image_queries(void)
             __free_pending_image_query(&s_pending_image_queries[i]);
         }
     }
+}
+
+/* Reclaim entries that have out-lived RTM_PENDING_IMAGE_QUERY_AGE_MS. This
+ * is the safety net for the "RTM ack=RECEIVED but server never emits
+ * message.info" case (peer/agent abnormal), which otherwise never frees
+ * the slot. Swept lazily on each enqueue so a stuck entry can never
+ * permanently occupy the pool. */
+static void __age_out_pending_image_queries(void)
+{
+    if (!s_pending_image_queries)
+    {
+        return;
+    }
+
+    uint32_t now = (uint32_t)rtos_get_time();
+    for (size_t i = 0; i < RTM_PENDING_IMAGE_QUERY_MAX; i++)
+    {
+        if (s_pending_image_queries[i].used &&
+            (now - s_pending_image_queries[i].create_ms) >= RTM_PENDING_IMAGE_QUERY_AGE_MS)
+        {
+            LOGW("pending image query age-out msg_id=%u uuid=%s age=%ums\n",
+                 s_pending_image_queries[i].msg_id, s_pending_image_queries[i].uuid,
+                 (unsigned)(now - s_pending_image_queries[i].create_ms));
+            __free_pending_image_query(&s_pending_image_queries[i]);
+        }
+    }
+}
+
+static bk_err_t __pending_image_queries_alloc(void)
+{
+    if (s_pending_image_queries)
+    {
+        /* Already allocated (e.g. re-login without a prior stop): just
+         * reset to a clean state, keeping the same PSRAM block. */
+        __clear_pending_image_queries();
+        return BK_OK;
+    }
+
+    size_t bytes = sizeof(rtm_pending_image_query_t) * RTM_PENDING_IMAGE_QUERY_MAX;
+    s_pending_image_queries = (rtm_pending_image_query_t *)psram_malloc(bytes);
+    if (!s_pending_image_queries)
+    {
+        LOGE("pending image query pool psram_malloc(%u) OOM\n", (unsigned)bytes);
+        return BK_FAIL;
+    }
+    os_memset(s_pending_image_queries, 0, bytes);
+    return BK_OK;
+}
+
+static void __pending_image_queries_free(void)
+{
+    if (!s_pending_image_queries)
+    {
+        return;
+    }
+    __clear_pending_image_queries();
+    psram_free(s_pending_image_queries);
+    s_pending_image_queries = NULL;
 }
 
 static bk_err_t __add_pending_image_query(uint32_t msg_id,
@@ -161,6 +239,15 @@ static bk_err_t __add_pending_image_query(uint32_t msg_id,
         LOGE("pending image query: uuid required\n");
         return BK_FAIL;
     }
+    if (!s_pending_image_queries)
+    {
+        LOGE("pending image query pool not ready\n");
+        return BK_FAIL;
+    }
+
+    /* Reclaim stale entries first so an abnormal peer can never keep the
+     * pool permanently full. */
+    __age_out_pending_image_queries();
 
     for (size_t i = 0; i < RTM_PENDING_IMAGE_QUERY_MAX; i++)
     {
@@ -187,6 +274,7 @@ static bk_err_t __add_pending_image_query(uint32_t msg_id,
 
     slot->used = true;
     slot->msg_id = msg_id;
+    slot->create_ms = (uint32_t)rtos_get_time();
     os_strncpy(slot->uuid, uuid, sizeof(slot->uuid) - 1);
     slot->uuid[sizeof(slot->uuid) - 1] = '\0';
     LOGI("pending image query add msg_id=%u uuid=%s peer=%s\n", msg_id, slot->uuid, peer_uid);
@@ -195,6 +283,10 @@ static bk_err_t __add_pending_image_query(uint32_t msg_id,
 
 static rtm_pending_image_query_t *__find_pending_image_query(uint32_t msg_id)
 {
+    if (!s_pending_image_queries)
+    {
+        return NULL;
+    }
     for (size_t i = 0; i < RTM_PENDING_IMAGE_QUERY_MAX; i++)
     {
         if (s_pending_image_queries[i].used && s_pending_image_queries[i].msg_id == msg_id)
@@ -209,6 +301,10 @@ static rtm_pending_image_query_t *__find_pending_image_query(uint32_t msg_id)
 static rtm_pending_image_query_t *__find_pending_image_query_by_uuid(const char *uuid)
 {
     if (!uuid || uuid[0] == '\0')
+    {
+        return NULL;
+    }
+    if (!s_pending_image_queries)
     {
         return NULL;
     }
@@ -333,17 +429,24 @@ bk_err_t bk_agora_rtm_start(const char *self_uid, const char *token)
         return BK_OK;
     }
 
+    /* Allocate the pending image-query pool in PSRAM before login so it is
+     * ready for the very first image.upload. */
+    if (BK_OK != __pending_image_queries_alloc())
+    {
+        return BK_FAIL;
+    }
+
     LOGI("rtm login: uid=%s token=%s\n", self_uid, token ? token : "(null)");
 
     rval = agora_rtc_login_rtm(self_uid, token, &s_rtm_handler);
     if (rval < 0)
     {
         LOGE("agora_rtc_login_rtm failed: %d, %s\n", rval, agora_rtc_err_2_str(rval));
+        __pending_image_queries_free();
         return BK_FAIL;
     }
 
     s_rtm_msg_id = 0;
-    __clear_pending_image_queries();
     return BK_OK;
 }
 
@@ -354,6 +457,9 @@ bk_err_t bk_agora_rtm_stop(void)
     if (!s_rtm_login_success)
     {
         LOGD("rtm not login, skip logout\n");
+        /* Release the pool even if login never succeeded, so a failed
+         * start does not leak the PSRAM block. */
+        __pending_image_queries_free();
         return BK_OK;
     }
 
@@ -364,7 +470,7 @@ bk_err_t bk_agora_rtm_stop(void)
     }
 
     s_rtm_login_success = false;
-    __clear_pending_image_queries();
+    __pending_image_queries_free();
     LOGI("rtm logout done\n");
     return (rval < 0) ? BK_FAIL : BK_OK;
 }
