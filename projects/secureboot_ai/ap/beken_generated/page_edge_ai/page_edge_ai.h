@@ -1,6 +1,6 @@
 /**
  * @file page_edge_ai.h
- * @brief Edge AI submenu and solution-example page.
+ * @brief Edge AI submenu and face-recognition page.
  */
 #ifndef __PAGE_EDGE_AI_H__
 #define __PAGE_EDGE_AI_H__
@@ -10,10 +10,10 @@ extern "C" {
 #endif
 
 int page_edge_ai_enter(void);
-int page_edge_ai_solution_enter(void);
+int page_edge_ai_face_recognition_enter(void);
 int page_edge_ai_archive_enter(void);
-void page_edge_ai_solution_set_status(const char *text);
-void page_edge_ai_solution_destroy(void);
+void page_edge_ai_face_recognition_set_status(const char *text);
+void page_edge_ai_face_recognition_destroy(void);
 
 #ifdef __cplusplus
 }

@@ -1,9 +1,9 @@
 /**
  * @file page_edge_ai.c
- * @brief End-side AI entry shim and solution-example page.
+ * @brief End-side AI entry shim and face-recognition page.
  *
  * The End-side AI menu is rendered by demo_catalog. This file keeps the
- * legacy page_edge_ai entry points while hosting the LVGL overlay solution
+ * legacy page_edge_ai entry points while hosting the LVGL overlay face-recognition
  * page introduced by the camera/LVGL blending flow.
  */
 #include "page_edge_ai.h"
@@ -28,22 +28,22 @@
 #include "app_event.h"
 #endif
 
-#define SOL_SCREEN_W           LOGICAL_SCREEN_WIDTH
-#define SOL_SCREEN_H           LOGICAL_SCREEN_HEIGHT
-#define SOL_CAMERA_VIEW_X      25
-#define SOL_CAMERA_VIEW_Y      20
-#define SOL_CAMERA_VIEW_W      256
-#define SOL_CAMERA_VIEW_H      256
-#define SOL_TEXT_H             20
-#define SOL_CAMERA_BORDER_W    2
-#define SOL_CAMERA_RADIUS      0
-#define SOL_CAMERA_PANEL_W     (SOL_CAMERA_VIEW_W + SOL_CAMERA_BORDER_W * 2)
-#define SOL_CAMERA_PANEL_H     (SOL_CAMERA_VIEW_H + SOL_TEXT_H + SOL_CAMERA_BORDER_W * 2)
-#define SOL_BUTTON_X           292
-#define SOL_BUTTON_W           82
-#define SOL_BUTTON_H           38
-#define SOL_BUTTON_GAP         18
-#define SOL_BUTTON_Y0          50
+#define FACE_REC_SCREEN_W           LOGICAL_SCREEN_WIDTH
+#define FACE_REC_SCREEN_H           LOGICAL_SCREEN_HEIGHT
+#define FACE_REC_CAMERA_VIEW_X      25
+#define FACE_REC_CAMERA_VIEW_Y      20
+#define FACE_REC_CAMERA_VIEW_W      256
+#define FACE_REC_CAMERA_VIEW_H      256
+#define FACE_REC_TEXT_H             20
+#define FACE_REC_CAMERA_BORDER_W    2
+#define FACE_REC_CAMERA_RADIUS      0
+#define FACE_REC_CAMERA_PANEL_W     (FACE_REC_CAMERA_VIEW_W + FACE_REC_CAMERA_BORDER_W * 2)
+#define FACE_REC_CAMERA_PANEL_H     (FACE_REC_CAMERA_VIEW_H + FACE_REC_TEXT_H + FACE_REC_CAMERA_BORDER_W * 2)
+#define FACE_REC_BUTTON_X           292
+#define FACE_REC_BUTTON_W           82
+#define FACE_REC_BUTTON_H           38
+#define FACE_REC_BUTTON_GAP         18
+#define FACE_REC_BUTTON_Y0          50
 #define ARCH_ROW_H             34
 #define ARCH_ROW_GAP           10
 #define ARCH_PANEL_H           178
@@ -54,19 +54,19 @@
 #define RESET_TASK_NAME        "face_reset"
 #define STATUS_CLEAR_MS        5000
 #define STATUS_CLEAR_TASK_SIZE (1024 * 2)
-#define STATUS_CLEAR_TASK_NAME "solution_status_clear"
+#define STATUS_CLEAR_TASK_NAME "face_recognition_status_clear"
 #define FACE_PROMPT_DEBOUNCE_MS 800
-#define SOLUTION_BUTTON_COUNT 4
+#define FACE_RECOGNITION_BUTTON_COUNT 4
 
 typedef enum {
     ARCH_OP_QUERY = 0,
     ARCH_OP_DELETE,
 } archive_op_t;
 
-static lv_obj_t *s_solution_screen;
-static lv_obj_t *s_solution_status_label;
-static lv_obj_t *s_solution_buttons[SOLUTION_BUTTON_COUNT];
-static uint32_t s_solution_selected;
+static lv_obj_t *s_face_recognition_screen;
+static lv_obj_t *s_face_recognition_status_label;
+static lv_obj_t *s_face_recognition_buttons[FACE_RECOGNITION_BUTTON_COUNT];
+static uint32_t s_face_recognition_selected;
 static lv_obj_t *s_archive_screen;
 static lv_obj_t *s_archive_status_label;
 static lv_obj_t *s_archive_panel;
@@ -89,9 +89,9 @@ static beken_thread_t s_reset_thread;
 static volatile bool s_reset_busy;
 static uint32_t s_reset_confirm_deadline;
 static int s_reset_worker_rc;
-static char s_solution_status_pending[64];
-static volatile uint32_t s_solution_status_seq;
-static volatile uint32_t s_solution_status_clear_seq;
+static char s_face_recognition_status_pending[64];
+static volatile uint32_t s_face_recognition_status_seq;
+static volatile uint32_t s_face_recognition_status_clear_seq;
 static ui_lang_t s_archive_lang = UI_LANG_COUNT;
 #if CONFIG_APP_EVT
 static bool s_face_prompt_last_valid;
@@ -100,104 +100,104 @@ static uint32_t s_face_prompt_last_ms;
 #endif
 
 int page_edge_ai_archive_enter(void);
-static const ui_page_nav_ops_t s_solution_nav_ops;
+static const ui_page_nav_ops_t s_face_recognition_nav_ops;
 static void archive_row_click_cb(lv_event_t *e);
-static void solution_status_apply_async(void *arg);
-static void solution_status_clear_async(void *arg);
+static void face_recognition_status_apply_async(void *arg);
+static void face_recognition_status_clear_async(void *arg);
 
 typedef enum {
-    SOL_STR_ENROLL = 0,
-    SOL_STR_VERIFY,
-    SOL_STR_QUERY,
-    SOL_STR_RESET,
-    SOL_STR_ARCHIVE_TITLE,
-    SOL_STR_ARCHIVE_DELETE,
-    SOL_STR_ARCHIVE_RETURN,
-    SOL_STR_ARCHIVE_EMPTY,
-    SOL_STR_ARCHIVE_STATS_FMT,
-    SOL_STR_ARCHIVE_ROW_FMT,
-    SOL_STR_QUERY_FAILED,
-    SOL_STR_DELETE_SUCCESS,
-    SOL_STR_DELETE_FAILED,
-    SOL_STR_BUSY,
-    SOL_STR_QUERY_THREAD_FAILED,
-    SOL_STR_NO_DELETABLE_PROFILE,
-    SOL_STR_DELETING,
-    SOL_STR_DB_CLEARED,
-    SOL_STR_BUSY_WAIT,
-    SOL_STR_CLEAR_FAILED,
-    SOL_STR_CLEAR_THREAD_FAILED,
-    SOL_STR_CLEAR_CONFIRM,
-    SOL_STR_CLEARING,
-    SOL_STR_NO_FACE,
-    SOL_STR_ENROLL_FAILED_RETRY,
-    SOL_STR_VERIFYING,
-    SOL_STR_VERIFY_FAILED_RETRY,
-    SOL_STR_QUERYING,
-    SOL_STR_CAMERA_PREVIEW,
-    SOL_STR_KEEP_FRONTAL,
-    SOL_STR_VERIFY_PASSED,
-    SOL_STR_VERIFY_FAILED,
-    SOL_STR_ENROLL_COMPLETE_FMT,
-    SOL_STR_ENROLL_SUCCESS_CONTINUE_FMT,
-    SOL_STR_SAVING,
-    SOL_STR_STORAGE_THREAD_NOT_READY,
-    SOL_STR_STORAGE_NOT_READY,
-    SOL_STR_ENROLLING,
-    SOL_STR_ENROLL_CANCELED,
-    SOL_STR_COUNT,
-} solution_str_id_t;
+    FACE_REC_STR_ENROLL = 0,
+    FACE_REC_STR_VERIFY,
+    FACE_REC_STR_QUERY,
+    FACE_REC_STR_RESET,
+    FACE_REC_STR_ARCHIVE_TITLE,
+    FACE_REC_STR_ARCHIVE_DELETE,
+    FACE_REC_STR_ARCHIVE_RETURN,
+    FACE_REC_STR_ARCHIVE_EMPTY,
+    FACE_REC_STR_ARCHIVE_STATS_FMT,
+    FACE_REC_STR_ARCHIVE_ROW_FMT,
+    FACE_REC_STR_QUERY_FAILED,
+    FACE_REC_STR_DELETE_SUCCESS,
+    FACE_REC_STR_DELETE_FAILED,
+    FACE_REC_STR_BUSY,
+    FACE_REC_STR_QUERY_THREAD_FAILED,
+    FACE_REC_STR_NO_DELETABLE_PROFILE,
+    FACE_REC_STR_DELETING,
+    FACE_REC_STR_DB_CLEARED,
+    FACE_REC_STR_BUSY_WAIT,
+    FACE_REC_STR_CLEAR_FAILED,
+    FACE_REC_STR_CLEAR_THREAD_FAILED,
+    FACE_REC_STR_CLEAR_CONFIRM,
+    FACE_REC_STR_CLEARING,
+    FACE_REC_STR_NO_FACE,
+    FACE_REC_STR_ENROLL_FAILED_RETRY,
+    FACE_REC_STR_VERIFYING,
+    FACE_REC_STR_VERIFY_FAILED_RETRY,
+    FACE_REC_STR_QUERYING,
+    FACE_REC_STR_CAMERA_PREVIEW,
+    FACE_REC_STR_KEEP_FRONTAL,
+    FACE_REC_STR_VERIFY_PASSED,
+    FACE_REC_STR_VERIFY_FAILED,
+    FACE_REC_STR_ENROLL_COMPLETE_FMT,
+    FACE_REC_STR_ENROLL_SUCCESS_CONTINUE_FMT,
+    FACE_REC_STR_SAVING,
+    FACE_REC_STR_STORAGE_THREAD_NOT_READY,
+    FACE_REC_STR_STORAGE_NOT_READY,
+    FACE_REC_STR_ENROLLING,
+    FACE_REC_STR_ENROLL_CANCELED,
+    FACE_REC_STR_COUNT,
+} face_recognition_str_id_t;
 
-static const char *const s_solution_tr[SOL_STR_COUNT][UI_LANG_COUNT] = {
-    [SOL_STR_ENROLL] = { "录入", "Enroll" },
-    [SOL_STR_VERIFY] = { "验证", "Verify" },
-    [SOL_STR_QUERY] = { "查询", "Query" },
-    [SOL_STR_RESET] = { "重置", "Reset" },
-    [SOL_STR_ARCHIVE_TITLE] = { "人脸档案", "Face Archive" },
-    [SOL_STR_ARCHIVE_DELETE] = { "删除", "Delete" },
-    [SOL_STR_ARCHIVE_RETURN] = { "返回", "Back" },
-    [SOL_STR_ARCHIVE_EMPTY] = { "暂无人脸档案", "No face profiles" },
-    [SOL_STR_ARCHIVE_STATS_FMT] = { "档案:%u 样本:%u 图片:%u",
+static const char *const s_face_recognition_tr[FACE_REC_STR_COUNT][UI_LANG_COUNT] = {
+    [FACE_REC_STR_ENROLL] = { "录入", "Enroll" },
+    [FACE_REC_STR_VERIFY] = { "验证", "Verify" },
+    [FACE_REC_STR_QUERY] = { "查询", "Query" },
+    [FACE_REC_STR_RESET] = { "重置", "Reset" },
+    [FACE_REC_STR_ARCHIVE_TITLE] = { "人脸档案", "Face Archive" },
+    [FACE_REC_STR_ARCHIVE_DELETE] = { "删除", "Delete" },
+    [FACE_REC_STR_ARCHIVE_RETURN] = { "返回", "Back" },
+    [FACE_REC_STR_ARCHIVE_EMPTY] = { "暂无人脸档案", "No face profiles" },
+    [FACE_REC_STR_ARCHIVE_STATS_FMT] = { "档案:%u 样本:%u 图片:%u",
                                     "Profiles:%u Samples:%u Images:%u" },
-    [SOL_STR_ARCHIVE_ROW_FMT] = { "%sface_%04u  样本:%u",
+    [FACE_REC_STR_ARCHIVE_ROW_FMT] = { "%sface_%04u  样本:%u",
                                   "%sface_%04u  Samples:%u" },
-    [SOL_STR_QUERY_FAILED] = { "查询失败", "Query failed" },
-    [SOL_STR_DELETE_SUCCESS] = { "删除成功", "Delete success" },
-    [SOL_STR_DELETE_FAILED] = { "删除失败", "Delete failed" },
-    [SOL_STR_BUSY] = { "操作中", "Busy" },
-    [SOL_STR_QUERY_THREAD_FAILED] = { "查询线程失败", "Query thread failed" },
-    [SOL_STR_NO_DELETABLE_PROFILE] = { "暂无可删除档案", "No deletable profile" },
-    [SOL_STR_DELETING] = { "删除中", "Deleting" },
-    [SOL_STR_DB_CLEARED] = { "人脸库已清空", "Face DB cleared" },
-    [SOL_STR_BUSY_WAIT] = { "操作中,  请稍后", "Busy, please wait" },
-    [SOL_STR_CLEAR_FAILED] = { "清空失败,  请检查存储", "Clear failed, check storage" },
-    [SOL_STR_CLEAR_THREAD_FAILED] = { "清空线程失败", "Clear thread failed" },
-    [SOL_STR_CLEAR_CONFIRM] = { "再次点击清空人脸库", "Tap again to clear Face DB" },
-    [SOL_STR_CLEARING] = { "清空中", "Clearing" },
-    [SOL_STR_NO_FACE] = { "未检测到人脸", "No face detected" },
-    [SOL_STR_ENROLL_FAILED_RETRY] = { "录入失败,  请重新录入", "Enroll failed, retry" },
-    [SOL_STR_VERIFYING] = { "验证中", "Verifying" },
-    [SOL_STR_VERIFY_FAILED_RETRY] = { "验证失败,  请重试", "Verify failed, retry" },
-    [SOL_STR_QUERYING] = { "查询中", "Querying" },
-    [SOL_STR_CAMERA_PREVIEW] = { "摄像头预览", "Camera preview" },
-    [SOL_STR_KEEP_FRONTAL] = { "请保持正脸", "Keep face frontal" },
-    [SOL_STR_VERIFY_PASSED] = { "验证通过", "Verify passed" },
-    [SOL_STR_VERIFY_FAILED] = { "验证失败", "Verify failed" },
-    [SOL_STR_ENROLL_COMPLETE_FMT] = { "录入完成 %u/%u", "Enroll complete %u/%u" },
-    [SOL_STR_ENROLL_SUCCESS_CONTINUE_FMT] = { "录入成功 %u/%u,  请继续录入",
+    [FACE_REC_STR_QUERY_FAILED] = { "查询失败", "Query failed" },
+    [FACE_REC_STR_DELETE_SUCCESS] = { "删除成功", "Delete success" },
+    [FACE_REC_STR_DELETE_FAILED] = { "删除失败", "Delete failed" },
+    [FACE_REC_STR_BUSY] = { "操作中", "Busy" },
+    [FACE_REC_STR_QUERY_THREAD_FAILED] = { "查询线程失败", "Query thread failed" },
+    [FACE_REC_STR_NO_DELETABLE_PROFILE] = { "暂无可删除档案", "No deletable profile" },
+    [FACE_REC_STR_DELETING] = { "删除中", "Deleting" },
+    [FACE_REC_STR_DB_CLEARED] = { "人脸库已清空", "Face DB cleared" },
+    [FACE_REC_STR_BUSY_WAIT] = { "操作中,  请稍后", "Busy, please wait" },
+    [FACE_REC_STR_CLEAR_FAILED] = { "清空失败,  请检查存储", "Clear failed, check storage" },
+    [FACE_REC_STR_CLEAR_THREAD_FAILED] = { "清空线程失败", "Clear thread failed" },
+    [FACE_REC_STR_CLEAR_CONFIRM] = { "再次点击清空人脸库", "Tap again to clear Face DB" },
+    [FACE_REC_STR_CLEARING] = { "清空中", "Clearing" },
+    [FACE_REC_STR_NO_FACE] = { "未检测到人脸", "No face detected" },
+    [FACE_REC_STR_ENROLL_FAILED_RETRY] = { "录入失败,  请重新录入", "Enroll failed, retry" },
+    [FACE_REC_STR_VERIFYING] = { "验证中", "Verifying" },
+    [FACE_REC_STR_VERIFY_FAILED_RETRY] = { "验证失败,  请重试", "Verify failed, retry" },
+    [FACE_REC_STR_QUERYING] = { "查询中", "Querying" },
+    [FACE_REC_STR_CAMERA_PREVIEW] = { "摄像头预览", "Camera preview" },
+    [FACE_REC_STR_KEEP_FRONTAL] = { "请保持正脸", "Keep face frontal" },
+    [FACE_REC_STR_VERIFY_PASSED] = { "验证通过", "Verify passed" },
+    [FACE_REC_STR_VERIFY_FAILED] = { "验证失败", "Verify failed" },
+    [FACE_REC_STR_ENROLL_COMPLETE_FMT] = { "录入完成 %u/%u", "Enroll complete %u/%u" },
+    [FACE_REC_STR_ENROLL_SUCCESS_CONTINUE_FMT] = { "录入成功 %u/%u,  请继续录入",
                                               "Enroll success %u/%u, continue" },
-    [SOL_STR_SAVING] = { "保存中", "Saving" },
-    [SOL_STR_STORAGE_THREAD_NOT_READY] = { "存储线程未就绪", "Storage thread not ready" },
-    [SOL_STR_STORAGE_NOT_READY] = { "存储未就绪", "Storage not ready" },
-    [SOL_STR_ENROLLING] = { "录入中", "Enrolling" },
-    [SOL_STR_ENROLL_CANCELED] = { "已取消录入", "Enroll canceled" },
+    [FACE_REC_STR_SAVING] = { "保存中", "Saving" },
+    [FACE_REC_STR_STORAGE_THREAD_NOT_READY] = { "存储线程未就绪", "Storage thread not ready" },
+    [FACE_REC_STR_STORAGE_NOT_READY] = { "存储未就绪", "Storage not ready" },
+    [FACE_REC_STR_ENROLLING] = { "录入中", "Enrolling" },
+    [FACE_REC_STR_ENROLL_CANCELED] = { "已取消录入", "Enroll canceled" },
 };
 
-static const solution_str_id_t s_solution_btn_title_ids[SOLUTION_BUTTON_COUNT] = {
-    SOL_STR_ENROLL,
-    SOL_STR_VERIFY,
-    SOL_STR_QUERY,
-    SOL_STR_RESET,
+static const face_recognition_str_id_t s_face_recognition_btn_title_ids[FACE_RECOGNITION_BUTTON_COUNT] = {
+    FACE_REC_STR_ENROLL,
+    FACE_REC_STR_VERIFY,
+    FACE_REC_STR_QUERY,
+    FACE_REC_STR_RESET,
 };
 
 #if CONFIG_APP_EVT
@@ -266,17 +266,17 @@ static void face_prompt_play_for_text(const char *text)
 }
 #endif
 
-static const char *solution_tr(solution_str_id_t id)
+static const char *face_recognition_tr(face_recognition_str_id_t id)
 {
     ui_lang_t lang = ui_i18n_get_lang();
 
-    if (id >= SOL_STR_COUNT || lang >= UI_LANG_COUNT) {
+    if (id >= FACE_REC_STR_COUNT || lang >= UI_LANG_COUNT) {
         return "";
     }
-    return s_solution_tr[id][lang];
+    return s_face_recognition_tr[id][lang];
 }
 
-static const char *solution_status_display_text(const char *text, char *buf, size_t buf_len)
+static const char *face_recognition_status_display_text(const char *text, char *buf, size_t buf_len)
 {
     unsigned done;
     unsigned total;
@@ -286,71 +286,71 @@ static const char *solution_status_display_text(const char *text, char *buf, siz
     }
 
     if (strcmp(text, "暂无人脸档案") == 0) {
-        return solution_tr(SOL_STR_ARCHIVE_EMPTY);
+        return face_recognition_tr(FACE_REC_STR_ARCHIVE_EMPTY);
     } else if (strcmp(text, "查询失败") == 0) {
-        return solution_tr(SOL_STR_QUERY_FAILED);
+        return face_recognition_tr(FACE_REC_STR_QUERY_FAILED);
     } else if (strcmp(text, "删除成功") == 0) {
-        return solution_tr(SOL_STR_DELETE_SUCCESS);
+        return face_recognition_tr(FACE_REC_STR_DELETE_SUCCESS);
     } else if (strcmp(text, "删除失败") == 0) {
-        return solution_tr(SOL_STR_DELETE_FAILED);
+        return face_recognition_tr(FACE_REC_STR_DELETE_FAILED);
     } else if (strcmp(text, "操作中") == 0) {
-        return solution_tr(SOL_STR_BUSY);
+        return face_recognition_tr(FACE_REC_STR_BUSY);
     } else if (strcmp(text, "查询线程失败") == 0) {
-        return solution_tr(SOL_STR_QUERY_THREAD_FAILED);
+        return face_recognition_tr(FACE_REC_STR_QUERY_THREAD_FAILED);
     } else if (strcmp(text, "暂无可删除档案") == 0) {
-        return solution_tr(SOL_STR_NO_DELETABLE_PROFILE);
+        return face_recognition_tr(FACE_REC_STR_NO_DELETABLE_PROFILE);
     } else if (strcmp(text, "删除中") == 0) {
-        return solution_tr(SOL_STR_DELETING);
+        return face_recognition_tr(FACE_REC_STR_DELETING);
     } else if (strcmp(text, "人脸库已清空") == 0) {
-        return solution_tr(SOL_STR_DB_CLEARED);
+        return face_recognition_tr(FACE_REC_STR_DB_CLEARED);
     } else if (strcmp(text, "操作中,  请稍后") == 0) {
-        return solution_tr(SOL_STR_BUSY_WAIT);
+        return face_recognition_tr(FACE_REC_STR_BUSY_WAIT);
     } else if (strcmp(text, "清空失败,  请检查存储") == 0) {
-        return solution_tr(SOL_STR_CLEAR_FAILED);
+        return face_recognition_tr(FACE_REC_STR_CLEAR_FAILED);
     } else if (strcmp(text, "清空线程失败") == 0) {
-        return solution_tr(SOL_STR_CLEAR_THREAD_FAILED);
+        return face_recognition_tr(FACE_REC_STR_CLEAR_THREAD_FAILED);
     } else if (strcmp(text, "再次点击清空人脸库") == 0) {
-        return solution_tr(SOL_STR_CLEAR_CONFIRM);
+        return face_recognition_tr(FACE_REC_STR_CLEAR_CONFIRM);
     } else if (strcmp(text, "清空中") == 0) {
-        return solution_tr(SOL_STR_CLEARING);
+        return face_recognition_tr(FACE_REC_STR_CLEARING);
     } else if (strcmp(text, "未检测到人脸") == 0) {
-        return solution_tr(SOL_STR_NO_FACE);
+        return face_recognition_tr(FACE_REC_STR_NO_FACE);
     } else if (strcmp(text, "录入失败,  请重新录入") == 0) {
-        return solution_tr(SOL_STR_ENROLL_FAILED_RETRY);
+        return face_recognition_tr(FACE_REC_STR_ENROLL_FAILED_RETRY);
     } else if (strcmp(text, "验证中") == 0) {
-        return solution_tr(SOL_STR_VERIFYING);
+        return face_recognition_tr(FACE_REC_STR_VERIFYING);
     } else if (strcmp(text, "验证失败,  请重试") == 0) {
-        return solution_tr(SOL_STR_VERIFY_FAILED_RETRY);
+        return face_recognition_tr(FACE_REC_STR_VERIFY_FAILED_RETRY);
     } else if (strcmp(text, "查询中") == 0) {
-        return solution_tr(SOL_STR_QUERYING);
+        return face_recognition_tr(FACE_REC_STR_QUERYING);
     } else if (strcmp(text, "摄像头预览") == 0) {
-        return solution_tr(SOL_STR_CAMERA_PREVIEW);
+        return face_recognition_tr(FACE_REC_STR_CAMERA_PREVIEW);
     } else if (strcmp(text, "请保持正脸") == 0) {
-        return solution_tr(SOL_STR_KEEP_FRONTAL);
+        return face_recognition_tr(FACE_REC_STR_KEEP_FRONTAL);
     } else if (strcmp(text, "验证通过") == 0) {
-        return solution_tr(SOL_STR_VERIFY_PASSED);
+        return face_recognition_tr(FACE_REC_STR_VERIFY_PASSED);
     } else if (strcmp(text, "验证失败") == 0) {
-        return solution_tr(SOL_STR_VERIFY_FAILED);
+        return face_recognition_tr(FACE_REC_STR_VERIFY_FAILED);
     } else if (strcmp(text, "请先录入") == 0) {
         return "Enroll first";
     } else if (strcmp(text, "保存中") == 0) {
-        return solution_tr(SOL_STR_SAVING);
+        return face_recognition_tr(FACE_REC_STR_SAVING);
     } else if (strcmp(text, "存储线程未就绪") == 0) {
-        return solution_tr(SOL_STR_STORAGE_THREAD_NOT_READY);
+        return face_recognition_tr(FACE_REC_STR_STORAGE_THREAD_NOT_READY);
     } else if (strcmp(text, "存储未就绪") == 0) {
-        return solution_tr(SOL_STR_STORAGE_NOT_READY);
+        return face_recognition_tr(FACE_REC_STR_STORAGE_NOT_READY);
     } else if (strcmp(text, "录入中") == 0) {
-        return solution_tr(SOL_STR_ENROLLING);
+        return face_recognition_tr(FACE_REC_STR_ENROLLING);
     } else if (strcmp(text, "已取消录入") == 0) {
-        return solution_tr(SOL_STR_ENROLL_CANCELED);
+        return face_recognition_tr(FACE_REC_STR_ENROLL_CANCELED);
     }
 
     if (sscanf(text, "录入完成 %u/%u", &done, &total) == 2) {
-        snprintf(buf, buf_len, solution_tr(SOL_STR_ENROLL_COMPLETE_FMT), done, total);
+        snprintf(buf, buf_len, face_recognition_tr(FACE_REC_STR_ENROLL_COMPLETE_FMT), done, total);
         return buf;
     }
     if (sscanf(text, "录入成功 %u/%u,  请继续录入", &done, &total) == 2) {
-        snprintf(buf, buf_len, solution_tr(SOL_STR_ENROLL_SUCCESS_CONTINUE_FMT),
+        snprintf(buf, buf_len, face_recognition_tr(FACE_REC_STR_ENROLL_SUCCESS_CONTINUE_FMT),
                  done, total);
         return buf;
     }
@@ -366,7 +366,7 @@ static void set_status_label_text(lv_obj_t *label, const char *text)
         return;
     }
 
-    lv_label_set_text(label, solution_status_display_text(text, buf, sizeof(buf)));
+    lv_label_set_text(label, face_recognition_status_display_text(text, buf, sizeof(buf)));
     face_prompt_play_for_text(text);
 }
 
@@ -392,7 +392,7 @@ static lv_obj_t *create_label(lv_obj_t *parent, const char *text,
     return label;
 }
 
-static lv_obj_t *create_solution_button(lv_obj_t *parent, const char *text,
+static lv_obj_t *create_face_recognition_button(lv_obj_t *parent, const char *text,
                                         int x, int y, int w, int h)
 {
     lv_obj_t *btn = lv_btn_create(parent);
@@ -434,10 +434,10 @@ static void set_nav_button_selected(lv_obj_t *btn, bool selected)
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
-static void solution_refresh_nav(void)
+static void face_recognition_refresh_nav(void)
 {
-    for (uint32_t i = 0; i < SOLUTION_BUTTON_COUNT; i++) {
-        set_nav_button_selected(s_solution_buttons[i], i == s_solution_selected);
+    for (uint32_t i = 0; i < FACE_RECOGNITION_BUTTON_COUNT; i++) {
+        set_nav_button_selected(s_face_recognition_buttons[i], i == s_face_recognition_selected);
     }
 }
 
@@ -479,7 +479,7 @@ static void archive_ensure_rows(uint32_t visible)
         if (s_archive_rows[i] != NULL && lv_obj_is_valid(s_archive_rows[i])) {
             continue;
         }
-        s_archive_rows[i] = create_solution_button(s_archive_panel, "--",
+        s_archive_rows[i] = create_face_recognition_button(s_archive_panel, "--",
                                                    0, (int)i * (ARCH_ROW_H + ARCH_ROW_GAP),
                                                    236, ARCH_ROW_H);
         lv_obj_set_style_radius(s_archive_rows[i], 4, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -497,7 +497,7 @@ static void archive_refresh_view(void)
         if (s_archive_info.profile_count == 0) {
             set_status_label_text(s_archive_status_label, "暂无人脸档案");
         } else {
-            snprintf(text, sizeof(text), solution_tr(SOL_STR_ARCHIVE_STATS_FMT),
+            snprintf(text, sizeof(text), face_recognition_tr(FACE_REC_STR_ARCHIVE_STATS_FMT),
                      (unsigned)s_archive_info.profile_count,
                      (unsigned)s_archive_info.total_features,
                      (unsigned)s_archive_info.total_ppm);
@@ -516,7 +516,7 @@ static void archive_refresh_view(void)
         }
         lv_obj_clear_flag(s_archive_rows[i], LV_OBJ_FLAG_HIDDEN);
         yoloface_archive_item_t *item = &s_archive_info.items[i];
-        snprintf(text, sizeof(text), solution_tr(SOL_STR_ARCHIVE_ROW_FMT),
+        snprintf(text, sizeof(text), face_recognition_tr(FACE_REC_STR_ARCHIVE_ROW_FMT),
                  i == s_archive_selected ? "> " : "  ",
                  (unsigned)item->profile_id,
                  (unsigned)item->feature_count);
@@ -588,11 +588,11 @@ static void archive_task(void *arg)
 
     memset(&s_archive_worker_info, 0, sizeof(s_archive_worker_info));
     if (s_archive_op == ARCH_OP_DELETE) {
-        deleted = (yoloface_solution_archive_delete(s_archive_delete_profile) == 0);
+        deleted = (yoloface_face_recognition_archive_delete(s_archive_delete_profile) == 0);
     }
     s_archive_worker_op = s_archive_op;
     s_archive_worker_deleted = deleted;
-    s_archive_worker_rc = yoloface_solution_archive_query(&s_archive_worker_info);
+    s_archive_worker_rc = yoloface_face_recognition_archive_query(&s_archive_worker_info);
     (void)lv_async_call(archive_apply_async, NULL);
 
     s_archive_busy = false;
@@ -655,7 +655,7 @@ static void archive_return_click_cb(lv_event_t *e)
     if (s_archive_screen != NULL && lv_obj_is_valid(s_archive_screen)) {
         ui_nav_unregister_screen(s_archive_screen);
     }
-    (void)page_edge_ai_solution_enter();
+    (void)page_edge_ai_face_recognition_enter();
     yoloface_tracking_set_return_to_edge_ai(true);
     yoloface_tracking_set_lvgl_camera_blend(true);
     (void)yoloface_tracking_start();
@@ -688,23 +688,23 @@ static void reset_apply_async(void *arg)
     s_reset_busy = false;
     s_reset_confirm_deadline = 0;
 
-    if (s_solution_status_label == NULL || !lv_obj_is_valid(s_solution_status_label)) {
+    if (s_face_recognition_status_label == NULL || !lv_obj_is_valid(s_face_recognition_status_label)) {
         return;
     }
 
     if (s_reset_worker_rc >= 0) {
-        set_status_label_text(s_solution_status_label, "人脸库已清空");
-    } else if (s_reset_worker_rc == YOLOFACE_SOLUTION_ERR_BUSY) {
-        set_status_label_text(s_solution_status_label, "操作中,  请稍后");
+        set_status_label_text(s_face_recognition_status_label, "人脸库已清空");
+    } else if (s_reset_worker_rc == YOLOFACE_FACE_RECOGNITION_ERR_BUSY) {
+        set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
     } else {
-        set_status_label_text(s_solution_status_label, "清空失败,  请检查存储");
+        set_status_label_text(s_face_recognition_status_label, "清空失败,  请检查存储");
     }
 }
 
 static void reset_task(void *arg)
 {
     (void)arg;
-    s_reset_worker_rc = yoloface_solution_archive_clear_all();
+    s_reset_worker_rc = yoloface_face_recognition_archive_clear_all();
     (void)lv_async_call(reset_apply_async, NULL);
     s_reset_thread = NULL;
     rtos_delete_thread(NULL);
@@ -713,8 +713,8 @@ static void reset_task(void *arg)
 static int reset_start_task(void)
 {
     if (s_reset_busy) {
-        if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
+        if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
+            set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
         }
         return 0;
     }
@@ -730,26 +730,26 @@ static int reset_start_task(void)
     if (ret != BK_OK) {
         s_reset_thread = NULL;
         s_reset_busy = false;
-        if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            set_status_label_text(s_solution_status_label, "清空线程失败");
+        if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
+            set_status_label_text(s_face_recognition_status_label, "清空线程失败");
         }
         return -1;
     }
     return 0;
 }
 
-static void solution_reset_click_cb(lv_event_t *e)
+static void face_recognition_reset_click_cb(lv_event_t *e)
 {
     (void)e;
 
-    if (yoloface_solution_enroll_is_active()) {
-        (void)yoloface_solution_enroll_cancel();
+    if (yoloface_face_recognition_enroll_is_active()) {
+        (void)yoloface_face_recognition_enroll_cancel();
         return;
     }
 
     if (s_reset_busy) {
-        if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
+        if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
+            set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
         }
         return;
     }
@@ -757,82 +757,82 @@ static void solution_reset_click_cb(lv_event_t *e)
     uint32_t now = (uint32_t)rtos_get_time();
     if ((int32_t)(s_reset_confirm_deadline - now) <= 0) {
         s_reset_confirm_deadline = now + RESET_CONFIRM_MS;
-        if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            set_status_label_text(s_solution_status_label, "再次点击清空人脸库");
+        if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
+            set_status_label_text(s_face_recognition_status_label, "再次点击清空人脸库");
         }
         return;
     }
 
-    if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-        set_status_label_text(s_solution_status_label, "清空中");
+    if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
+        set_status_label_text(s_face_recognition_status_label, "清空中");
     }
     (void)reset_start_task();
 }
 
-static void solution_enroll_click_cb(lv_event_t *e)
+static void face_recognition_enroll_click_cb(lv_event_t *e)
 {
     (void)e;
     int rc;
     if (s_reset_busy) {
-        if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
+        if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
+            set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
         }
         return;
     }
-    rc = yoloface_solution_enroll_request();
-    if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-        if (rc == YOLOFACE_SOLUTION_ERR_BUSY) {
-            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
-        } else if (rc == YOLOFACE_SOLUTION_ERR_NO_FACE) {
-            set_status_label_text(s_solution_status_label, "未检测到人脸");
+    rc = yoloface_face_recognition_enroll_request();
+    if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
+        if (rc == YOLOFACE_FACE_RECOGNITION_ERR_BUSY) {
+            set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
+        } else if (rc == YOLOFACE_FACE_RECOGNITION_ERR_NO_FACE) {
+            set_status_label_text(s_face_recognition_status_label, "未检测到人脸");
         } else if (rc != 0) {
-            set_status_label_text(s_solution_status_label, "录入失败,  请重新录入");
+            set_status_label_text(s_face_recognition_status_label, "录入失败,  请重新录入");
         }
     }
 }
 
-static void solution_verify_click_cb(lv_event_t *e)
+static void face_recognition_verify_click_cb(lv_event_t *e)
 {
     (void)e;
     int rc;
     if (s_reset_busy) {
-        if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
+        if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
+            set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
         }
         return;
     }
-    rc = yoloface_solution_verify_request();
-    if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
+    rc = yoloface_face_recognition_verify_request();
+    if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
         if (rc == 0) {
-            set_status_label_text(s_solution_status_label, "验证中");
-        } else if (rc == YOLOFACE_SOLUTION_ERR_BUSY) {
-            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
-        } else if (rc == YOLOFACE_SOLUTION_ERR_NO_FACE) {
-            set_status_label_text(s_solution_status_label, "未检测到人脸");
+            set_status_label_text(s_face_recognition_status_label, "验证中");
+        } else if (rc == YOLOFACE_FACE_RECOGNITION_ERR_BUSY) {
+            set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
+        } else if (rc == YOLOFACE_FACE_RECOGNITION_ERR_NO_FACE) {
+            set_status_label_text(s_face_recognition_status_label, "未检测到人脸");
         } else {
-            set_status_label_text(s_solution_status_label, "验证失败,  请重试");
+            set_status_label_text(s_face_recognition_status_label, "验证失败,  请重试");
         }
     }
 }
 
-static void solution_query_click_cb(lv_event_t *e)
+static void face_recognition_query_click_cb(lv_event_t *e)
 {
     (void)e;
     int rc;
     if (s_reset_busy) {
-        if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
+        if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
+            set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
         }
         return;
     }
-    rc = yoloface_solution_archive_enter_request();
-    if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
+    rc = yoloface_face_recognition_archive_enter_request();
+    if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
         if (rc == 0) {
-            set_status_label_text(s_solution_status_label, "查询中");
-        } else if (rc == YOLOFACE_SOLUTION_ERR_BUSY) {
-            set_status_label_text(s_solution_status_label, "操作中,  请稍后");
+            set_status_label_text(s_face_recognition_status_label, "查询中");
+        } else if (rc == YOLOFACE_FACE_RECOGNITION_ERR_BUSY) {
+            set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
         } else {
-            set_status_label_text(s_solution_status_label, "查询失败");
+            set_status_label_text(s_face_recognition_status_label, "查询失败");
         }
     }
 }
@@ -842,7 +842,7 @@ int page_edge_ai_enter(void)
     return demo_category_edge_enter();
 }
 
-static bool solution_status_should_auto_clear(const char *text)
+static bool face_recognition_status_should_auto_clear(const char *text)
 {
     if (text == NULL || strcmp(text, "摄像头预览") == 0) {
         return false;
@@ -856,68 +856,68 @@ static bool solution_status_should_auto_clear(const char *text)
     return true;
 }
 
-static void solution_status_clear_task(void *arg)
+static void face_recognition_status_clear_task(void *arg)
 {
     uint32_t seq = (uint32_t)(uintptr_t)arg;
 
     rtos_delay_milliseconds(STATUS_CLEAR_MS);
-    if (seq == s_solution_status_seq) {
-        s_solution_status_clear_seq = seq;
-        (void)lv_async_call(solution_status_clear_async, NULL);
+    if (seq == s_face_recognition_status_seq) {
+        s_face_recognition_status_clear_seq = seq;
+        (void)lv_async_call(face_recognition_status_clear_async, NULL);
     }
     rtos_delete_thread(NULL);
 }
 
-void page_edge_ai_solution_set_status(const char *text)
+void page_edge_ai_face_recognition_set_status(const char *text)
 {
     if (text == NULL) {
         return;
     }
 
-    snprintf(s_solution_status_pending, sizeof(s_solution_status_pending), "%s", text);
-    s_solution_status_seq++;
-    (void)lv_async_call(solution_status_apply_async, NULL);
+    snprintf(s_face_recognition_status_pending, sizeof(s_face_recognition_status_pending), "%s", text);
+    s_face_recognition_status_seq++;
+    (void)lv_async_call(face_recognition_status_apply_async, NULL);
 
-    if (solution_status_should_auto_clear(text)) {
+    if (face_recognition_status_should_auto_clear(text)) {
         beken_thread_t thread = NULL;
         (void)rtos_create_thread(&thread,
                                  BEKEN_DEFAULT_WORKER_PRIORITY,
                                  STATUS_CLEAR_TASK_NAME,
-                                 (beken_thread_function_t)solution_status_clear_task,
+                                 (beken_thread_function_t)face_recognition_status_clear_task,
                                  STATUS_CLEAR_TASK_SIZE,
-                                 (void *)(uintptr_t)s_solution_status_seq);
+                                 (void *)(uintptr_t)s_face_recognition_status_seq);
     }
 }
 
-static void solution_status_apply_async(void *arg)
+static void face_recognition_status_apply_async(void *arg)
 {
     (void)arg;
 
-    if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-        set_status_label_text(s_solution_status_label, s_solution_status_pending);
-        lv_obj_invalidate(s_solution_status_label);
+    if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
+        set_status_label_text(s_face_recognition_status_label, s_face_recognition_status_pending);
+        lv_obj_invalidate(s_face_recognition_status_label);
     }
 }
 
-static void solution_status_clear_async(void *arg)
+static void face_recognition_status_clear_async(void *arg)
 {
     (void)arg;
 
-    if (s_solution_status_clear_seq != s_solution_status_seq) {
+    if (s_face_recognition_status_clear_seq != s_face_recognition_status_seq) {
         return;
     }
-    if (s_solution_status_label != NULL && lv_obj_is_valid(s_solution_status_label)) {
-        set_status_label_text(s_solution_status_label, "摄像头预览");
-        lv_obj_invalidate(s_solution_status_label);
+    if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
+        set_status_label_text(s_face_recognition_status_label, "摄像头预览");
+        lv_obj_invalidate(s_face_recognition_status_label);
     }
 }
 
-static void solution_on_screen_prev(bk_lv_ui_t *ui)
+static void face_recognition_on_screen_prev(bk_lv_ui_t *ui)
 {
     (void)ui;
 
-    if (yoloface_solution_enroll_is_active()) {
-        (void)yoloface_solution_enroll_cancel();
+    if (yoloface_face_recognition_enroll_is_active()) {
+        (void)yoloface_face_recognition_enroll_cancel();
     }
 
     if (yoloface_detection_is_active()) {
@@ -927,51 +927,51 @@ static void solution_on_screen_prev(bk_lv_ui_t *ui)
     }
 }
 
-static void solution_on_focus_prev(bk_lv_ui_t *ui)
+static void face_recognition_on_focus_prev(bk_lv_ui_t *ui)
 {
     (void)ui;
 
-    s_solution_selected = (s_solution_selected + SOLUTION_BUTTON_COUNT - 1) %
-                          SOLUTION_BUTTON_COUNT;
-    solution_refresh_nav();
+    s_face_recognition_selected = (s_face_recognition_selected + FACE_RECOGNITION_BUTTON_COUNT - 1) %
+                          FACE_RECOGNITION_BUTTON_COUNT;
+    face_recognition_refresh_nav();
 }
 
-static void solution_on_focus_next(bk_lv_ui_t *ui)
+static void face_recognition_on_focus_next(bk_lv_ui_t *ui)
 {
     (void)ui;
 
-    s_solution_selected = (s_solution_selected + 1) % SOLUTION_BUTTON_COUNT;
-    solution_refresh_nav();
+    s_face_recognition_selected = (s_face_recognition_selected + 1) % FACE_RECOGNITION_BUTTON_COUNT;
+    face_recognition_refresh_nav();
 }
 
-static void solution_on_confirm(bk_lv_ui_t *ui)
+static void face_recognition_on_confirm(bk_lv_ui_t *ui)
 {
     (void)ui;
 
-    switch (s_solution_selected) {
+    switch (s_face_recognition_selected) {
     case 0:
-        solution_enroll_click_cb(NULL);
+        face_recognition_enroll_click_cb(NULL);
         break;
     case 1:
-        solution_verify_click_cb(NULL);
+        face_recognition_verify_click_cb(NULL);
         break;
     case 2:
-        solution_query_click_cb(NULL);
+        face_recognition_query_click_cb(NULL);
         break;
     case 3:
-        solution_reset_click_cb(NULL);
+        face_recognition_reset_click_cb(NULL);
         break;
     default:
         break;
     }
 }
 
-static const ui_page_nav_ops_t s_solution_nav_ops = {
-    .on_focus_prev = solution_on_focus_prev,
-    .on_focus_next = solution_on_focus_next,
-    .on_screen_prev = solution_on_screen_prev,
-    .on_screen_next = solution_on_confirm,
-    .on_confirm_long = solution_on_confirm,
+static const ui_page_nav_ops_t s_face_recognition_nav_ops = {
+    .on_focus_prev = face_recognition_on_focus_prev,
+    .on_focus_next = face_recognition_on_focus_next,
+    .on_screen_prev = face_recognition_on_screen_prev,
+    .on_screen_next = face_recognition_on_confirm,
+    .on_confirm_long = face_recognition_on_confirm,
 };
 
 static void archive_on_screen_prev(bk_lv_ui_t *ui)
@@ -1046,7 +1046,7 @@ static const ui_page_nav_ops_t s_archive_nav_ops = {
     .on_confirm_long = archive_on_confirm,
 };
 
-void page_edge_ai_solution_destroy(void)
+void page_edge_ai_face_recognition_destroy(void)
 {
     s_archive_active = false;
     s_archive_busy = false;
@@ -1054,8 +1054,8 @@ void page_edge_ai_solution_destroy(void)
     s_reset_busy = false;
     s_reset_thread = NULL;
     s_reset_confirm_deadline = 0;
-    s_solution_status_seq++;
-    s_solution_status_clear_seq = s_solution_status_seq;
+    s_face_recognition_status_seq++;
+    s_face_recognition_status_clear_seq = s_face_recognition_status_seq;
 
     if (s_archive_screen != NULL && lv_obj_is_valid(s_archive_screen)) {
         ui_nav_unregister_screen(s_archive_screen);
@@ -1073,16 +1073,16 @@ void page_edge_ai_solution_destroy(void)
     s_archive_selected = 0;
     s_archive_focus = 0;
 
-    if (s_solution_screen != NULL && lv_obj_is_valid(s_solution_screen)) {
-        ui_nav_unregister_screen(s_solution_screen);
-        lv_obj_del(s_solution_screen);
+    if (s_face_recognition_screen != NULL && lv_obj_is_valid(s_face_recognition_screen)) {
+        ui_nav_unregister_screen(s_face_recognition_screen);
+        lv_obj_del(s_face_recognition_screen);
     }
-    s_solution_screen = NULL;
-    s_solution_status_label = NULL;
-    for (uint32_t i = 0; i < SOLUTION_BUTTON_COUNT; i++) {
-        s_solution_buttons[i] = NULL;
+    s_face_recognition_screen = NULL;
+    s_face_recognition_status_label = NULL;
+    for (uint32_t i = 0; i < FACE_RECOGNITION_BUTTON_COUNT; i++) {
+        s_face_recognition_buttons[i] = NULL;
     }
-    s_solution_selected = 0;
+    s_face_recognition_selected = 0;
 }
 
 int page_edge_ai_archive_enter(void)
@@ -1124,15 +1124,15 @@ int page_edge_ai_archive_enter(void)
 
     s_archive_lang = ui_i18n_get_lang();
     s_archive_screen = lv_obj_create(NULL);
-    lv_obj_set_size(s_archive_screen, SOL_SCREEN_W, SOL_SCREEN_H);
+    lv_obj_set_size(s_archive_screen, FACE_REC_SCREEN_W, FACE_REC_SCREEN_H);
     lv_obj_set_scrollbar_mode(s_archive_screen, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_style_bg_color(s_archive_screen, lv_color_hex(0x050910), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(s_archive_screen, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    (void)create_label(s_archive_screen, solution_tr(SOL_STR_ARCHIVE_TITLE),
+    (void)create_label(s_archive_screen, face_recognition_tr(FACE_REC_STR_ARCHIVE_TITLE),
                        20, 14, 180, 28,
                        &lv_font_ali_25, 0xffffff);
-    s_archive_status_label = create_label(s_archive_screen, solution_tr(SOL_STR_QUERYING),
+    s_archive_status_label = create_label(s_archive_screen, face_recognition_tr(FACE_REC_STR_QUERYING),
                                           20, 48, 340, 24,
                                           &lv_font_ali_16, 0x32d5ff);
 
@@ -1145,13 +1145,13 @@ int page_edge_ai_archive_enter(void)
     lv_obj_set_style_bg_opa(s_archive_panel, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_bottom(s_archive_panel, ARCH_ROW_GAP, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    s_archive_delete_btn = create_solution_button(s_archive_screen,
-                                                  solution_tr(SOL_STR_ARCHIVE_DELETE),
+    s_archive_delete_btn = create_face_recognition_button(s_archive_screen,
+                                                  face_recognition_tr(FACE_REC_STR_ARCHIVE_DELETE),
                                                   286, 104, 78, 40);
     lv_obj_add_event_cb(s_archive_delete_btn, archive_delete_click_cb, LV_EVENT_CLICKED, NULL);
 
-    s_archive_return_btn = create_solution_button(s_archive_screen,
-                                                  solution_tr(SOL_STR_ARCHIVE_RETURN),
+    s_archive_return_btn = create_face_recognition_button(s_archive_screen,
+                                                  face_recognition_tr(FACE_REC_STR_ARCHIVE_RETURN),
                                                   286, 166, 78, 40);
     lv_obj_add_event_cb(s_archive_return_btn, archive_return_click_cb, LV_EVENT_CLICKED, NULL);
 
@@ -1165,28 +1165,28 @@ int page_edge_ai_archive_enter(void)
     return 0;
 }
 
-int page_edge_ai_solution_enter(void)
+int page_edge_ai_face_recognition_enter(void)
 {
-    if (s_solution_screen != NULL && lv_obj_is_valid(s_solution_screen)) {
-        ui_nav_unregister_screen(s_solution_screen);
-        lv_obj_del(s_solution_screen);
+    if (s_face_recognition_screen != NULL && lv_obj_is_valid(s_face_recognition_screen)) {
+        ui_nav_unregister_screen(s_face_recognition_screen);
+        lv_obj_del(s_face_recognition_screen);
     }
-    for (uint32_t i = 0; i < SOLUTION_BUTTON_COUNT; i++) {
-        s_solution_buttons[i] = NULL;
+    for (uint32_t i = 0; i < FACE_RECOGNITION_BUTTON_COUNT; i++) {
+        s_face_recognition_buttons[i] = NULL;
     }
-    s_solution_selected = 0;
+    s_face_recognition_selected = 0;
 
-    s_solution_screen = lv_obj_create(NULL);
-    lv_obj_set_size(s_solution_screen, SOL_SCREEN_W, SOL_SCREEN_H);
-    lv_obj_set_scrollbar_mode(s_solution_screen, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_style_bg_color(s_solution_screen, lv_color_hex(0x050910), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(s_solution_screen, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    s_face_recognition_screen = lv_obj_create(NULL);
+    lv_obj_set_size(s_face_recognition_screen, FACE_REC_SCREEN_W, FACE_REC_SCREEN_H);
+    lv_obj_set_scrollbar_mode(s_face_recognition_screen, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_style_bg_color(s_face_recognition_screen, lv_color_hex(0x050910), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_face_recognition_screen, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    lv_obj_t *cam_panel = lv_obj_create(s_solution_screen);
+    lv_obj_t *cam_panel = lv_obj_create(s_face_recognition_screen);
     lv_obj_remove_style_all(cam_panel);
-    lv_obj_set_pos(cam_panel, SOL_CAMERA_VIEW_X, SOL_CAMERA_VIEW_Y);
-    lv_obj_set_size(cam_panel, SOL_CAMERA_PANEL_W, SOL_CAMERA_PANEL_H);
-    lv_obj_set_style_radius(cam_panel, SOL_CAMERA_RADIUS, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_pos(cam_panel, FACE_REC_CAMERA_VIEW_X, FACE_REC_CAMERA_VIEW_Y);
+    lv_obj_set_size(cam_panel, FACE_REC_CAMERA_PANEL_W, FACE_REC_CAMERA_PANEL_H);
+    lv_obj_set_style_radius(cam_panel, FACE_REC_CAMERA_RADIUS, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_clip_corner(cam_panel, true, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(cam_panel, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(cam_panel, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1194,62 +1194,62 @@ int page_edge_ai_solution_enter(void)
 
     lv_obj_t *preview = lv_obj_create(cam_panel);
     lv_obj_remove_style_all(preview);
-    lv_obj_set_pos(preview, SOL_CAMERA_BORDER_W, SOL_CAMERA_BORDER_W);
-    lv_obj_set_size(preview, SOL_CAMERA_VIEW_W, SOL_CAMERA_VIEW_H);
+    lv_obj_set_pos(preview, FACE_REC_CAMERA_BORDER_W, FACE_REC_CAMERA_BORDER_W);
+    lv_obj_set_size(preview, FACE_REC_CAMERA_VIEW_W, FACE_REC_CAMERA_VIEW_H);
     lv_obj_set_style_bg_color(preview, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(preview, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(preview, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_solution_status_label = create_label(cam_panel, solution_tr(SOL_STR_CAMERA_PREVIEW),
-                                           SOL_CAMERA_BORDER_W,
-                                           SOL_CAMERA_BORDER_W + SOL_CAMERA_VIEW_H,
-                                           SOL_CAMERA_VIEW_W, SOL_TEXT_H,
+    s_face_recognition_status_label = create_label(cam_panel, face_recognition_tr(FACE_REC_STR_CAMERA_PREVIEW),
+                                           FACE_REC_CAMERA_BORDER_W,
+                                           FACE_REC_CAMERA_BORDER_W + FACE_REC_CAMERA_VIEW_H,
+                                           FACE_REC_CAMERA_VIEW_W, FACE_REC_TEXT_H,
                                            &lv_font_ali_16, 0xffffff);
-    lv_obj_set_style_bg_color(s_solution_status_label, lv_color_hex(0x10151f), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(s_solution_status_label, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(s_face_recognition_status_label, lv_color_hex(0x10151f), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_face_recognition_status_label, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    lv_obj_t *cam_border = lv_obj_create(s_solution_screen);
+    lv_obj_t *cam_border = lv_obj_create(s_face_recognition_screen);
     lv_obj_remove_style_all(cam_border);
-    lv_obj_set_pos(cam_border, SOL_CAMERA_VIEW_X, SOL_CAMERA_VIEW_Y);
-    lv_obj_set_size(cam_border, SOL_CAMERA_PANEL_W, SOL_CAMERA_PANEL_H);
+    lv_obj_set_pos(cam_border, FACE_REC_CAMERA_VIEW_X, FACE_REC_CAMERA_VIEW_Y);
+    lv_obj_set_size(cam_border, FACE_REC_CAMERA_PANEL_W, FACE_REC_CAMERA_PANEL_H);
     lv_obj_set_style_bg_opa(cam_border, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(cam_border, SOL_CAMERA_BORDER_W, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(cam_border, FACE_REC_CAMERA_BORDER_W, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_color(cam_border, lv_color_hex(0x32d5ff), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_opa(cam_border, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_radius(cam_border, SOL_CAMERA_RADIUS, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(cam_border, FACE_REC_CAMERA_RADIUS, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(cam_border, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
     for (int i = 0; i < 4; i++) {
-        int y = SOL_BUTTON_Y0 + i * (SOL_BUTTON_H + SOL_BUTTON_GAP);
-        lv_obj_t *btn = create_solution_button(s_solution_screen,
-                                               solution_tr(s_solution_btn_title_ids[i]),
-                                               SOL_BUTTON_X, y,
-                                               SOL_BUTTON_W, SOL_BUTTON_H);
-        s_solution_buttons[i] = btn;
+        int y = FACE_REC_BUTTON_Y0 + i * (FACE_REC_BUTTON_H + FACE_REC_BUTTON_GAP);
+        lv_obj_t *btn = create_face_recognition_button(s_face_recognition_screen,
+                                               face_recognition_tr(s_face_recognition_btn_title_ids[i]),
+                                               FACE_REC_BUTTON_X, y,
+                                               FACE_REC_BUTTON_W, FACE_REC_BUTTON_H);
+        s_face_recognition_buttons[i] = btn;
         if (i == 0) {
-            lv_obj_add_event_cb(btn, solution_enroll_click_cb, LV_EVENT_CLICKED, NULL);
+            lv_obj_add_event_cb(btn, face_recognition_enroll_click_cb, LV_EVENT_CLICKED, NULL);
         } else if (i == 1) {
-            lv_obj_add_event_cb(btn, solution_verify_click_cb, LV_EVENT_CLICKED, NULL);
+            lv_obj_add_event_cb(btn, face_recognition_verify_click_cb, LV_EVENT_CLICKED, NULL);
         } else if (i == 2) {
-            lv_obj_add_event_cb(btn, solution_query_click_cb, LV_EVENT_CLICKED, NULL);
+            lv_obj_add_event_cb(btn, face_recognition_query_click_cb, LV_EVENT_CLICKED, NULL);
         } else if (i == 3) {
-            lv_obj_add_event_cb(btn, solution_reset_click_cb, LV_EVENT_CLICKED, NULL);
+            lv_obj_add_event_cb(btn, face_recognition_reset_click_cb, LV_EVENT_CLICKED, NULL);
         }
     }
 
-    bk_page_attach_right_swipe_gesture(s_solution_screen);
-    lv_screen_load(s_solution_screen);
-    solution_refresh_nav();
-    (void)ui_nav_register_screen(s_solution_screen, &s_solution_nav_ops);
+    bk_page_attach_right_swipe_gesture(s_face_recognition_screen);
+    lv_screen_load(s_face_recognition_screen);
+    face_recognition_refresh_nav();
+    (void)ui_nav_register_screen(s_face_recognition_screen, &s_face_recognition_nav_ops);
     return 0;
 }
 
 #else  /* !ROBOT_TEST */
 
 int page_edge_ai_enter(void) { return 0; }
-int page_edge_ai_solution_enter(void) { return 0; }
+int page_edge_ai_face_recognition_enter(void) { return 0; }
 int page_edge_ai_archive_enter(void) { return 0; }
-void page_edge_ai_solution_set_status(const char *text) { (void)text; }
-void page_edge_ai_solution_destroy(void) {}
+void page_edge_ai_face_recognition_set_status(const char *text) { (void)text; }
+void page_edge_ai_face_recognition_destroy(void) {}
 
 #endif /* ROBOT_TEST */

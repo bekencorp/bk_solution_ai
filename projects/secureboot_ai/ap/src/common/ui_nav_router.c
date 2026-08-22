@@ -224,7 +224,7 @@ static void nav_cli_print_help(void)
 
 static bool nav_cli_exit_overlay_if_active(void)
 {
-    if (yoloface_solution_ui_is_active()) {
+    if (yoloface_face_recognition_ui_is_active()) {
         return false;
     }
 

@@ -18,8 +18,8 @@
 #include "demo/demo_iface.h"
 
 #define YOLOFACE_ARCHIVE_MAX_ITEMS 8
-#define YOLOFACE_SOLUTION_ERR_BUSY    (-2)
-#define YOLOFACE_SOLUTION_ERR_NO_FACE (-3)
+#define YOLOFACE_FACE_RECOGNITION_ERR_BUSY    (-2)
+#define YOLOFACE_FACE_RECOGNITION_ERR_NO_FACE (-3)
 
 typedef struct {
     uint32_t profile_id;
@@ -45,15 +45,15 @@ int yoloface_tracking_start(void);
 int yoloface_tracking_stop(void);
 void yoloface_tracking_set_return_to_edge_ai(bool enable);
 void yoloface_tracking_set_lvgl_camera_blend(bool enable);
-int yoloface_solution_enroll_request(void);
-int yoloface_solution_enroll_cancel(void);
-bool yoloface_solution_enroll_is_active(void);
-int yoloface_solution_verify_request(void);
-bool yoloface_solution_ui_is_active(void);
-int yoloface_solution_archive_enter_request(void);
-int yoloface_solution_archive_query(yoloface_archive_info_t *info);
-int yoloface_solution_archive_delete(uint32_t profile_id);
-int yoloface_solution_archive_clear_all(void);
+int yoloface_face_recognition_enroll_request(void);
+int yoloface_face_recognition_enroll_cancel(void);
+bool yoloface_face_recognition_enroll_is_active(void);
+int yoloface_face_recognition_verify_request(void);
+bool yoloface_face_recognition_ui_is_active(void);
+int yoloface_face_recognition_archive_enter_request(void);
+int yoloface_face_recognition_archive_query(yoloface_archive_info_t *info);
+int yoloface_face_recognition_archive_delete(uint32_t profile_id);
+int yoloface_face_recognition_archive_clear_all(void);
 bool yoloface_detection_is_active(void);
 int yoloface_detection_exit_to_menu(void);
 

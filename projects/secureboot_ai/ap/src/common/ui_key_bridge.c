@@ -127,8 +127,8 @@ void bk_key_app_notify_ui_nav(uint8_t event)
     ui_nav_event_t nav = ui_key_to_nav_event(event);
 
     if (ui_key_overlay_demo_active()) {
-        if (yoloface_solution_ui_is_active() && nav < UI_NAV_EVENT_COUNT) {
-            LOGI("solution key %u -> nav %d\r\n", (unsigned)event, (int)nav);
+        if (yoloface_face_recognition_ui_is_active() && nav < UI_NAV_EVENT_COUNT) {
+            LOGI("face recognition key %u -> nav %d\r\n", (unsigned)event, (int)nav);
             ui_nav_dispatch_event(nav);
             return;
         }

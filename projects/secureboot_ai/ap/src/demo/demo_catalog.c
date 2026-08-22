@@ -104,12 +104,12 @@ static void demo_center_switch_tab(int delta);
 /* End-side AI sub-menu.                                               */
 /* ------------------------------------------------------------------ */
 static const char *const s_edge_items[UI_LANG_COUNT][7] = {
-    { "命令词识别", "声源定位", "手掌跟随", "人脸检测", "手势识别", "小车跟随", "方案示例" },
-    { "Keyword ASR", "Sound Locate", "Palm Follow", "Face Detect", "Gesture", "Car Follow", "Solution" },
+    { "命令词识别", "声源定位", "手掌跟随", "人脸检测", "手势识别", "小车跟随", "人脸识别" },
+    { "Keyword ASR", "Sound Locate", "Palm Follow", "Face Detect", "Gesture", "Car Follow", "Face Recognition" },
 };
 static const char *const s_edge_descs[UI_LANG_COUNT][7] = {
-    { "语音控制", "方向定位", "摄像头跟随", "人脸检测", "手势识别", "小车跟随", "摄像头预览" },
-    { "Voice", "Direction", "Camera", "Face", "Hand", "Car", "Camera blend" },
+    { "语音控制", "方向定位", "摄像头跟随", "人脸检测", "手势识别", "小车跟随", "人脸识别" },
+    { "Voice", "Direction", "Camera", "Face", "Hand", "Car", "Face recognition" },
 };
 static const ui_theme_icon_kind_t s_edge_icons[] = {
     UI_THEME_ICON_ASR,
@@ -156,7 +156,7 @@ static void edge_on_select(int index, void *user_data)
     case 6:
         yoloface_tracking_set_return_to_edge_ai(true);
         yoloface_tracking_set_lvgl_camera_blend(true);
-        (void)page_edge_ai_solution_enter();
+        (void)page_edge_ai_face_recognition_enter();
         (void)yoloface_tracking_start();
         break;
     default:

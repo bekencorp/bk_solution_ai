@@ -15,12 +15,12 @@ extern "C" {
 bool yoloface_detection_is_active(void);
 
 /**
- * @brief Query whether the LVGL camera-blend solution page is active.
+ * @brief Query whether the LVGL camera-blend face-recognition page is active.
  *
  * Unlike the full-screen yoloface overlay, this mode keeps LVGL running so
  * physical-key navigation can still be dispatched to the current page.
  */
-bool yoloface_solution_ui_is_active(void);
+bool yoloface_face_recognition_ui_is_active(void);
 
 /**
  * @brief Stop yoloface detection and return the UI to the caller page.
