@@ -11,6 +11,7 @@
 #include "sys_driver.h"
 #include <components/bk_gpu_ctlr.h>
 #include <components/bk_gpu.h>
+#include "gpu_core.h"
 #include "app_camera.h"
 #include "app_display.h"
 #include "app_gpu.h"
@@ -18,10 +19,6 @@
 #include <components/bk_frame_buffer.h>
 #include "driver/isp.h"
 #include <driver/isp_types.h>
-
-#if CONFIG_LVGL
-#include "lv_vendor.h"
-#endif
 
 #if (CONFIG_PSRAM_WRITE_THROUGH)
 #include <driver/psram_types.h>
@@ -100,33 +97,23 @@ avdk_err_t app_gpu_frame_free(void *ptr)
 
 avdk_err_t app_gpu_lock(void)
 {
-#if (CONFIG_VG_LITE_GPU) && CONFIG_LVGL
-    if (s_gpu_handle == NULL)
+    /* Shared VG-Lite HW lock; no longer depends on bk_gpu ctlr handle. */
+    if (bk_gpu_global_lock() != BK_OK)
     {
-        LOGW("%s, gpu handle is NULL\n", __func__);
-        return AVDK_ERR_INVAL;
+        LOGW("%s, gpu global lock failed\n", __func__);
+        return AVDK_ERR_GENERIC;
     }
-
-    return lv_vendor_gpu_lock() ? AVDK_ERR_OK : AVDK_ERR_GENERIC;
-#else
-    return AVDK_ERR_UNSUPPORTED;
-#endif
+    return AVDK_ERR_OK;
 }
 
 avdk_err_t app_gpu_unlock(void)
 {
-#if (CONFIG_VG_LITE_GPU) && CONFIG_LVGL
-    if (s_gpu_handle == NULL)
+    if (bk_gpu_global_unlock() != BK_OK)
     {
-        LOGW("%s, gpu handle is NULL\n", __func__);
-        return AVDK_ERR_INVAL;
+        LOGW("%s, gpu global unlock failed\n", __func__);
+        return AVDK_ERR_GENERIC;
     }
-
-    lv_vendor_gpu_unlock(true);
     return AVDK_ERR_OK;
-#else
-    return AVDK_ERR_UNSUPPORTED;
-#endif
 }
 
 /* Snapshot uses bk_frame_buffer_malloc (not bkmm_frame_malloc/write-through). */
@@ -326,9 +313,6 @@ avdk_err_t app_gpu_turn_on(gpu_board_config_t *config)
         goto error_deinit;
     }
     s_gpu_handle = gpu_handle;
-#if CONFIG_LVGL
-    lv_vendor_gpu_handle_set(gpu_handle);
-#endif
     return AVDK_ERR_OK;
 
 error_deinit:
@@ -382,9 +366,6 @@ avdk_err_t app_gpu_turn_off(bk_gpu_ctlr_handle_t ctlr)
     if (ctlr == s_gpu_handle)
     {
         s_gpu_handle = NULL;
-#if CONFIG_LVGL
-        lv_vendor_gpu_handle_set(NULL);
-#endif
     }
 
     return AVDK_ERR_OK;

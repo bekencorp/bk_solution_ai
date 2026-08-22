@@ -25,7 +25,8 @@ typedef struct {
     bool active;
     bool stopping;
     bool suspended;
-    bool drop_next_camera_frame;
+    bool render_ready;
+    bool lvgl_ready;
     bk_camera_lvgl_blend_config_t config;
     lv_camera_blend_async_handle_t async_handle;
     beken_mutex_t box_mutex;
@@ -95,7 +96,7 @@ static bk_err_t blend_gpu_lock_cb(void *user_data)
 {
     (void)user_data;
 
-    if (app_gpu_handle_get() == NULL || app_gpu_lock() != AVDK_ERR_OK) {
+    if (!s_blend.render_ready || app_gpu_lock() != AVDK_ERR_OK) {
         LOGW("app_gpu_lock failed\n");
         return BK_FAIL;
     }
@@ -136,6 +137,27 @@ static void blend_overlay_cb(void *user_data, vg_lite_buffer_t *output)
 static int blend_camera_frame_free_cb(void *frame)
 {
     return app_gpu_frame_free(frame);
+}
+
+static bk_pixel_format_t blend_camera_format_get(void)
+{
+    return s_blend.config.camera_format == 0 ?
+           BK_PIXEL_FORMAT_ARGB8888 :
+           s_blend.config.camera_format;
+}
+
+static bool blend_camera_compress_get(void)
+{
+    return s_blend.config.camera_format == 0 ?
+           true :
+           s_blend.config.camera_compress;
+}
+
+static bool blend_camera_alpha_blend_get(void)
+{
+    return s_blend.config.camera_format == 0 ?
+           true :
+           s_blend.config.camera_alpha_blend;
 }
 
 bk_err_t bk_camera_lvgl_blend_start(const bk_camera_lvgl_blend_config_t *config)
@@ -250,9 +272,22 @@ bool bk_camera_lvgl_blend_is_active(void)
     return s_blend.active;
 }
 
+bool bk_camera_lvgl_blend_is_lvgl_ready(void)
+{
+    return s_blend.active && s_blend.render_ready && s_blend.lvgl_ready;
+}
+
 void bk_camera_lvgl_blend_set_suspended(bool suspended)
 {
     s_blend.suspended = suspended;
+}
+
+void bk_camera_lvgl_blend_set_render_ready(bool ready)
+{
+    s_blend.render_ready = ready;
+    if (!ready) {
+        s_blend.lvgl_ready = false;
+    }
 }
 
 bk_err_t bk_camera_lvgl_blend_push_camera_frame(void *frame, uint32_t frame_size)
@@ -266,8 +301,7 @@ bk_err_t bk_camera_lvgl_blend_push_camera_frame(void *frame, uint32_t frame_size
         return BK_FAIL;
     }
 
-    if (s_blend.drop_next_camera_frame) {
-        s_blend.drop_next_camera_frame = false;
+    if (!s_blend.render_ready || !s_blend.lvgl_ready) {
         app_gpu_frame_free(frame);
         return BK_OK;
     }
@@ -283,12 +317,12 @@ bk_err_t bk_camera_lvgl_blend_push_camera_frame(void *frame, uint32_t frame_size
         .src_y = 0,
         .src_width = s_blend.config.fg_width,
         .src_height = s_blend.config.fg_height,
-        .src_format = BK_PIXEL_FORMAT_ARGB8888,
-        .src_compress = true,
+        .src_format = blend_camera_format_get(),
+        .src_compress = blend_camera_compress_get(),
         .dst_x = s_blend.config.fg_x,
         .dst_y = s_blend.config.fg_y,
-        .rotate_degree = 0,
-        .alpha_blend = true,
+        .rotate_degree = s_blend.config.camera_rotate_degree,
+        .alpha_blend = blend_camera_alpha_blend_get(),
     };
 
     return lv_camera_blend_async_push_camera_frame(s_blend.async_handle,
@@ -299,13 +333,18 @@ bk_err_t bk_camera_lvgl_blend_push_camera_frame(void *frame, uint32_t frame_size
 
 bk_err_t bk_camera_lvgl_blend_update_lvgl_frame(void *frame, int (*release_cb)(void *args))
 {
-    if (!s_blend.active || s_blend.async_handle == NULL || frame == NULL) {
+    if (!s_blend.active || !s_blend.render_ready ||
+        s_blend.async_handle == NULL || frame == NULL) {
         return BK_FAIL;
     }
 
-    s_blend.drop_next_camera_frame = true;
+    bk_err_t ret = lv_camera_blend_async_update_lvgl_frame(s_blend.async_handle,
+                                                           frame,
+                                                           (lv_camera_blend_free_cb_t)release_cb);
+    if (ret == BK_OK &&
+        lv_camera_blend_async_get_bg_sequence(s_blend.async_handle) != 0) {
+        s_blend.lvgl_ready = true;
+    }
 
-    return lv_camera_blend_async_update_lvgl_frame(s_blend.async_handle,
-                                                   frame,
-                                                   (lv_camera_blend_free_cb_t)release_cb);
+    return ret;
 }

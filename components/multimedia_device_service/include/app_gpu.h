@@ -20,6 +20,7 @@ int app_gpu_board_config_set(gpu_board_config_t *config);
 gpu_board_config_t *app_gpu_board_config_get(void);
 bk_gpu_ctlr_handle_t app_gpu_handle_get(void);
 avdk_err_t app_gpu_frame_free(void *ptr);
+/* Shared VG-Lite HW lock (bk_gpu_global_*), independent of bk_gpu ctlr handle. */
 avdk_err_t app_gpu_lock(void);
 avdk_err_t app_gpu_unlock(void);
 

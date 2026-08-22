@@ -143,7 +143,7 @@ static bool gpu_align_rgb112(uint8_t *src_frame,
                              const float matrix[6],
                              uint8_t *dst_data)
 {
-    if (app_gpu_handle_get() == nullptr || app_gpu_lock() != AVDK_ERR_OK) {
+    if (app_gpu_lock() != AVDK_ERR_OK) {
         MicroPrintf("FaceRecognition GPU lock failed\r\n");
         return false;
     }

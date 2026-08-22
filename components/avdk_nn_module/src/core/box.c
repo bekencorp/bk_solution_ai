@@ -161,7 +161,11 @@ int box_detection_path_build(Box *boxes, int count, int buffer_count, int rotate
     };
 
     bk_gpu_ctlr_handle_t gpu_handle = app_gpu_handle_get();
-    if (gpu_handle == NULL || app_gpu_lock() != AVDK_ERR_OK) {
+    if (gpu_handle == NULL) {
+        LOGW("box_detection_path_build: gpu handle is NULL\n");
+        return -1;
+    }
+    if (app_gpu_lock() != AVDK_ERR_OK) {
         LOGW("box_detection_path_build: gpu lock failed\n");
         return -1;
     }
@@ -181,7 +185,11 @@ int box_detection_path_build(Box *boxes, int count, int buffer_count, int rotate
 void box_detection_path_clear(void)
 {
     bk_gpu_ctlr_handle_t gpu_handle = app_gpu_handle_get();
-    if (gpu_handle == NULL || app_gpu_lock() != AVDK_ERR_OK) {
+    if (gpu_handle == NULL) {
+        LOGW("box_detection_path_clear: gpu handle is NULL\n");
+        return;
+    }
+    if (app_gpu_lock() != AVDK_ERR_OK) {
         LOGW("box_detection_path_clear: gpu lock failed\n");
         return;
     }
