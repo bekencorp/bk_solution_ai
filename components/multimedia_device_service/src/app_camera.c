@@ -536,7 +536,7 @@ int app_isp_camera_sp_channel_turn_on(const camera_board_config_t *config)
     instance.port_id = 0;
     instance.enable_flexa = 0;
     instance.work_mode = 0;
-    instance.buf_cnt = 2;
+    instance.buf_cnt = APP_ISP_SP_BUF_CNT;
     instance.width = config->isp.sp_width;
     instance.height = config->isp.sp_height;
     instance.format = config->isp.sp_format;

@@ -15,6 +15,15 @@ extern "C" {
 #define APP_ISP_MP_CHN_ID 0
 #define APP_ISP_SP_CHN_ID 1
 
+/* Ring (queued buffer) depth of the ISP SP channel opened by
+ * app_isp_camera_sp_channel_turn_on(). The SP channel free-runs into this
+ * ring; a consumer that reads it infrequently (e.g. the AI-camera shutter,
+ * seconds apart) must first drain up to this many STALE frames before the
+ * next read returns a fresh one -- otherwise it gets a frame captured right
+ * after the PREVIOUS read (BK7259SW-3214). Kept in one place so the drain
+ * count in camera_preview stays in lock-step with the actual buffer count. */
+#define APP_ISP_SP_BUF_CNT 2
+
 int app_isp_camera_turn_off(void);
 bool app_isp_camera_state_get(void);
 int app_isp_camera_soft_reset(void);
