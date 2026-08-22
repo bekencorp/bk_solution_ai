@@ -27,6 +27,7 @@
 
 #include "lvgl.h"
 #include "media_devices.h"
+#include "app_camera.h"
 #include "lv_vendor.h"
 #include "ui_overlay_swipe.h"
 
@@ -85,6 +86,7 @@ bk_err_t bk_robot_lvgl_resume_display(void);
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
+#define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
 
 /* Panel object from bk_peripheral; extern here to avoid coupling ap_main macros. */
 extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_320x385;
@@ -124,6 +126,31 @@ extern const bk_display_dsi_panel_t lcd_device_jd9855_mipi_320x385;
 /* SP read timeout: cam_thread may sit in 1s delay on MP flexa chnl before
  * serving SP; first read can take ~1s. Display freeze is still fast via GPU. */
 #define PREVIEW_SP_READ_TIMEOUT_MS  1500
+
+/* Stale-frame drain before the real capture read.
+ *
+ * The SP channel free-runs into a 2-deep ring (buf_cnt=2 in
+ * app_isp_camera_sp_channel_turn_on) but the preview only reads it on a
+ * shutter press -- seconds apart. Between shots nobody consumes the ring,
+ * so once both buffers fill the ISP stalls holding two STALE frames that
+ * were captured right after the PREVIOUS shot. media_camera_sp_read()
+ * (pop_buf) then returns the OLDEST of those, so the JPEG handed to the
+ * vision LLM shows the previous scene, not the frame the user just froze
+ * on screen (the GPU display snapshot is a *different*, current frame).
+ * This is the root cause of BK7259SW-3214 ("AI analyzes the previous
+ * frozen photo").
+ *
+ * Fix: before the real read, read+discard PREVIEW_SP_STALE_DRAIN_FRAMES
+ * frames (>= ring depth). Each discarded read frees a buffer back to the
+ * ISP, which refills it with a current frame; after the ring depth is
+ * drained the next (real) read blocks for and returns a genuinely fresh
+ * frame taken at ~shutter time. A short per-drain timeout keeps this cheap
+ * and lets us stop early if the ring is already empty/fresh.
+ *
+ * Drain count is tied to the SP ring depth (APP_ISP_SP_BUF_CNT in
+ * app_camera.h) so the two never drift apart if the buffer count changes. */
+#define PREVIEW_SP_STALE_DRAIN_FRAMES   APP_ISP_SP_BUF_CNT
+#define PREVIEW_SP_DRAIN_TIMEOUT_MS     300
 
 /* JPEG: quality 0..10 (5 balanced).
  *
@@ -708,6 +735,23 @@ static void camera_preview_photo_task(void *arg)
         LOGE("photo_task: bk_frame_buffer_malloc(UNCODED, %u) failed\n",
              (unsigned)(PREVIEW_SP_NV12_BYTES + 32U));
         goto out;
+    }
+
+    /* Drain the SP ring of stale (previous-shot) frames first -- see the
+     * PREVIEW_SP_STALE_DRAIN_FRAMES doc-block for the full rationale. Reads
+     * are discarded into the same buf; the final real read below overwrites
+     * it with a fresh frame. A drain read that times out means the ring is
+     * already empty/fresh, so stop early. */
+    for (int i = 0; i < PREVIEW_SP_STALE_DRAIN_FRAMES; i++) {
+        avdk_err_t dret = media_camera_sp_read((uint8_t *)buf,
+                                               PREVIEW_SP_NV12_BYTES,
+                                               PREVIEW_SP_DRAIN_TIMEOUT_MS);
+        if (dret != AVDK_ERR_OK) {
+            LOGI("photo_task: SP drain stop at %d (ret=%d, ring empty/fresh)\n",
+                 i, (int)dret);
+            break;
+        }
+        LOGD("photo_task: SP drain discarded stale frame %d\n", i);
     }
 
     avdk_err_t ret = media_camera_sp_read((uint8_t *)buf,
