@@ -33,7 +33,7 @@ CONFIG_BEKEN_KWS_SCRATCH_USE_PSRAM=y
 CONFIG_ADK=y
 CONFIG_ADK_USE_PSRAM=y
 CONFIG_ADK_AEC_V3_ALGORITHM=y
-CONFIG_ADK_AEC_V3_USE_DTCM=y
+# CONFIG_ADK_AEC_V3_USE_DTCM is not set
 CONFIG_ADK_AEC_V3_ALGORITHM_COMPONENT_V2=y
 CONFIG_ADK_EQ_ALGORITHM=y
 CONFIG_ADK_G711_DECODER=y
@@ -93,9 +93,9 @@ CONFIG_ADK_AAC_DECODER=y
 CONFIG_ADK_VFS_STREAM=y
 CONFIG_FREERTOS_USE_QUEUE_SETS=y
 CONFIG_FREERTOS_POSIX=y
-# W7a bring-up: align secureboot_xip — task/queue stacks in SRAM (not PSRAM).
-# Restore after ~1s hang is resolved if PSRAM stack is required for AI.
-# CONFIG_TASK_STACK_IN_PSRAM is not set
+# Place task stacks in PSRAM after aligning PSRAM initialization with the AP
+# power-vote path; keep queues in SRAM until separately validated.
+CONFIG_TASK_STACK_IN_PSRAM=y
 # CONFIG_QUEUE_IN_PSRAM is not set
 CONFIG_TFLITE_MICRO=y
 CONFIG_NPU=y
