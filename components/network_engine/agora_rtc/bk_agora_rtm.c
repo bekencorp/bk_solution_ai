@@ -60,6 +60,13 @@ typedef struct {
     char uuid[RTM_IMAGE_UUID_MAX_LEN];
     char *peer_uid;
     char *query_text;
+    /* Set when the user cancelled (resume-live) while this image was still
+     * in flight (uploaded but not yet ingested). We still send the paired
+     * query text once the image is ingested -- so the image<->query turn is
+     * well-formed and never dangles as a text-less image in the agent's
+     * multi-turn context -- and then immediately barge-in to suppress the
+     * spoken answer. See bk_agora_rtm_interrupt() / _on_image_uploaded(). */
+    bool cancel_after_query;
 } rtm_pending_image_query_t;
 
 static volatile bool s_rtm_login_success = false;
@@ -69,6 +76,11 @@ static uint32_t      s_rtm_msg_id = 0;
  * (bk_agora_rtm_start) and released at RTM deinit (bk_agora_rtm_stop);
  * NULL when RTM is not running. */
 static rtm_pending_image_query_t *s_pending_image_queries = NULL;
+
+/* Raw barge-in send (message.interrupt). Split out from the public
+ * bk_agora_rtm_interrupt() so the deferred-cancel path in
+ * bk_agora_rtm_on_image_uploaded() can fire it directly. */
+static bk_err_t __rtm_send_interrupt(const char *peer_uid);
 
 static const char *__rtm_state_str(rtm_msg_state_e s)
 {
@@ -163,6 +175,30 @@ static void __clear_pending_image_queries(void)
             __free_pending_image_query(&s_pending_image_queries[i]);
         }
     }
+}
+
+/* Mark every in-flight pending image query (uploaded, awaiting the server's
+ * message.info ingest signal) as "cancelled": its paired query text will
+ * still be sent to close the turn cleanly, followed by a barge-in. Returns
+ * true if at least one such entry exists -- in which case the caller must
+ * NOT send the interrupt now (it is deferred to _on_image_uploaded()). */
+static bool __mark_pending_image_queries_cancel(void)
+{
+    bool any = false;
+
+    if (!s_pending_image_queries)
+    {
+        return false;
+    }
+    for (size_t i = 0; i < RTM_PENDING_IMAGE_QUERY_MAX; i++)
+    {
+        if (s_pending_image_queries[i].used)
+        {
+            s_pending_image_queries[i].cancel_after_query = true;
+            any = true;
+        }
+    }
+    return any;
 }
 
 /* Reclaim entries that have out-lived RTM_PENDING_IMAGE_QUERY_AGE_MS. This
@@ -378,6 +414,7 @@ void bk_agora_rtm_on_image_uploaded(const char *uuid)
     char *peer_uid = pending->peer_uid;
     char *query_text = pending->query_text;
     uint32_t msg_id = pending->msg_id;
+    bool cancel_after_query = pending->cancel_after_query;
 
     /* Detach the heap buffers before freeing the slot so we can keep
      * using them after the slot is reusable by a concurrent uploader. */
@@ -391,6 +428,17 @@ void bk_agora_rtm_on_image_uploaded(const char *uuid)
     {
         LOGE("image uuid=%s follow-up query text failed\n", uuid);
     }
+
+    /* Cancelled while in flight: the query above closed the image turn so it
+     * cannot merge with the next capture's image, and this barge-in (issued
+     * right after the query, before the agent starts TTS) keeps the discarded
+     * shot from being spoken. */
+    if (cancel_after_query && peer_uid)
+    {
+        LOGI("cancelled image uuid=%s: paired query sent, barge-in now\n", uuid);
+        (void)__rtm_send_interrupt(peer_uid);
+    }
+
     if (peer_uid)
     {
         os_free(peer_uid);
@@ -813,7 +861,7 @@ __exit:
     return ret;
 }
 
-bk_err_t bk_agora_rtm_interrupt(const char *peer_uid)
+static bk_err_t __rtm_send_interrupt(const char *peer_uid)
 {
     static const char payload[] = "{\"customType\":\"message.interrupt\"}";
     int rval;
@@ -829,9 +877,6 @@ bk_err_t bk_agora_rtm_interrupt(const char *peer_uid)
         return BK_FAIL;
     }
 
-    /* Prevent a late image-ingested notification from restarting the turn. */
-    __clear_pending_image_queries();
-
     s_rtm_msg_id++;
     LOGI("interrupt peer=%s msg_id=%u\n", peer_uid, s_rtm_msg_id);
     rval = agora_rtc_send_rtm_data(peer_uid, payload, sizeof(payload) - 1,
@@ -844,6 +889,39 @@ bk_err_t bk_agora_rtm_interrupt(const char *peer_uid)
     }
 
     return BK_OK;
+}
+
+bk_err_t bk_agora_rtm_interrupt(const char *peer_uid)
+{
+    if (!peer_uid || peer_uid[0] == '\0')
+    {
+        LOGE("interrupt: peer_uid required\n");
+        return BK_FAIL;
+    }
+    if (!s_rtm_login_success)
+    {
+        LOGE("interrupt: RTM not login yet\n");
+        return BK_FAIL;
+    }
+
+    /* If an image is still in flight (uploaded but its message.info ingest
+     * signal has not come back yet), do NOT drop its follow-up query. Dropping
+     * it would leave a text-less image dangling in the agent's multi-turn
+     * context, and the NEXT capture's "describe this image" query would then
+     * describe that stale image together with the new one -- exactly the
+     * "AI analyzes the previously cancelled photo too" bug.
+     *
+     * Instead we let the image<->query pair complete (turn stays well-formed)
+     * and defer the barge-in to bk_agora_rtm_on_image_uploaded(), which fires
+     * it right after the query goes out. Only when nothing is in flight do we
+     * interrupt immediately (the common "stop the agent mid-speech" case). */
+    if (__mark_pending_image_queries_cancel())
+    {
+        LOGI("interrupt deferred: image in flight, barge-in after paired query\n");
+        return BK_OK;
+    }
+
+    return __rtm_send_interrupt(peer_uid);
 }
 
 #endif /* CONFIG_AGORA_RTC_USE_STRING_UID */
