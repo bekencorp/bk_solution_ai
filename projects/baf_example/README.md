@@ -18,12 +18,24 @@ Select via menuconfig "BAF example playback backend" (see `ap/Kconfig.projbuild`
 | **LVGL** | `CONFIG_BAF_EXAMPLE_MODE_LVGL` (which `select`s `CONFIG_LVGL`) | Play through the `lv_baf` widget (an `lv_image` subclass) inside LVGL |
 
 Animation source:
-- **RAW mode**: on boot it auto-cycles every `.baf` under `1:/baf/` on the TF
-  card — sorted by filename, each looped **twice**, then advancing to the next and
-  wrapping around forever. If `1:/baf/` has no usable `.baf` (or no card), it
-  falls back to the compiled-in `ap/assets/sample_bk_baf_asset.c`. Use
-  `baf_display play <path>` to interpose a specific file (see §4); it returns to
-  the auto-cycle afterwards.
+- **RAW mode**: a multi-layer compositor stacks up to 3 BAF animations back-to-front
+  (base is opaque, upper layers are src-over blended so their transparent regions
+  reveal the layers below). It runs in one of two mutually-exclusive modes,
+  switched at runtime with `baf_display` (see §4):
+
+  - **SCENE** *(default)* — show a compiled-in preset stack:
+
+    | Scene | Layers (back → front) |
+    | --- | --- |
+    | 1 | avatar only |
+    | 2 *(default)* | background + avatar |
+    | 3 | background + avatar + curtain |
+
+  - **CUSTOM** — show only `.baf` files the user stacks from the TF card, one per
+    layer slot. Assigning a file switches to CUSTOM and drops all preset layers;
+    clearing a slot removes just that layer; when every slot is empty only the grey
+    background is shown. Selecting a scene switches back to SCENE and drops all
+    custom layers.
 - **LVGL mode**: plays the compiled-in sample animation.
 
 `.baf` and `*_baf_asset.c` are generated from GIF/APNG/MP4 by
@@ -68,12 +80,15 @@ Commands are sent from the CP serial console; AP-side commands need the `ap_cmd`
 
 ### Playback control (`baf_display`)
 
-RAW mode auto-cycles `1:/baf/*.baf` on boot (see §1); these commands intervene:
+RAW mode (layered compositor, see §1):
 
 | Command | Description |
 | --- | --- |
-| `ap_cmd baf_display play <path>` | Interpose a `.baf` from the card (e.g. `1:/baf/dizzy.baf`), play it twice, then return to the auto-cycle; returns to the cycle immediately on failure |
-| `ap_cmd baf_display freerun <0\|1>` | Enable/disable max-speed playback (ignore per-frame durations) |
+| `ap_cmd baf_display scene <1\|2\|3>` | SCENE mode: select a preset stack (1 = avatar, 2 = background + avatar (default), 3 = + curtain); clears any custom layers |
+| `ap_cmd baf_display layer <idx> <sdpath>` | CUSTOM mode: stack a card `.baf` onto layer `idx` (0 = back), e.g. `1:/baf/hug.baf`; the first assignment drops all preset layers |
+| `ap_cmd baf_display layer <idx> clear` | CUSTOM mode: clear layer `idx`; when all slots are empty only the background shows (invalid in SCENE mode) |
+| `ap_cmd baf_display maxlayers` | Print the maximum number of stackable layers |
+| `ap_cmd baf_display freerun <0\|1>` | Enable/disable max-speed playback on the top layer (ignore per-frame durations) |
 
 LVGL mode:
 
@@ -85,7 +100,12 @@ Examples:
 
 ```text
 ap_cmd tf ls baf
-ap_cmd baf_display play 1:/baf/fine.baf
+ap_cmd baf_display maxlayers
+ap_cmd baf_display scene 3               # preset 3-layer stack
+ap_cmd baf_display layer 0 1:/baf/quiet.baf   # -> CUSTOM mode, only quiet.baf
+ap_cmd baf_display layer 1 1:/baf/hug.baf     # stack hug.baf on top
+ap_cmd baf_display layer 0 clear              # remove the bottom layer
+ap_cmd baf_display scene 2               # back to SCENE mode (presets)
 ap_cmd baf_display freerun 1
 ```
 
@@ -97,11 +117,14 @@ baf_example/
 ├── Makefile
 ├── ap/                              # AP core
 │   ├── ap_main.c                    # entry: power-on, TF mount, start RAW/LVGL, baf_display CLI
-│   ├── baf_raw.c / .h               # RAW backend: decode + GPU/CPU compose + DPU flush + /baf auto-cycle + interpose/freerun
+│   ├── baf_raw.c / .h               # RAW backend: multi-layer decode + GPU/CPU compose + DPU flush + scene/layer CLI
 │   ├── baf_page.c / .h              # LVGL backend: lv_baf widget page
-│   ├── baf_file.c / .h              # parse a .baf file into a bk_baf_source_t (file playback)
+│   ├── baf_file.c / .h              # parse a .baf file into a bk_baf_source_t (SD-card layer overlay)
 │   ├── tf_card.c / .h               # TF/FATFS mount + `tf` CLI
-│   ├── assets/sample_bk_baf_asset.c # animation compiled into the firmware
+│   ├── assets/                      # animations compiled into the firmware
+│   │   ├── hello_bk_baf_asset.c     #   foreground avatar (scenes 1/2/3)
+│   │   ├── background_bk_baf_asset.c#   background (scenes 2/3)
+│   │   └── curtain_baf_asset.c      #   curtain overlay (scene 3)
 │   ├── lv_conf_custom.h             # project LVGL config (LVGL mode only)
 │   ├── Kconfig.projbuild            # mode / backend selection
 │   └── config/bk7259_ap/

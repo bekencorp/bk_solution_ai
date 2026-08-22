@@ -4,7 +4,9 @@ set(srcs
     ap_main.c
     tf_card.c
     baf_file.c
-    assets/sample_bk_baf_asset.c
+    assets/hello_bk_baf_asset.c
+    assets/background_bk_baf_asset.c
+    assets/curtain_baf_asset.c
     )
 
 # Requirements are resolved by the build system in an early pass without config,

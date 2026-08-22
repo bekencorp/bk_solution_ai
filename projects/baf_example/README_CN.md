@@ -17,11 +17,21 @@
 | **LVGL** | `CONFIG_BAF_EXAMPLE_MODE_LVGL`（会 `select CONFIG_LVGL`） | 通过 `lv_baf` 控件（`lv_image` 子类）在 LVGL 里播放 |
 
 动画来源：
-- **RAW 模式**：上电后自动轮播 TF 卡 `1:/baf/` 下的所有 `.baf` 文件——按文件名排序，
-  每个循环播放 **2 遍**后切下一个，播完最后一个回到第一个，无限循环。若 `1:/baf/`
-  下没有可用 `.baf`（或无卡），则回退播放编译进固件的
-  `ap/assets/sample_bk_baf_asset.c`。用 `baf_display play <path>` 可临时插播指定
-  文件（见 §4），播完后自动回到轮播。
+- **RAW 模式**：多层合成器把最多 3 个 BAF 动画自底向上叠加（底层不透明打底，
+  上层用 src-over 混合，透明区域露出下层）。运行时在两种互斥模式间切换（用
+  `baf_display`，见 §4）：
+
+  - **场景模式 SCENE** *(默认)* —— 显示编译进固件的预设叠层：
+
+    | 场景 | 层（底 → 顶） |
+    | --- | --- |
+    | 1 | 仅前景 avatar |
+    | 2 *(默认)* | 背景 + avatar |
+    | 3 | 背景 + avatar + 帘幕 curtain |
+
+  - **自定义模式 CUSTOM** —— 只显示用户从 TF 卡逐层叠加的 `.baf` 文件。给某层指定
+    文件即进入 CUSTOM 并清除所有预设层；清除某层只移除该层；所有层都清空时只显示灰色
+    背景。选择场景则切回 SCENE 并清除所有自定义层。
 - **LVGL 模式**：播放编译进固件的示例动画。
 
 `.baf` 与 `*_baf_asset.c` 由 `baf_tool/tools/to_baf.py` 从 GIF/APNG/MP4 等素材生成。
@@ -65,14 +75,15 @@ make bk7259 SDK_DIR=<path-to>/avdk -j
 
 ### 播放控制（`baf_display`）
 
-RAW 模式（默认）：
-
-RAW 模式上电即自动轮播 `1:/baf/*.baf`（见 §1）；下列命令用于临时干预：
+RAW 模式（多层合成器，见 §1）：
 
 | 命令 | 说明 |
 | --- | --- |
-| `ap_cmd baf_display play <path>` | 插播 TF 卡上的 `.baf`（如 `1:/baf/dizzy.baf`），播 2 遍后回到轮播；加载失败则直接回到轮播 |
-| `ap_cmd baf_display freerun <0\|1>` | 开/关最高速播放（忽略每帧时长） |
+| `ap_cmd baf_display scene <1\|2\|3>` | 场景模式：选预设叠层（1 = avatar，2 = 背景 + avatar（默认），3 = + 帘幕）；同时清除所有自定义层 |
+| `ap_cmd baf_display layer <idx> <sdpath>` | 自定义模式：把 TF 卡 `.baf` 叠到第 `idx` 层（0 = 底），如 `1:/baf/hug.baf`；首次指定会清除所有预设层 |
+| `ap_cmd baf_display layer <idx> clear` | 自定义模式：清除第 `idx` 层；所有层清空后只显示背景（场景模式下无效） |
+| `ap_cmd baf_display maxlayers` | 打印最大可叠加层数 |
+| `ap_cmd baf_display freerun <0\|1>` | 开/关顶层最高速播放（忽略每帧时长） |
 
 LVGL 模式：
 
@@ -84,7 +95,12 @@ LVGL 模式：
 
 ```text
 ap_cmd tf ls baf
-ap_cmd baf_display play 1:/baf/fine.baf
+ap_cmd baf_display maxlayers
+ap_cmd baf_display scene 3                     # 预设 3 层
+ap_cmd baf_display layer 0 1:/baf/quiet.baf    # 进入自定义模式，仅 quiet.baf
+ap_cmd baf_display layer 1 1:/baf/hug.baf      # 叠加 hug.baf
+ap_cmd baf_display layer 0 clear               # 移除底层
+ap_cmd baf_display scene 2                      # 切回场景模式（预设）
 ap_cmd baf_display freerun 1
 ```
 
@@ -96,11 +112,14 @@ baf_example/
 ├── Makefile
 ├── ap/                              # AP 侧
 │   ├── ap_main.c                    # 入口：上电、TF 挂载、按模式启动 RAW/LVGL、baf_display CLI
-│   ├── baf_raw.c / .h               # RAW 后端：解码 + GPU/CPU 合成 + DPU flush + /baf 自动轮播 + 插播/freerun
+│   ├── baf_raw.c / .h               # RAW 后端：多层解码 + GPU/CPU 合成 + DPU flush + scene/layer CLI
 │   ├── baf_page.c / .h              # LVGL 后端：lv_baf 控件页面
-│   ├── baf_file.c / .h              # 解析 .baf 文件为 bk_baf_source_t（文件播放）
+│   ├── baf_file.c / .h              # 解析 .baf 文件为 bk_baf_source_t（SD 卡层覆盖）
 │   ├── tf_card.c / .h               # TF/FATFS 挂载 + `tf` CLI
-│   ├── assets/sample_bk_baf_asset.c # 编译进固件的示例动画
+│   ├── assets/                      # 编译进固件的动画
+│   │   ├── hello_bk_baf_asset.c     #   前景 avatar（场景 1/2/3）
+│   │   ├── background_bk_baf_asset.c#   背景（场景 2/3）
+│   │   └── curtain_baf_asset.c      #   帘幕叠加（场景 3）
 │   ├── lv_conf_custom.h             # LVGL 工程级配置（仅 LVGL 模式）
 │   ├── Kconfig.projbuild            # 模式/后端选择
 │   └── config/bk7259_ap/

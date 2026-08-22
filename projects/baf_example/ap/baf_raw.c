@@ -1,33 +1,48 @@
 /**
  * @file baf_raw.c
  *
- * Raw (LVGL-independent) BAF playback backend for baf_example.
+ * Raw (LVGL-independent) multi-layer BAF playback backend for baf_example.
  *
- * Compiled when CONFIG_LVGL is off (the default RAW backend; see ap/CMakeLists.txt
- * and ap/Kconfig.projbuild). It drives the closed bk_baf decoder + GPU compositor
- * directly:
- *   decode frame -> baf_gpu_compose_frame() into a LINEAR ARGB8888 framebuffer
- *   -> bk_display_flush() straight to the jd9855 DPU panel.
- * A dedicated render thread just polls the decoder (which paces playback to the
- * source frame durations internally) and flushes each frame. No LVGL / lv_vendor.
+ * Compiled when CONFIG_LVGL is off (the default RAW backend). It stacks up to
+ * BAF_MAX_LAYERS BAF animations back-to-front and flushes straight to the jd9855
+ * DPU panel, no LVGL:
+ *   layer 0 (back)  : bk_baf_compose(over=false) -- opaque base, fills the frame
+ *   layer 1..N (top): bk_baf_compose(over=true)  -- src-over, transparent regions
+ *                                                   reveal the layers below
+ * A render thread polls every layer's decoder (each paces itself to its own
+ * per-frame durations) and re-composites the stack whenever any layer yields a
+ * new frame.
+ *
+ * The stack is runtime-selectable ("scenes" of 1/2/3 compiled-in layers) and any
+ * layer can be overridden with a .baf file from the SD card. Changing the scene
+ * or an override raises s_reconfig; the render thread tears the decoders down and
+ * rebuilds the stack (the GPU set up once by bk_baf_init() stays up).
  */
 
 #include "baf_raw.h"
 
+/* Set to 1 to log per-30-frame perf stats (poll+decode / compose / cadence fps).
+ * Development instrumentation; off by default (no aon_rtc calls, no logging). */
+#define BAF_RAW_PROFILE 0
+
 #include <common/bk_include.h>
 #include <os/os.h>
 #include <os/mem.h>
+#include <os/str.h>
 #include <driver/gpio.h>
 #include "gpio_driver.h"
 #include <components/log.h>
 #include <components/bk_frame_buffer.h>
 #include <common/avdk_pixel_types.h>
+#if BAF_RAW_PROFILE
+#include <driver/aon_rtc.h>                 /* bk_aon_rtc_get_us(): perf stats */
+#endif
 #include <components/bk_display.h>          /* umbrella: bus + panel + display ctlr */
 #include <avdk_error.h>
 #include <lcd/lcd_mipi_jd9855_320x385.h>
 #include <bk_baf.h>
-#include "baf_file.h"                       /* play a .baf file off the TF card */
-#include "tf_card.h"                         /* enumerate the /baf playlist */
+#include "baf_file.h"                        /* load a .baf file off the SD card */
+#include "tf_card.h"                         /* TF_PATH_MAX */
 
 #define TAG "baf_raw"
 
@@ -36,8 +51,7 @@
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 
 /* Same board bring-up as the LVGL path (Robot V1): panel reset GPIO_5, backlight
- * GPIO_7. The peripheral 3.3V rail and aux LDO are enabled in main() before this
- * backend starts, so they are not repeated here. */
+ * GPIO_7. The peripheral 3.3V rail and aux LDO are enabled in main() first. */
 #define PANEL_RESET_PIN        GPIO_5
 #define PANEL_BACKLIGHT_PIN    GPIO_7
 
@@ -45,54 +59,71 @@
 #define PANEL_WIDTH            320
 #define PANEL_HEIGHT           385
 
-/* Opaque background for the frame's transparent regions, matching the LVGL
- * baf_page screen background (BAF_BG_COLOR 0xD0D0D0). ARGB8888 with alpha 0xFF so
- * the single-layer DPU scanout shows it (the raw path has no LVGL screen behind
- * the animation). */
+/* Opaque grey background (ARGB8888, A=0xFF) shown under/through the base layer. */
 #define BAF_RAW_BG_ARGB        0xFFD0D0D0U
+#define BAF_RAW_BG_BYTE        0xD0
 
 #define BAF_RAW_TASK_PRIORITY   4
 #define BAF_RAW_TASK_STACK_SIZE (1024 * 16)
-/* Poll cadence while the decode pipeline reports "not ready yet". */
 #define BAF_RAW_WAIT_MS         2U
 
-/* Boot playlist: auto-play every "*.baf" under this directory, each looped this
- * many times, then advance to the next and wrap around forever. */
-#define BAF_PLAYLIST_DIR        "1:/baf"
-#define BAF_PLAYLIST_MAX        32
-#define BAF_PLAYLIST_LOOPS      2
+/* BAF_MAX_LAYERS is declared in baf_raw.h (shared with the CLI). */
 
-/* The animated asset compiled into the firmware (fallback when the TF card has
- * no playable .baf files). */
-extern const bk_baf_source_t sample_bk_baf_source;
+/* Compiled-in assets. */
+extern const bk_baf_source_t hello_bk_baf_source;                  /* foreground avatar */
+extern const bk_baf_source_t doubao_background_320x384_baf_source; /* background */
+extern const bk_baf_source_t curtain_baf_source;                   /* top curtain overlay */
+
+/* ---- Scenes: preset layer stacks (back -> front) ----
+ *   1 = avatar only, 2 = background + avatar (default), 3 = + curtain on top. */
+static const bk_baf_source_t *const k_scene1[] = { &hello_bk_baf_source };
+static const bk_baf_source_t *const k_scene2[] = {
+    &doubao_background_320x384_baf_source, &hello_bk_baf_source,
+};
+static const bk_baf_source_t *const k_scene3[] = {
+    &doubao_background_320x384_baf_source, &hello_bk_baf_source, &curtain_baf_source,
+};
+
+static const bk_baf_source_t *const *scene_sources(int scene, int *count)
+{
+    switch (scene) {
+    case 1: *count = 1; return k_scene1;
+    case 3: *count = 3; return k_scene3;
+    case 2:
+    default: *count = 2; return k_scene2;
+    }
+}
+
+#define BAF_SCENE_DEFAULT   2
 
 static bk_display_ctlr_handle_t   s_dpu_ctlr_handle = NULL;
 static bk_display_bus_handle_t    s_dsi_bus_handle  = NULL;
 static bk_avdk_lcd_panel_handle_t s_panel_handle    = NULL;
 static beken_thread_t             s_render_thread   = NULL;
-/* Open decoder owned by the render thread; exposed only so baf_raw_set_freerun()
- * (CLI task) can toggle free-run at runtime. NULL until the thread opens it. */
+/* Top layer's decoder, exposed only so baf_raw_set_freerun() (CLI) can toggle
+ * free-run on the topmost layer. NULL until the render thread opens the stack. */
 static bk_baf_decoder_t          *s_decoder         = NULL;
 
-/* Auto-playlist of .baf paths discovered under BAF_PLAYLIST_DIR at boot; the
- * render thread walks it in order (BAF_PLAYLIST_LOOPS each) and wraps forever.
- * Owned by the render thread. */
-static char s_playlist[BAF_PLAYLIST_MAX][TF_PATH_MAX];
-static int  s_playlist_count;
-static int  s_playlist_index;
+/* Two mutually-exclusive playback modes, switched from the CLI and applied by the
+ * render thread on s_reconfig:
+ *   SCENE  - show one of the compiled-in presets (scene 1/2/3).
+ *   CUSTOM - show only SD-card .baf files the user stacked onto layers; empty
+ *            slots are skipped and an empty stack shows just the grey background.
+ * Switching modes fully tears the old stack down, so no layer from the previous
+ * mode ever lingers. */
+typedef enum { BAF_MODE_SCENE, BAF_MODE_CUSTOM } baf_raw_mode_t;
 
-/* CLI override: `baf_display play <path>` stages a path here and raises
- * s_switch_req; the render loop interrupts the current animation, plays this
- * file once through, then resumes the playlist. */
-static char          s_pending_path[TF_PATH_MAX];
-static volatile bool s_switch_req = false;
+static volatile baf_raw_mode_t s_mode     = BAF_MODE_SCENE;
+static volatile int            s_scene    = BAF_SCENE_DEFAULT;
+static volatile bool           s_reconfig = true;
+static char                    s_custom_path[BAF_MAX_LAYERS][TF_PATH_MAX];
 
 static void baf_raw_copy_path(char *dst, size_t dstsz, const char *src)
 {
     size_t i = 0;
     if (dstsz == 0U) return;
-    for (; src[i] != '\0' && (i + 1U) < dstsz; i++) {
-        dst[i] = src[i];
+    if (src != NULL) {
+        for (; src[i] != '\0' && (i + 1U) < dstsz; i++) dst[i] = src[i];
     }
     dst[i] = '\0';
 }
@@ -103,13 +134,10 @@ static void panel_backlight_on(void)
     BK_LOG_ON_ERR(bk_gpio_enable_output(PANEL_BACKLIGHT_PIN));
     BK_LOG_ON_ERR(bk_gpio_pull_down(PANEL_BACKLIGHT_PIN));
     bk_gpio_set_capacity(PANEL_BACKLIGHT_PIN, GPIO_DRIVER_CAPACITY_3);
-    /* Robot V1 backlight enable is active-low: drive LOW = ON. */
-    bk_gpio_set_output_low(PANEL_BACKLIGHT_PIN);
+    bk_gpio_set_output_low(PANEL_BACKLIGHT_PIN);   /* active-low: LOW = ON */
 }
 
-/* jd9855 MIPI DSI bring-up. Unlike the LVGL path the DPU framebuffer is a plain
- * LINEAR ARGB8888 surface (decompress = false), because baf_gpu_compose_frame()
- * writes a linear, non-tiled ARGB8888 frame. */
+/* jd9855 MIPI DSI bring-up: LINEAR ARGB8888 DPU surface (no decompress). */
 static avdk_err_t baf_raw_panel_open(void)
 {
     bk_err_t ret;
@@ -145,7 +173,7 @@ err:
     return AVDK_ERR_GENERIC;
 }
 
-/* DPU frame-consumed callback: release the framebuffer once scanout is done. */
+/* DPU frame-consumed callback: release the framebuffer after scanout. */
 static avdk_err_t baf_raw_fb_free_cb(void *frame)
 {
     if (frame != NULL) {
@@ -154,132 +182,109 @@ static avdk_err_t baf_raw_fb_free_cb(void *frame)
     return AVDK_ERR_OK;
 }
 
-/* Why baf_raw_play_source() returned. */
-typedef enum {
-    BAF_PLAY_END,      /* configured loop_count reached -> advance the playlist */
-    BAF_PLAY_SWITCH,   /* a `baf_display play` override was requested */
-    BAF_PLAY_ERROR,    /* fatal decode error -> stop the render thread */
-} baf_play_result_t;
+/* ---- Layer stack lifecycle ---- */
+static bk_baf_decoder_t   *s_dec[BAF_MAX_LAYERS];       /* open decoders, back->front */
+static const bk_baf_source_t *s_file_src[BAF_MAX_LAYERS]; /* loaded SD sources to free */
+static int                 s_nlayers;
 
-/* Open a decoder for @source with @loop_count (0 = infinite, N = play N times
- * then END). Hardware (backend + GPU) is set up once in the render thread via
- * bk_baf_init(); opening a source never touches the GPU, so switching sources
- * does not power-cycle it. */
-static bk_baf_decoder_t *baf_raw_open(const bk_baf_source_t *source, int32_t loop_count)
+static void baf_raw_teardown_stack(void)
 {
-    bk_baf_config_t cfg = { .source = source, .loop_count = loop_count };
-    return bk_baf_open(&cfg);
-}
-
-/* Play one opened source until it finishes its loop_count (END), a CLI override
- * is requested (SWITCH), or it errors (ERROR). */
-static baf_play_result_t baf_raw_play_source(bk_baf_decoder_t *decoder, uint16_t w, uint16_t h)
-{
-    const uint32_t fb_size = (uint32_t)PANEL_WIDTH * (uint32_t)PANEL_HEIGHT * 4U;
-    uint32_t fb_parity = 0U;   /* alternate the display FB across the two PSRAM controllers */
-
-    for (;;) {
-        if (s_switch_req) {
-            return BAF_PLAY_SWITCH;   /* leave the frame in place; caller swaps the source */
-        }
-
-        bk_baf_decoder_result_t result = bk_baf_poll(decoder);
-        if (result == BK_BAF_DECODER_RESULT_WAIT) {
-            rtos_delay_milliseconds(BAF_RAW_WAIT_MS);
-            continue;
-        }
-        if (result == BK_BAF_DECODER_RESULT_END) {
-            return BAF_PLAY_END;   /* loop_count exhausted; advance to the next asset */
-        }
-        if (bk_baf_result_is_error(result)) {
-            LOGE("BAF decode failed: %d\n", (int)result);
-            return BAF_PLAY_ERROR;
-        }
-
-        /* result == BK_BAF_DECODER_RESULT_FRAME */
-        bk_baf_frame_desc_t canvas_desc, alpha_desc;
-        bk_baf_get_frame_desc(decoder, &canvas_desc, &alpha_desc);
-        if (canvas_desc.data == NULL) {
-            continue;
-        }
-
-        /* PSRAM load-balancing: alternate the display framebuffer between the two
-         * controllers (even -> PSRAM0/UNCODED, odd -> PSRAM1/CODED) so the DPU
-         * scanout of the previous frame and the GPU compose-write of the current
-         * frame no longer collide on one controller. */
-        frame_buffer_heap_type_t fb_heap = (fb_parity++ & 1U) ? MEM_SLAB_HEAP_CODED
-                                                              : MEM_SLAB_HEAP_UNCODED;
-        uint8_t *fb = bk_frame_buffer_malloc(fb_heap, fb_size);
-        if (fb == NULL) {
-            LOGW("frame buffer alloc failed (%u bytes)\n", (unsigned)fb_size);
-            rtos_delay_milliseconds(BAF_RAW_WAIT_MS);
-            continue;
-        }
-        /* bk_baf_compose() clears rows [0, h) to the grey background, so only the
-         * unused tail rows [h, PANEL_HEIGHT) need a CPU grey-fill. */
-        if (h < PANEL_HEIGHT) {
-            os_memset(fb + (size_t)PANEL_WIDTH * (size_t)h * 4U, 0xD0,
-                      (size_t)PANEL_WIDTH * (size_t)(PANEL_HEIGHT - h) * 4U);
-        }
-        bk_baf_frame_desc_t fb_desc = {
-            .data = fb, .format = BK_BAF_PIXEL_ARGB8888,
-            .width = w, .height = h, .stride = (uint32_t)w * 4U,
-        };
-        bk_baf_compose(&fb_desc, &canvas_desc,
-                       alpha_desc.data ? &alpha_desc : NULL, BAF_RAW_BG_ARGB);
-
-        if (bk_display_flush(s_dpu_ctlr_handle, fb, baf_raw_fb_free_cb) != AVDK_ERR_OK) {
-            LOGE("display flush failed\n");
-            bk_frame_buffer_free(fb);
-        }
+    for (int i = 0; i < s_nlayers; i++) {
+        if (s_dec[i] != NULL) { bk_baf_close(s_dec[i]); s_dec[i] = NULL; }
+        if (s_file_src[i] != NULL) { baf_file_unload(s_file_src[i]); s_file_src[i] = NULL; }
     }
-}
-
-/* Play one asset (a loaded file source, or the built-in fallback) through the
- * pipeline. @file_src is non-NULL for a TF-card file (unloaded here when done),
- * NULL for the compiled-in asset. Returns why playback stopped. */
-static baf_play_result_t baf_raw_play_one(const bk_baf_source_t *source,
-                                          const bk_baf_source_t *file_src,
-                                          int32_t loop_count, const char *label)
-{
-    bk_baf_decoder_t *decoder = baf_raw_open(source, loop_count);
-    if (decoder == NULL) {
-        LOGE("bk_baf_open failed\n");
-        if (file_src != NULL) baf_file_unload(file_src);
-        return BAF_PLAY_ERROR;
-    }
-    s_decoder = decoder;
-
-    uint16_t w = bk_baf_get_width(decoder);
-    uint16_t h = bk_baf_get_height(decoder);
-    /* baf_gpu_compose_frame() assumes dst stride == frame width, so the frame
-     * must be exactly the panel width; height may be <= panel height. */
-    if (w != PANEL_WIDTH || h == 0U || h > PANEL_HEIGHT) {
-        LOGE("unsupported BAF size %ux%u (panel %ux%u): %s\n",
-             (unsigned)w, (unsigned)h, (unsigned)PANEL_WIDTH, (unsigned)PANEL_HEIGHT, label);
-        s_decoder = NULL;
-        bk_baf_close(decoder);
-        if (file_src != NULL) baf_file_unload(file_src);
-        return BAF_PLAY_END;   /* treat as "done", so the caller just advances */
-    }
-
-    LOGI("baf raw playback start: frame %ux%u -> panel %ux%u [%s]\n",
-         (unsigned)w, (unsigned)h, (unsigned)PANEL_WIDTH, (unsigned)PANEL_HEIGHT, label);
-
-    baf_play_result_t r = baf_raw_play_source(decoder, w, h);
-
+    s_nlayers = 0;
     s_decoder = NULL;
-    bk_baf_close(decoder);
-    if (file_src != NULL) baf_file_unload(file_src);
-    return r;
+}
+
+/* Build the decoder stack for the active mode:
+ *   SCENE  -> the scene's compiled-in preset layers.
+ *   CUSTOM -> only the SD .baf files assigned to layer slots (empties skipped).
+ * Returns the number of layers opened (may be 0 in CUSTOM = background only). */
+static int baf_raw_build_stack(void)
+{
+    int n = 0;
+
+    if (s_mode == BAF_MODE_SCENE) {
+        int count = 0;
+        const bk_baf_source_t *const *preset = scene_sources(s_scene, &count);
+        if (count > BAF_MAX_LAYERS) count = BAF_MAX_LAYERS;
+        for (int i = 0; i < count; i++) {
+            bk_baf_config_t cfg = { .source = preset[i], .loop_count = 0 };
+            bk_baf_decoder_t *d = bk_baf_open(&cfg);
+            if (d == NULL) { LOGE("layer %d open failed\n", i); continue; }
+            s_dec[n] = d;
+            s_file_src[n] = NULL;   /* preset source, nothing to unload */
+            n++;
+        }
+    } else {   /* BAF_MODE_CUSTOM: SD-card files only */
+        for (int i = 0; i < BAF_MAX_LAYERS; i++) {
+            if (s_custom_path[i][0] == '\0') continue;   /* empty slot */
+            const bk_baf_source_t *loaded = baf_file_load(s_custom_path[i]);
+            if (loaded == NULL) {
+                LOGW("layer %d: load '%s' failed, skipped\n", i, s_custom_path[i]);
+                continue;
+            }
+            bk_baf_config_t cfg = { .source = loaded, .loop_count = 0 };
+            bk_baf_decoder_t *d = bk_baf_open(&cfg);
+            if (d == NULL) {
+                LOGE("layer %d open failed\n", i);
+                baf_file_unload(loaded);
+                continue;
+            }
+            s_dec[n] = d;
+            s_file_src[n] = loaded;   /* freed on teardown */
+            n++;
+        }
+    }
+
+    s_nlayers = n;
+    s_decoder = (n > 0) ? s_dec[n - 1] : NULL;
+    return n;
+}
+
+/* Composite the whole layer stack into @fb: base layer fills (over grey), each
+ * higher layer is src-over blended so its transparent regions reveal the ones
+ * below. Returns true if at least the base was drawn. */
+static bool baf_raw_compose_stack(uint8_t *fb, uint16_t w, uint16_t h)
+{
+    bk_baf_frame_desc_t fb_desc = {
+        .data = fb, .format = BK_BAF_PIXEL_ARGB8888,
+        .width = w, .height = h, .stride = (uint32_t)w * 4U,
+    };
+    bool base_done = false;
+
+    for (int i = 0; i < s_nlayers; i++) {
+        bk_baf_frame_desc_t canvas, alpha;
+        bk_baf_get_frame_desc(s_dec[i], &canvas, &alpha);
+        if (canvas.data == NULL) {
+            continue;   /* this layer hasn't produced its first frame yet */
+        }
+        /* Compose blits canvas.width x canvas.height into @fb; a layer larger than
+         * the base framebuffer (possible with an arbitrary SD .baf in CUSTOM mode)
+         * would write past it. Skip such layers instead of overrunning @fb. */
+        if (canvas.width > w || canvas.height > h) {
+            LOGW("layer %d %ux%u exceeds fb %ux%u, skipped\n",
+                 i, (unsigned)canvas.width, (unsigned)canvas.height,
+                 (unsigned)w, (unsigned)h);
+            continue;
+        }
+        const bk_baf_frame_desc_t *ap = alpha.data ? &alpha : NULL;
+        if (!base_done) {
+            bk_baf_compose(&fb_desc, &canvas, ap, BAF_RAW_BG_ARGB, false); /* opaque base */
+            base_done = true;
+        } else {
+            bk_baf_compose(&fb_desc, &canvas, ap, 0U, true);              /* stack on top */
+        }
+    }
+    return base_done;
 }
 
 static void baf_raw_render_thread(void *arg)
 {
     (void)arg;
 
-    /* One-time hardware setup: pick the compositor and (GPU mode) bring VG-Lite up
-     * once. Kept for the whole thread so source switches never re-init the GPU. */
+    /* One-time hardware setup: pick the compositor and (GPU) bring VG-Lite up. */
     bk_baf_hw_config_t hw = {
 #if CONFIG_BAF_RAW_RENDER_CPU
         .backend  = BK_BAF_RENDER_CPU,
@@ -295,66 +300,182 @@ static void baf_raw_render_thread(void *arg)
         return;
     }
 
-    LOGI("render backend: %s\n",
-#if CONFIG_BAF_RAW_RENDER_CPU
-         "CPU (Helium)"
-#else
-         "GPU (VG-Lite)"
+    const uint32_t fb_size = (uint32_t)PANEL_WIDTH * (uint32_t)PANEL_HEIGHT * 4U;
+    uint32_t fb_parity = 0U;
+    uint16_t w = 0, h = 0;
+    bool bg_pending = false;   /* CUSTOM w/ no layers: flush one grey frame */
+
+#if BAF_RAW_PROFILE
+    /* Perf stats over 30 displayed frames. */
+    uint32_t st_cnt = 0, poll_sum = 0, cmp_sum = 0, cad_sum = 0;
+    uint32_t cmp_min = 0xFFFFFFFFU, cmp_max = 0, cad_min = 0xFFFFFFFFU, cad_max = 0;
+    uint64_t last_disp_us = 0;
 #endif
-    );
 
-    /* Build the boot playlist from the TF card. */
-    s_playlist_count = tf_card_list_ext(BAF_PLAYLIST_DIR, ".baf", s_playlist, BAF_PLAYLIST_MAX);
-    if (s_playlist_count > 0) {
-        LOGI("playlist: %d .baf file(s) under %s, %d loop(s) each\n",
-             s_playlist_count, BAF_PLAYLIST_DIR, BAF_PLAYLIST_LOOPS);
-    } else {
-        LOGW("no .baf under %s; playing the built-in asset\n", BAF_PLAYLIST_DIR);
-        s_playlist_count = 0;
-    }
-    s_playlist_index = 0;
-
-    for (;;) {   /* one iteration per asset played */
-        baf_play_result_t r;
-
-        if (s_switch_req) {
-            /* CLI override: play the requested file once through, then fall back
-             * into the playlist at the same index. */
-            s_switch_req = false;
-            const bk_baf_source_t *fsrc = baf_file_load(s_pending_path);
-            if (fsrc == NULL) {
-                LOGW("play '%s' failed; resuming playlist\r\n", s_pending_path);
-                continue;
+    for (;;) {
+        if (s_reconfig) {
+            s_reconfig = false;
+            baf_raw_teardown_stack();
+            int n = baf_raw_build_stack();
+            if (n == 0) {
+                /* Valid in CUSTOM mode (all slots empty): show grey background. */
+                w = PANEL_WIDTH; h = PANEL_HEIGHT;
+                bg_pending = true;
+                LOGI("%s: 0 layer(s), background only\n",
+                     s_mode == BAF_MODE_SCENE ? "scene" : "custom");
+            } else {
+                w = bk_baf_get_width(s_dec[0]);
+                h = bk_baf_get_height(s_dec[0]);
+                if (w != PANEL_WIDTH || h == 0U || h > PANEL_HEIGHT) {
+                    LOGE("unsupported base size %ux%u (panel %ux%u)\n",
+                         (unsigned)w, (unsigned)h, (unsigned)PANEL_WIDTH, (unsigned)PANEL_HEIGHT);
+                    baf_raw_teardown_stack();
+                    rtos_delay_milliseconds(200);
+                    continue;
+                }
+                bg_pending = false;
+                LOGI("%s: %d layer(s), frame %ux%u -> panel %ux%u\n",
+                     s_mode == BAF_MODE_SCENE ? "scene" : "custom",
+                     n, (unsigned)w, (unsigned)h, (unsigned)PANEL_WIDTH, (unsigned)PANEL_HEIGHT);
             }
-            r = baf_raw_play_one(fsrc, fsrc, BAF_PLAYLIST_LOOPS, s_pending_path);
-        } else if (s_playlist_count > 0) {
-            const char *path = s_playlist[s_playlist_index];
-            const bk_baf_source_t *fsrc = baf_file_load(path);
-            if (fsrc == NULL) {
-                LOGW("load '%s' failed; skipping\r\n", path);
-                s_playlist_index = (s_playlist_index + 1) % s_playlist_count;
-                rtos_delay_milliseconds(50);
-                continue;
-            }
-            r = baf_raw_play_one(fsrc, fsrc, BAF_PLAYLIST_LOOPS, path);
-            if (r == BAF_PLAY_END) {
-                s_playlist_index = (s_playlist_index + 1) % s_playlist_count;
-            }
-        } else {
-            /* No playable files: loop the built-in asset forever. */
-            r = baf_raw_play_one(&sample_bk_baf_source, NULL, 0, "built-in");
+#if BAF_RAW_PROFILE
+            last_disp_us = 0; st_cnt = 0;
+#endif
         }
 
-        if (r == BAF_PLAY_ERROR) {
-            break;   /* fatal decode / open error */
+        /* No layers (CUSTOM, all cleared): flush the grey background once, idle. */
+        if (s_nlayers == 0) {
+            if (bg_pending) {
+                uint8_t *fb = bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED, fb_size);
+                if (fb != NULL) {
+                    os_memset(fb, BAF_RAW_BG_BYTE, fb_size);
+                    if (bk_display_flush(s_dpu_ctlr_handle, fb, baf_raw_fb_free_cb) != AVDK_ERR_OK)
+                        bk_frame_buffer_free(fb);
+                    bg_pending = false;
+                }
+            }
+            rtos_delay_milliseconds(BAF_RAW_WAIT_MS);
+            continue;
         }
-        /* BAF_PLAY_SWITCH: next iteration handles the pending override.
-         * BAF_PLAY_END:    already advanced above (playlist) or replays (built-in). */
+
+        /* Poll every layer (each paces itself). Recompose only when at least one
+         * produced a new frame; otherwise idle. */
+#if BAF_RAW_PROFILE
+        uint64_t t_poll0 = bk_aon_rtc_get_us();
+#endif
+        bool any_new = false;
+        for (int i = 0; i < s_nlayers; i++) {
+            bk_baf_decoder_result_t r = bk_baf_poll(s_dec[i]);
+            if (r == BK_BAF_DECODER_RESULT_FRAME) any_new = true;
+            else if (bk_baf_result_is_error(r)) LOGW("layer %d decode err %d\n", i, (int)r);
+        }
+        if (!any_new) {
+            rtos_delay_milliseconds(BAF_RAW_WAIT_MS);
+            continue;
+        }
+#if BAF_RAW_PROFILE
+        uint32_t poll_us = (uint32_t)(bk_aon_rtc_get_us() - t_poll0);
+#endif
+
+        frame_buffer_heap_type_t fb_heap = (fb_parity++ & 1U) ? MEM_SLAB_HEAP_CODED
+                                                              : MEM_SLAB_HEAP_UNCODED;
+        uint8_t *fb = bk_frame_buffer_malloc(fb_heap, fb_size);
+        if (fb == NULL) {
+            LOGW("frame buffer alloc failed (%u bytes)\n", (unsigned)fb_size);
+            rtos_delay_milliseconds(BAF_RAW_WAIT_MS);
+            continue;
+        }
+
+#if BAF_RAW_PROFILE
+        uint64_t t_cmp0 = bk_aon_rtc_get_us();
+#endif
+        bool drawn = baf_raw_compose_stack(fb, w, h);
+#if BAF_RAW_PROFILE
+        uint32_t cmp_us = (uint32_t)(bk_aon_rtc_get_us() - t_cmp0);
+
+        uint64_t now_us = bk_aon_rtc_get_us();
+        uint32_t cad_us = last_disp_us ? (uint32_t)(now_us - last_disp_us) : 0U;
+        last_disp_us = now_us;
+        poll_sum += poll_us; cmp_sum += cmp_us;
+        if (cmp_us < cmp_min) cmp_min = cmp_us;
+        if (cmp_us > cmp_max) cmp_max = cmp_us;
+        if (cad_us) {
+            cad_sum += cad_us;
+            if (cad_us < cad_min) cad_min = cad_us;
+            if (cad_us > cad_max) cad_max = cad_us;
+        }
+        if (++st_cnt >= 30U) {
+            uint32_t cad_avg = cad_sum / 29U;
+            LOGI("layers=%d perf/30: poll+decode avg=%u us | compose min/avg/max=%u/%u/%u us | "
+                 "cadence avg=%u us (~%u.%u fps)\n",
+                 s_nlayers, poll_sum / 30U, cmp_min, cmp_sum / 30U, cmp_max,
+                 cad_avg, cad_avg ? (1000000U / cad_avg) : 0U,
+                 cad_avg ? ((10000000U / cad_avg) % 10U) : 0U);
+            st_cnt = 0; poll_sum = 0; cmp_sum = 0; cad_sum = 0;
+            cmp_min = 0xFFFFFFFFU; cmp_max = 0; cad_min = 0xFFFFFFFFU; cad_max = 0;
+        }
+#endif
+
+        if (!drawn) {
+            os_memset(fb, BAF_RAW_BG_BYTE, fb_size);
+        } else if (h < PANEL_HEIGHT) {
+            os_memset(fb + (size_t)PANEL_WIDTH * (size_t)h * 4U, BAF_RAW_BG_BYTE,
+                      (size_t)PANEL_WIDTH * (size_t)(PANEL_HEIGHT - h) * 4U);
+        }
+
+        if (bk_display_flush(s_dpu_ctlr_handle, fb, baf_raw_fb_free_cb) != AVDK_ERR_OK) {
+            LOGE("display flush failed\n");
+            bk_frame_buffer_free(fb);
+        }
+    }
+}
+
+avdk_err_t baf_raw_set_scene(int scene)
+{
+    if (scene < 1 || scene > BAF_MAX_LAYERS) return AVDK_ERR_INVAL;
+    if (s_render_thread == NULL) return AVDK_ERR_INVAL;
+    /* Enter SCENE mode: drop any custom SD layers so nothing from CUSTOM lingers. */
+    for (int i = 0; i < BAF_MAX_LAYERS; i++) s_custom_path[i][0] = '\0';
+    s_mode = BAF_MODE_SCENE;
+    s_scene = scene;
+    s_reconfig = true;
+    LOGI("scene %d requested\n", scene);
+    return AVDK_ERR_OK;
+}
+
+/* A NULL/empty path or the keywords "clear"/"none"/"default" clear the slot. */
+static bool baf_raw_is_clear(const char *path)
+{
+    return (path == NULL || path[0] == '\0' ||
+            os_strcmp(path, "clear")   == 0 ||
+            os_strcmp(path, "none")    == 0 ||
+            os_strcmp(path, "default") == 0);
+}
+
+avdk_err_t baf_raw_set_layer_file(int index, const char *path)
+{
+    if (index < 0 || index >= BAF_MAX_LAYERS) return AVDK_ERR_INVAL;
+    if (s_render_thread == NULL) return AVDK_ERR_INVAL;
+
+    if (baf_raw_is_clear(path)) {
+        /* Clearing only makes sense once in CUSTOM mode (SCENE has no SD layers). */
+        if (s_mode != BAF_MODE_CUSTOM) return AVDK_ERR_INVAL;
+        s_custom_path[index][0] = '\0';
+        s_reconfig = true;
+        LOGI("layer %d cleared\n", index);
+        return AVDK_ERR_OK;
     }
 
-    bk_baf_deinit();   /* tear the GPU back down (creator destroys) */
-    s_render_thread = NULL;
-    rtos_delete_thread(NULL);
+    /* Assigning an SD file enters CUSTOM mode. Coming from SCENE, wipe every slot
+     * first so only the file(s) the user places are shown (no preset leftovers). */
+    if (s_mode != BAF_MODE_CUSTOM) {
+        for (int i = 0; i < BAF_MAX_LAYERS; i++) s_custom_path[i][0] = '\0';
+        s_mode = BAF_MODE_CUSTOM;
+    }
+    baf_raw_copy_path(s_custom_path[index], TF_PATH_MAX, path);
+    s_reconfig = true;
+    LOGI("layer %d file: '%s'\n", index, s_custom_path[index]);
+    return AVDK_ERR_OK;
 }
 
 avdk_err_t baf_raw_set_freerun(bool enable)
@@ -364,21 +485,6 @@ avdk_err_t baf_raw_set_freerun(bool enable)
     return bk_baf_ioctl(decoder, BK_BAF_IOCTL_SET_FREERUN, &enable);
 }
 
-avdk_err_t baf_raw_play_file(const char *path)
-{
-    if (path == NULL || path[0] == '\0') {
-        return AVDK_ERR_INVAL;
-    }
-    if (s_render_thread == NULL) {
-        LOGE("render thread not running\n");
-        return AVDK_ERR_INVAL;
-    }
-    baf_raw_copy_path(s_pending_path, sizeof(s_pending_path), path);
-    s_switch_req = true;   /* render loop picks it up and swaps the source */
-    LOGI("play requested: %s\n", s_pending_path);
-    return AVDK_ERR_OK;
-}
-
 avdk_err_t baf_raw_start(void)
 {
     if (baf_raw_panel_open() != AVDK_ERR_OK) {
@@ -386,8 +492,6 @@ avdk_err_t baf_raw_start(void)
         return AVDK_ERR_GENERIC;
     }
 
-    /* Backend selection + GPU bring-up + decoder open are done via bk_baf_open()
-     * inside the render thread (see baf_raw_render_thread). */
     bk_err_t ret = rtos_create_thread(&s_render_thread,
                                       BAF_RAW_TASK_PRIORITY,
                                       "baf_raw",

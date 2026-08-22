@@ -259,18 +259,30 @@ static void cli_baf_display_cmd(char *pcWriteBuffer, int xWriteBufferLen, int ar
     }
     LOGI("usage: baf_display rot <0|90|180|270>\r\n");
 #else
+    if (argc == 3 && os_strcmp(argv[1], "scene") == 0) {
+        int scene = (int)os_strtoul(argv[2], NULL, 10);
+        avdk_err_t ret = baf_raw_set_scene(scene);
+        LOGI("baf_display scene %d ret=%d\r\n", scene, (int)ret);
+        return;
+    }
+    if (argc == 4 && os_strcmp(argv[1], "layer") == 0) {
+        int idx = (int)os_strtoul(argv[2], NULL, 10);
+        avdk_err_t ret = baf_raw_set_layer_file(idx, argv[3]);
+        LOGI("baf_display layer %d '%s' ret=%d\r\n", idx, argv[3], (int)ret);
+        return;
+    }
+    if (argc == 2 && os_strcmp(argv[1], "maxlayers") == 0) {
+        LOGI("baf_display max layers = %d\r\n", BAF_MAX_LAYERS);
+        return;
+    }
     if (argc == 3 && os_strcmp(argv[1], "freerun") == 0) {
         bool enable = (os_strtoul(argv[2], NULL, 10) != 0);
         avdk_err_t ret = baf_raw_set_freerun(enable);
         LOGI("baf_display freerun=%d ret=%d\r\n", (int)enable, (int)ret);
         return;
     }
-    if (argc == 3 && os_strcmp(argv[1], "play") == 0) {
-        avdk_err_t ret = baf_raw_play_file(argv[2]);
-        LOGI("baf_display play '%s' ret=%d\r\n", argv[2], (int)ret);
-        return;
-    }
-    LOGI("usage: baf_display freerun <0|1> | play <path>\r\n");
+    LOGI("usage: baf_display scene <1|2|3> | layer <idx> <sdpath|clear> | "
+         "maxlayers | freerun <0|1>\r\n");
 #endif
 }
 
@@ -280,7 +292,7 @@ static const struct cli_command s_baf_display_commands[] =
 #if CONFIG_LVGL
     {"baf_display", "baf_display rot <0|90|180|270>", cli_baf_display_cmd},
 #else
-    {"baf_display", "baf_display freerun <0|1> | play <path>", cli_baf_display_cmd},
+    {"baf_display", "baf_display scene <1|2|3> | layer <idx> <sdpath|clear> | maxlayers | freerun <0|1>", cli_baf_display_cmd},
 #endif
 };
 

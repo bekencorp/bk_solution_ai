@@ -6,7 +6,7 @@
 
 #define TAG "baf_page"
 
-extern const bk_baf_source_t sample_bk_baf_source;
+extern const bk_baf_source_t hello_bk_baf_source;
 
 /* The animation widget. NULL until baf_page_create() succeeds. */
 static lv_obj_t * s_baf_animation = NULL;
@@ -41,7 +41,7 @@ void baf_page_create(void)
 
     lv_obj_t * animation = lv_baf_create(screen);
     lv_obj_add_event_cb(animation, animation_event_cb, LV_EVENT_ALL, NULL);
-    lv_baf_set_src(animation, &sample_bk_baf_source);
+    lv_baf_set_src(animation, &hello_bk_baf_source);
     if(!lv_baf_is_loaded(animation)) {
         BK_LOGE(TAG, "BAF load failed\n");
         lv_obj_delete(animation);
