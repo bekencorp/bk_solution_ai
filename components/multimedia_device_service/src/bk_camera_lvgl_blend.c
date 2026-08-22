@@ -32,6 +32,9 @@ typedef struct {
     beken_mutex_t box_mutex;
     bk_camera_lvgl_blend_rect_t boxes[BLEND_MAX_BOXES];
     uint32_t box_count;
+    bool first_output_reported;
+    bk_camera_lvgl_blend_first_frame_cb_t first_frame_cb;
+    void *first_frame_user_data;
 } blend_ctx_t;
 
 static blend_ctx_t s_blend;
@@ -122,9 +125,16 @@ static bk_err_t blend_output_cb(void *user_data,
 {
     (void)user_data;
 
-    return app_mipi_lcd_flush(frame_buffer, (avdk_err_t (*)(void *))free_cb) == AVDK_ERR_OK ?
-           BK_OK :
-           BK_FAIL;
+    bk_err_t ret = app_mipi_lcd_flush(frame_buffer, (avdk_err_t (*)(void *))free_cb) == AVDK_ERR_OK ?
+                   BK_OK :
+                   BK_FAIL;
+    if (ret == BK_OK && !s_blend.first_output_reported) {
+        s_blend.first_output_reported = true;
+        if (s_blend.first_frame_cb != NULL) {
+            s_blend.first_frame_cb(s_blend.first_frame_user_data);
+        }
+    }
+    return ret;
 }
 
 static void blend_overlay_cb(void *user_data, vg_lite_buffer_t *output)
@@ -288,6 +298,14 @@ void bk_camera_lvgl_blend_set_render_ready(bool ready)
     if (!ready) {
         s_blend.lvgl_ready = false;
     }
+}
+
+void bk_camera_lvgl_blend_set_first_frame_cb(bk_camera_lvgl_blend_first_frame_cb_t cb,
+                                             void *user_data)
+{
+    s_blend.first_frame_cb = cb;
+    s_blend.first_frame_user_data = user_data;
+    s_blend.first_output_reported = false;
 }
 
 bk_err_t bk_camera_lvgl_blend_push_camera_frame(void *frame, uint32_t frame_size)

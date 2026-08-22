@@ -30,12 +30,16 @@ typedef struct {
     int16_t y2;
 } bk_camera_lvgl_blend_rect_t;
 
+typedef void (*bk_camera_lvgl_blend_first_frame_cb_t)(void *user_data);
+
 bk_err_t bk_camera_lvgl_blend_start(const bk_camera_lvgl_blend_config_t *config);
 bk_err_t bk_camera_lvgl_blend_stop(void);
 bool bk_camera_lvgl_blend_is_active(void);
 bool bk_camera_lvgl_blend_is_lvgl_ready(void);
 void bk_camera_lvgl_blend_set_suspended(bool suspended);
 void bk_camera_lvgl_blend_set_render_ready(bool ready);
+void bk_camera_lvgl_blend_set_first_frame_cb(bk_camera_lvgl_blend_first_frame_cb_t cb,
+                                             void *user_data);
 
 bk_err_t bk_camera_lvgl_blend_push_camera_frame(void *frame, uint32_t frame_size);
 bk_err_t bk_camera_lvgl_blend_update_lvgl_frame(void *frame, int (*release_cb)(void *args));

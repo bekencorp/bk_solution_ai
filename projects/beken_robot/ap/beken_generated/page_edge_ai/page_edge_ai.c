@@ -8,6 +8,7 @@
  */
 #include "page_edge_ai.h"
 
+
 #ifdef ROBOT_TEST
 
 #include <stdint.h>
@@ -67,6 +68,8 @@ static lv_obj_t *s_face_recognition_screen;
 static lv_obj_t *s_face_recognition_status_label;
 static lv_obj_t *s_face_recognition_buttons[FACE_RECOGNITION_BUTTON_COUNT];
 static uint32_t s_face_recognition_selected;
+static bool s_face_recognition_ready;
+static volatile bool s_face_recognition_ready_pending;
 static lv_obj_t *s_archive_screen;
 static lv_obj_t *s_archive_status_label;
 static lv_obj_t *s_archive_panel;
@@ -106,6 +109,7 @@ static const ui_page_nav_ops_t s_face_recognition_nav_ops;
 static void archive_row_click_cb(lv_event_t *e);
 static void face_recognition_status_apply_async(void *arg);
 static void face_recognition_status_clear_async(void *arg);
+static void face_recognition_ready_apply_async(void *arg);
 
 typedef enum {
     FACE_REC_STR_ENROLL = 0,
@@ -424,6 +428,7 @@ static void set_nav_button_selected(lv_obj_t *btn, bool selected)
 
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x2d75b9),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(btn, selected ? 2 : 0,
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_color(btn, lv_color_hex(0x32d5ff),
@@ -441,6 +446,31 @@ static void face_recognition_refresh_nav(void)
     for (uint32_t i = 0; i < FACE_RECOGNITION_BUTTON_COUNT; i++) {
         set_nav_button_selected(s_face_recognition_buttons[i], i == s_face_recognition_selected);
     }
+}
+
+static void face_recognition_set_ready_state(bool ready)
+{
+    s_face_recognition_ready = ready;
+    for (uint32_t i = 0; i < FACE_RECOGNITION_BUTTON_COUNT; i++) {
+        lv_obj_t *btn = s_face_recognition_buttons[i];
+        if (btn == NULL || !lv_obj_is_valid(btn)) {
+            continue;
+        }
+        if (ready) {
+            lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+        } else {
+            lv_obj_clear_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
+    face_recognition_refresh_nav();
+}
+
+static bool face_recognition_require_ready(void)
+{
+    if (s_face_recognition_ready && yoloface_face_recognition_is_ready()) {
+        return true;
+    }
+    return false;
 }
 
 static uint32_t archive_visible_count(void)
@@ -758,6 +788,10 @@ static void face_recognition_reset_click_cb(lv_event_t *e)
 {
     (void)e;
 
+    if (!face_recognition_require_ready()) {
+        return;
+    }
+
     if (yoloface_face_recognition_enroll_is_active()) {
         (void)yoloface_face_recognition_enroll_cancel();
         return;
@@ -789,6 +823,9 @@ static void face_recognition_enroll_click_cb(lv_event_t *e)
 {
     (void)e;
     int rc;
+    if (!face_recognition_require_ready()) {
+        return;
+    }
     if (s_reset_busy) {
         if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
             set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
@@ -811,6 +848,9 @@ static void face_recognition_verify_click_cb(lv_event_t *e)
 {
     (void)e;
     int rc;
+    if (!face_recognition_require_ready()) {
+        return;
+    }
     if (s_reset_busy) {
         if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
             set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
@@ -835,6 +875,9 @@ static void face_recognition_query_click_cb(lv_event_t *e)
 {
     (void)e;
     int rc;
+    if (!face_recognition_require_ready()) {
+        return;
+    }
     if (s_reset_busy) {
         if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
             set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
@@ -905,6 +948,12 @@ void page_edge_ai_face_recognition_set_status(const char *text)
     }
 }
 
+void page_edge_ai_face_recognition_set_ready(bool ready)
+{
+    s_face_recognition_ready_pending = ready;
+    (void)lv_async_call(face_recognition_ready_apply_async, NULL);
+}
+
 static void face_recognition_status_apply_async(void *arg)
 {
     (void)arg;
@@ -926,6 +975,13 @@ static void face_recognition_status_clear_async(void *arg)
         set_status_label_text(s_face_recognition_status_label, "摄像头预览");
         lv_obj_invalidate(s_face_recognition_status_label);
     }
+}
+
+static void face_recognition_ready_apply_async(void *arg)
+{
+    (void)arg;
+
+    face_recognition_set_ready_state(s_face_recognition_ready_pending);
 }
 
 static void face_recognition_on_screen_prev(bk_lv_ui_t *ui)
@@ -1074,6 +1130,8 @@ void page_edge_ai_face_recognition_destroy(void)
     s_reset_confirm_deadline = 0;
     s_face_recognition_status_seq++;
     s_face_recognition_status_clear_seq = s_face_recognition_status_seq;
+    s_face_recognition_ready = false;
+    s_face_recognition_ready_pending = false;
 
     if (s_archive_screen != NULL && lv_obj_is_valid(s_archive_screen)) {
         ui_nav_unregister_screen(s_archive_screen);
@@ -1193,6 +1251,8 @@ int page_edge_ai_face_recognition_enter(void)
         s_face_recognition_buttons[i] = NULL;
     }
     s_face_recognition_selected = 0;
+    s_face_recognition_ready = false;
+    s_face_recognition_ready_pending = false;
 
     s_face_recognition_screen = lv_obj_create(NULL);
     lv_obj_set_size(s_face_recognition_screen, FACE_REC_SCREEN_W, FACE_REC_SCREEN_H);
@@ -1257,6 +1317,7 @@ int page_edge_ai_face_recognition_enter(void)
 
     bk_page_attach_right_swipe_gesture(s_face_recognition_screen);
     lv_screen_load(s_face_recognition_screen);
+    face_recognition_set_ready_state(false);
     face_recognition_refresh_nav();
     (void)ui_nav_register_screen(s_face_recognition_screen, &s_face_recognition_nav_ops);
     return 0;
@@ -1268,6 +1329,7 @@ int page_edge_ai_enter(void) { return 0; }
 int page_edge_ai_face_recognition_enter(void) { return 0; }
 int page_edge_ai_archive_enter(void) { return 0; }
 void page_edge_ai_face_recognition_set_status(const char *text) { (void)text; }
+void page_edge_ai_face_recognition_set_ready(bool ready) { (void)ready; }
 void page_edge_ai_face_recognition_destroy(void) {}
 
 #endif /* ROBOT_TEST */
