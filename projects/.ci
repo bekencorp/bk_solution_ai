@@ -1,1 +1,2 @@
 cd beken_robot;./dbuild.sh make bk7259
+cd baf_example;./dbuild.sh make bk7259

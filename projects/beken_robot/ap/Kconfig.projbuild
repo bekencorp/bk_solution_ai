@@ -16,6 +16,72 @@ menu "BEKEN GENIE demo Configuration"
             in page_N_init.c (navigation hooks, ui_nav_register_screen, etc.) are compiled.
             Disable only if you need a build without that custom code.
 
+    menu "Robot V2 ADC Keys"
+        config ROBOT_V2_ADC_KEYS
+            bool "Enable Robot V2 dual-channel ADC keys"
+            default n
+            depends on ADC_KEY
+            help
+                Register S2/S3 on KEY1 and S4/S5 on KEY2 through the generic
+                multi-channel adc_key SDK API.
+
+        if ROBOT_V2_ADC_KEYS
+
+        config ROBOT_KEY1_ADC_GPIO
+            int "Robot V2 KEY1 ADC GPIO"
+            range 0 71
+            default 13
+
+        config ROBOT_KEY1_ADC_CHAN
+            int "Robot V2 KEY1 ADC channel"
+            range 0 15
+            default 15
+
+        config ROBOT_KEY2_ADC_GPIO
+            int "Robot V2 KEY2 ADC GPIO"
+            range 0 71
+            default 28
+
+        config ROBOT_KEY2_ADC_CHAN
+            int "Robot V2 KEY2 ADC channel"
+            range 0 15
+            default 4
+
+        config ROBOT_KEY_S2_VOLTAGE_LOW
+            int "S2 voltage lower bound (mV)"
+            default 500
+
+        config ROBOT_KEY_S2_VOLTAGE_HIGH
+            int "S2 voltage upper bound (mV)"
+            default 1500
+
+        config ROBOT_KEY_S3_VOLTAGE_LOW
+            int "S3 voltage lower bound (mV)"
+            default 4500
+
+        config ROBOT_KEY_S3_VOLTAGE_HIGH
+            int "S3 voltage upper bound (mV)"
+            default 6000
+
+        config ROBOT_KEY_S4_VOLTAGE_LOW
+            int "S4 voltage lower bound (mV)"
+            default 500
+
+        config ROBOT_KEY_S4_VOLTAGE_HIGH
+            int "S4 voltage upper bound (mV)"
+            default 1500
+
+        config ROBOT_KEY_S5_VOLTAGE_LOW
+            int "S5 voltage lower bound (mV)"
+            default 4500
+
+        config ROBOT_KEY_S5_VOLTAGE_HIGH
+            int "S5 voltage upper bound (mV)"
+            default 6000
+
+        endif
+    endmenu
+
     config BEKEN_KWS_MODEL_FROM_UDISK
         bool "Load Beken KWS model from U-disk/SD-NAND file"
         depends on BEKEN_KWS
