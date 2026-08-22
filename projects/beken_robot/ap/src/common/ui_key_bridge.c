@@ -7,11 +7,11 @@
  *
  * | key_adapter event   | Mapped ui_nav_event_t     | Notes                              |
  * |---------------------|---------------------------|------------------------------------|
- * | ROBOT_ADC_KEY_S2_SHORT  | UI_NAV_EVENT_FOCUS_PREV   | Left / previous focus          |
+ * | ROBOT_ADC_KEY_S2_SHORT  | UI_NAV_EVENT_FOCUS_NEXT   | Next focus item                |
  * | ROBOT_ADC_KEY_S3_SHORT  | UI_NAV_EVENT_SCREEN_PREV  | Return / previous screen       |
  * | ROBOT_ADC_KEY_S4_SHORT  | UI_NAV_EVENT_SCREEN_NEXT  | Next screen                    |
  * | ROBOT_ADC_KEY_S4_LONG   | UI_NAV_EVENT_CONFIRM_LONG | Long-press confirm             |
- * | ROBOT_ADC_KEY_S5_SHORT  | UI_NAV_EVENT_FOCUS_NEXT   | Compatibility right key        |
+ * | ROBOT_ADC_KEY_S5_SHORT  | UI_NAV_EVENT_FOCUS_PREV   | Previous focus item            |
  *
  * Unmapped events (double-click, etc.) are ignored for now -- extend
  * the switch below as needed.
@@ -88,13 +88,13 @@ static ui_nav_event_t ui_key_to_nav_event(uint8_t key)
     switch (key) {
 #if CONFIG_ROBOT_V2_ADC_KEYS
     case ROBOT_ADC_KEY_S2_SHORT:
-        nav = UI_NAV_EVENT_FOCUS_PREV;
+        nav = UI_NAV_EVENT_FOCUS_NEXT;
         break;
     case ROBOT_ADC_KEY_S3_SHORT:
         nav = UI_NAV_EVENT_SCREEN_PREV;
         break;
     case ROBOT_ADC_KEY_S5_SHORT:
-        nav = UI_NAV_EVENT_FOCUS_NEXT;
+        nav = UI_NAV_EVENT_FOCUS_PREV;
         break;
     case ROBOT_ADC_KEY_S4_SHORT:
         nav = UI_NAV_EVENT_SCREEN_NEXT;

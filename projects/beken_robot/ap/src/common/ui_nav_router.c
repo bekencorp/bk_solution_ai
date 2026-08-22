@@ -213,8 +213,8 @@ static void nav_cli_print_help(void)
     BK_LOGI(NAV_CLI_TAG, "nav usage:\n");
     BK_LOGI(NAV_CLI_TAG, "  nav prev        - UI_NAV_EVENT_SCREEN_PREV (S3 short)\n");
     BK_LOGI(NAV_CLI_TAG, "  nav next        - UI_NAV_EVENT_SCREEN_NEXT (S4 short)\n");
-    BK_LOGI(NAV_CLI_TAG, "  nav left        - UI_NAV_EVENT_FOCUS_PREV  (S2 short)\n");
-    BK_LOGI(NAV_CLI_TAG, "  nav right       - UI_NAV_EVENT_FOCUS_NEXT  (S5 short)\n");
+    BK_LOGI(NAV_CLI_TAG, "  nav left        - UI_NAV_EVENT_FOCUS_PREV  (S5 short)\n");
+    BK_LOGI(NAV_CLI_TAG, "  nav right       - UI_NAV_EVENT_FOCUS_NEXT  (S2 short)\n");
     BK_LOGI(NAV_CLI_TAG, "  nav long        - UI_NAV_EVENT_CONFIRM_LONG(S4 long)\n");
     BK_LOGI(NAV_CLI_TAG, "  nav goto <page> - jump directly to <page>\n");
     BK_LOGI(NAV_CLI_TAG, "  nav status      - print active screen + registered pages\n");
