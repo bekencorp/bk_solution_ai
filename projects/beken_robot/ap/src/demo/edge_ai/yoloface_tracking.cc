@@ -169,6 +169,9 @@ static volatile bool s_yoloface_lvgl_stopped = false;
 static void yoloface_overlay_back(void *arg)
 {
     (void)arg;
+    if (yoloface_face_recognition_enroll_is_active()) {
+        (void)yoloface_face_recognition_enroll_cancel();
+    }
     (void)yoloface_detection_exit_to_menu();
 }
 #endif
@@ -1823,6 +1826,17 @@ static int yoloface_detection_stop(void)
         return BK_FAIL;
     }
 
+    if (s_face_recognition_model != NULL) {
+        s_face_recognition_model->setVerifyEnabled(false);
+    }
+    yoloface_face_recognition_enroll_set_pending(false);
+    yoloface_face_recognition_verify_set_pending(false);
+    s_yoloface_verify_result_pending = false;
+    yoloface_verify_session_reset();
+    if (s_yoloface_enroll_session_active) {
+        yoloface_enroll_session_cancel();
+    }
+
 #if CONFIG_LVGL
     if (!s_yoloface_lvgl_stopped) {
         lv_vendor_stop();
@@ -1830,18 +1844,18 @@ static int yoloface_detection_stop(void)
     }
 #endif
 
-    if (s_yoloface_lvgl_camera_blend) {
-        (void)yoloface_mp_reader_stop();
-        (void)bk_camera_lvgl_blend_stop();
-        yoloface_enroll_save_worker_stop();
-    }
-
     if (s_video_reator != NULL) {
         int ret = s_video_reator->stop();
         if (ret != BK_OK) {
             bk_printf("yoloface_detection_stop: video stop failed (%d), abort stop\n", ret);
             return ret;
         }
+    }
+
+    if (s_yoloface_lvgl_camera_blend) {
+        (void)yoloface_mp_reader_stop();
+        (void)bk_camera_lvgl_blend_stop();
+        yoloface_enroll_save_worker_stop();
     }
 
     if (!s_yoloface_lvgl_camera_blend) {
@@ -1873,13 +1887,6 @@ static int yoloface_detection_stop(void)
     }
 
     s_yoloface_started = false;
-    yoloface_face_recognition_enroll_set_pending(false);
-    yoloface_face_recognition_verify_set_pending(false);
-    s_yoloface_verify_result_pending = false;
-    yoloface_verify_session_reset();
-    if (s_yoloface_enroll_session_active) {
-        yoloface_enroll_session_cancel();
-    }
     s_yoloface_lvgl_camera_blend = false;
     s_yoloface_keep_model_on_stop = false;
     return 0;

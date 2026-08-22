@@ -156,8 +156,12 @@ static void edge_on_select(int index, void *user_data)
     case 6:
         yoloface_tracking_set_return_to_edge_ai(true);
         yoloface_tracking_set_lvgl_camera_blend(true);
-        (void)page_edge_ai_face_recognition_enter();
-        (void)yoloface_tracking_start();
+        if (yoloface_tracking_start() == 0) {
+            (void)page_edge_ai_face_recognition_enter();
+        } else {
+            ui_theme_create_popup(demo_lang() == UI_LANG_ZH ?
+                                  "操作中,  请稍后" : "Busy, please wait");
+        }
         break;
     default:
         break;
