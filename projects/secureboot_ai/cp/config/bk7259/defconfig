@@ -54,8 +54,12 @@ CONFIG_TFM_CRYPTO=y
 # CONFIG_TFM_FWU is not set
 CONFIG_INITIAL_ATTESTATION=n
 
-# --- NSC AP boot release (defer AP release to NS after bk_init) ---
+# --- AP start: CP NS PM vote + multicore, secure-prepare via NSC ---
+# CP NS owns the AP start sequence; TF-M performs the Secure AP resource
+# preparation through the narrow psa_ap_secure_prepare NSC.
+CONFIG_SUPPORT_MULTICORE=y
 CONFIG_TFM_AP_BOOT_NSC=y
+CONFIG_TFM_SLEEP_RETENTION_NSC=y
 
 # --- NSC (CMSE non-secure-callable) register access gateway ---
 CONFIG_TFM_REG_ACCESS_NSC=y
