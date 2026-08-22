@@ -93,10 +93,11 @@ CONFIG_ADK_AAC_DECODER=y
 CONFIG_ADK_VFS_STREAM=y
 CONFIG_FREERTOS_USE_QUEUE_SETS=y
 CONFIG_FREERTOS_POSIX=y
-# Place task stacks in PSRAM after aligning PSRAM initialization with the AP
-# power-vote path; keep queues in SRAM until separately validated.
+# Place regular task stacks and RTOS queues in PSRAM after aligning PSRAM
+# initialization with the AP power-vote path. Components that explicitly use
+# rtos_create_hsram_thread(), such as aud_asr, keep their stack in HSRAM.
 CONFIG_TASK_STACK_IN_PSRAM=y
-# CONFIG_QUEUE_IN_PSRAM is not set
+CONFIG_QUEUE_IN_PSRAM=y
 CONFIG_TFLITE_MICRO=y
 CONFIG_NPU=y
 CONFIG_NPU_CACHE=y
