@@ -85,6 +85,8 @@ static yoloface_archive_info_t s_archive_worker_info;
 static int s_archive_worker_rc;
 static bool s_archive_worker_deleted;
 static archive_op_t s_archive_worker_op;
+static volatile uint32_t s_archive_task_seq;
+static uint32_t s_archive_worker_seq;
 static beken_thread_t s_reset_thread;
 static volatile bool s_reset_busy;
 static uint32_t s_reset_confirm_deadline;
@@ -564,6 +566,10 @@ static void archive_apply_async(void *arg)
 {
     (void)arg;
 
+    if (s_archive_worker_seq != s_archive_task_seq) {
+        return;
+    }
+
     if (!s_archive_active || s_archive_screen == NULL ||
         !lv_obj_is_valid(s_archive_screen)) {
         return;
@@ -583,7 +589,7 @@ static void archive_apply_async(void *arg)
 
 static void archive_task(void *arg)
 {
-    (void)arg;
+    uint32_t seq = (uint32_t)(uintptr_t)arg;
     bool deleted = false;
 
     memset(&s_archive_worker_info, 0, sizeof(s_archive_worker_info));
@@ -593,6 +599,7 @@ static void archive_task(void *arg)
     s_archive_worker_op = s_archive_op;
     s_archive_worker_deleted = deleted;
     s_archive_worker_rc = yoloface_face_recognition_archive_query(&s_archive_worker_info);
+    s_archive_worker_seq = seq;
     (void)lv_async_call(archive_apply_async, NULL);
 
     s_archive_busy = false;
@@ -610,6 +617,7 @@ static int archive_start_task(archive_op_t op, uint32_t profile_id)
     }
 
     s_archive_busy = true;
+    s_archive_task_seq++;
     s_archive_op = op;
     s_archive_delete_profile = profile_id;
     if (s_archive_screen != NULL && lv_obj_is_valid(s_archive_screen)) {
@@ -620,7 +628,7 @@ static int archive_start_task(archive_op_t op, uint32_t profile_id)
                                       ARCH_TASK_NAME,
                                       (beken_thread_function_t)archive_task,
                                       ARCH_TASK_STACK_SIZE,
-                                      NULL);
+                                      (void *)(uintptr_t)s_archive_task_seq);
     if (ret != BK_OK) {
         s_archive_thread = NULL;
         s_archive_busy = false;
@@ -652,13 +660,18 @@ static void archive_return_click_cb(lv_event_t *e)
         return;
     }
     s_archive_active = false;
+    s_archive_task_seq++;
     if (s_archive_screen != NULL && lv_obj_is_valid(s_archive_screen)) {
         ui_nav_unregister_screen(s_archive_screen);
     }
     (void)page_edge_ai_face_recognition_enter();
     yoloface_tracking_set_return_to_edge_ai(true);
     yoloface_tracking_set_lvgl_camera_blend(true);
-    (void)yoloface_tracking_start();
+    if (yoloface_tracking_start() != 0 &&
+        s_face_recognition_status_label != NULL &&
+        lv_obj_is_valid(s_face_recognition_status_label)) {
+        set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
+    }
 }
 
 static void archive_delete_click_cb(lv_event_t *e)
@@ -1049,10 +1062,13 @@ static const ui_page_nav_ops_t s_archive_nav_ops = {
 void page_edge_ai_face_recognition_destroy(void)
 {
     s_archive_active = false;
-    s_archive_busy = false;
-    s_archive_thread = NULL;
-    s_reset_busy = false;
-    s_reset_thread = NULL;
+    s_archive_task_seq++;
+    if (s_archive_thread == NULL) {
+        s_archive_busy = false;
+    }
+    if (s_reset_thread == NULL) {
+        s_reset_busy = false;
+    }
     s_reset_confirm_deadline = 0;
     s_face_recognition_status_seq++;
     s_face_recognition_status_clear_seq = s_face_recognition_status_seq;
