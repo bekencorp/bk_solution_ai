@@ -21,11 +21,13 @@
 #   H.264 stream that pushes CODED peak past ~11 MB.
 # Secure world reserves the first 4 KB of smem3 for the AP boot shim. AP-owned
 # SRAM/PSRAM regions use their Non-Secure aliases (0x38/0x74).
+# LOWPOWER (1K): retained SRAM for low-power fastboot wake/resume context.
 #Name,                   Type,     Offset,     Size
 CP_SPE_RAM,              SECURE, 0x28000000, 0x014000
 AP_SPE_RAM,              SECURE, 0x28100000, 0x001000
-CP_RAM,                  SRAM, 0x28000000, 0x05F000
+CP_RAM,                  SRAM, 0x28000000, 0x05EB00
 SWAP,                    SRAM,           , 0x001000
+LOWPOWER,                SRAM, 0x2805FB00, 0x000400
 AP_HSRAM_HEAP,           SRAM, 0x38101000, 0x07F000
 AP_RAM,                  SRAM,           , 0x060000
 # SPE: AP NS must use Non-Secure PSRAM aliases (0x70/0x74), not 0x60/0x64.
