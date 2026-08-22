@@ -868,18 +868,10 @@ int camera_preview_resume_live(void)
         return -1;
     }
 
-    /* Invalidate the frozen-shot worker before waiting for it. If it already
-     * submitted the image, the interrupt below cancels both the active turn
-     * and any query still waiting for the image-ingested notification. */
-    s_preview_state = PREVIEW_STATE_RUNNING;
     camera_preview_wait_photo_worker(PREVIEW_PHOTO_WAIT_MS);
     camera_preview_release_photo();
 
-#if CONFIG_BK_NETWORK_ENGINE
-    if (ntwk_eng_interrupt_agent() != 0) {
-        LOGW("camera_preview_resume_live: agent interrupt failed\n");
-    }
-#endif
+    s_preview_state = PREVIEW_STATE_RUNNING;
     LOGI("camera_preview_resume_live: live\n");
     return 0;
 }

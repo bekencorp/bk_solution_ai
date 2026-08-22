@@ -3,17 +3,18 @@
  * @brief Map physical key_event_t -> ui_nav_event_t and invoke
  *        ui_nav_dispatch_event.
  *
- * ## Physical key -> navigation semantics (Robot V2 dual-ADC)
+ * ## Physical key -> navigation semantics (default placeholder; adjust
+ * ## to the actual hardware layout)
  *
- * | Solution event         | Mapped ui_nav_event_t     | Notes                           |
+ * | key_adapter event   | Mapped ui_nav_event_t     | Notes                              |
  * |---------------------|---------------------------|------------------------------------|
- * | ROBOT_ADC_KEY_S2_SHORT  | UI_NAV_EVENT_FOCUS_PREV   | Left / previous focus          |
- * | ROBOT_ADC_KEY_S3_SHORT  | UI_NAV_EVENT_SCREEN_PREV  | Return / previous screen       |
- * | ROBOT_ADC_KEY_S5_SHORT  | UI_NAV_EVENT_FOCUS_NEXT   | Compatibility right key        |
- * | ROBOT_ADC_KEY_S4_SHORT  | UI_NAV_EVENT_SCREEN_NEXT  | Next screen                    |
- * | ROBOT_ADC_KEY_S4_LONG   | UI_NAV_EVENT_CONFIRM_LONG | Long-press confirm             |
+ * | ADC_KEY_S4_SHORT    | UI_NAV_EVENT_FOCUS_PREV   | Move left / previous focus          |
+ * | ADC_KEY_S5_SHORT    | UI_NAV_EVENT_FOCUS_NEXT   | Move right / next focus             |
+ * | GPIO_KEY1_ANY_SHORT | UI_NAV_EVENT_SCREEN_NEXT  | Next screen (combined S2/S3 short)  |
+ * | GPIO_KEY1_ANY_LONG  | UI_NAV_EVENT_SCREEN_PREV  | Previous screen (long press)        |
  *
- * Robot V1 fallback (!DUAL): S5_SHORT->FOCUS_PREV, GPIO_KEY1_ANY_SHORT->FOCUS_NEXT.
+ * Unmapped events (double-click, etc.) are ignored for now -- extend
+ * the switch below as needed.
  *
  * Special case: overlay demos (palm tracking, yoloface detection, hand gesture, car tracking, ...)
  * call lv_vendor_stop() to pause LVGL and take over the framebuffer.
@@ -33,7 +34,7 @@
 #include "hand_gesture_detection.h"
 #include "demo/car_tracking.h"
 
-#include <key_app_service.h>
+#include <key_adapter.h>
 #include <components/log.h>
 
 #define TAG "ui_key_bridge"
@@ -45,11 +46,11 @@ static bool ui_key_overlay_demo_active(void)
         || hand_gesture_detection_is_active() || car_detection_is_active();
 }
 
-static bool ui_key_overlay_exit_event(uint8_t event)
+static bool ui_key_overlay_exit_event(key_event_t event)
 {
     switch (event) {
-#if CONFIG_ROBOT_V2_ADC_KEYS
-    case ROBOT_ADC_KEY_S3_SHORT:
+#if CONFIG_ADC_KEY
+    case ADC_KEY_S4_DOUBLE:
         return true;
 #endif
     default:
@@ -80,28 +81,12 @@ static void ui_key_overlay_exit(void)
     }
 }
 
-static ui_nav_event_t ui_key_to_nav_event(uint8_t key)
+static ui_nav_event_t ui_key_to_nav_event(key_event_t key)
 {
     ui_nav_event_t nav = UI_NAV_EVENT_COUNT;
 
     switch (key) {
-#if CONFIG_ROBOT_V2_ADC_KEYS
-    case ROBOT_ADC_KEY_S2_SHORT:
-        nav = UI_NAV_EVENT_FOCUS_PREV;
-        break;
-    case ROBOT_ADC_KEY_S3_SHORT:
-        nav = UI_NAV_EVENT_SCREEN_PREV;
-        break;
-    case ROBOT_ADC_KEY_S5_SHORT:
-        nav = UI_NAV_EVENT_FOCUS_NEXT;
-        break;
-    case ROBOT_ADC_KEY_S4_SHORT:
-        nav = UI_NAV_EVENT_SCREEN_NEXT;
-        break;
-    case ROBOT_ADC_KEY_S4_LONG:
-        nav = UI_NAV_EVENT_CONFIRM_LONG;
-        break;
-#elif CONFIG_ADC_KEY
+#if CONFIG_ADC_KEY
     case ADC_KEY_S5_SHORT:
         nav = UI_NAV_EVENT_FOCUS_PREV;
         break;
@@ -110,6 +95,9 @@ static ui_nav_event_t ui_key_to_nav_event(uint8_t key)
         break;
     case ADC_KEY_S4_SHORT:
         nav = UI_NAV_EVENT_SCREEN_NEXT;
+        break;
+    case ADC_KEY_S4_DOUBLE:
+        nav = UI_NAV_EVENT_SCREEN_PREV;
         break;
     case ADC_KEY_S4_LONG:
         nav = UI_NAV_EVENT_CONFIRM_LONG;
@@ -124,7 +112,8 @@ static ui_nav_event_t ui_key_to_nav_event(uint8_t key)
 
 void bk_key_app_notify_ui_nav(uint8_t event)
 {
-    ui_nav_event_t nav = ui_key_to_nav_event(event);
+    key_event_t key = (key_event_t)event;
+    ui_nav_event_t nav = ui_key_to_nav_event(key);
 
     if (ui_key_overlay_demo_active()) {
         if (yoloface_solution_ui_is_active() && nav < UI_NAV_EVENT_COUNT) {
@@ -132,7 +121,7 @@ void bk_key_app_notify_ui_nav(uint8_t event)
             ui_nav_dispatch_event(nav);
             return;
         }
-        if (ui_key_overlay_exit_event(event)) {
+        if (ui_key_overlay_exit_event(key)) {
             ui_key_overlay_exit();
             return;
         }

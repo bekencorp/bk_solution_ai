@@ -42,11 +42,6 @@ int vision_start_service(void)
 
 int vision_request_exit(void)
 {
-#if CONFIG_BK_NETWORK_ENGINE
-    if (ntwk_eng_interrupt_agent() != 0) {
-        LOGW("Vision recognition interrupt agent failed\r\n");
-    }
-#endif
     /* Cancel any still-pending early camera bring-up before requesting the
      * (serialized) teardown, so a late worker can't re-open the camera. */
     bk_sconf_vision_video_prestop();
