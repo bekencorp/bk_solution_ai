@@ -125,28 +125,45 @@ static bool s_exit_pending;
 static bool s_dance_user_enabled = true;
 static bool s_render_ready;
 static bool s_playing;
+static bool s_streaming;
 
 static void apply_rhythm_state(void)
 {
-    bt_rhythm_set_enabled(s_render_ready && s_playing);
+    bt_rhythm_set_enabled(s_render_ready && s_streaming);
     bt_rhythm_set_hand_output(s_dance_user_enabled);
 }
 
-static void on_a2dp_stream_start(void)
+static void on_playback_start(void)
 {
     if (s_playing) {
         return;
     }
     s_playing = true;
-    apply_rhythm_state();
 }
 
-static void on_a2dp_stream_stop(void)
+static void on_playback_stop(void)
 {
     if (!s_playing) {
         return;
     }
     s_playing = false;
+}
+
+static void on_a2dp_stream_start(void)
+{
+    if (s_streaming) {
+        return;
+    }
+    s_streaming = true;
+    apply_rhythm_state();
+}
+
+static void on_a2dp_stream_stop(void)
+{
+    if (!s_streaming) {
+        return;
+    }
+    s_streaming = false;
     apply_rhythm_state();
 }
 
@@ -505,7 +522,13 @@ static void dispatch_action(btm_action_t action)
         a2dp_sink_demo_prev();
         break;
     case BTM_ACT_PLAY:
-        a2dp_sink_demo_play_pause();
+        if (s_playing) {
+            on_playback_stop();
+            a2dp_sink_demo_pause();
+        } else {
+            on_playback_start();
+            a2dp_sink_demo_play();
+        }
         break;
     case BTM_ACT_NEXT:
         a2dp_sink_demo_next();
@@ -687,9 +710,11 @@ static void bt_music_page_teardown(void)
     }
 #if CONFIG_BT
     a2dp_sink_demo_set_playback_listener(NULL, NULL);
+    a2dp_sink_demo_set_stream_listener(NULL, NULL);
 #endif
     s_render_ready = false;
     s_playing = false;
+    s_streaming = false;
     if (g_demo_bt_music.stop != NULL) {
         (void)g_demo_bt_music.stop();
     }
@@ -902,8 +927,10 @@ int page_bt_music_enter(void)
     s_dance_user_enabled = true;
     s_render_ready = false;
     s_playing = false;
+    s_streaming = false;
 #if CONFIG_BT
-    a2dp_sink_demo_set_playback_listener(on_a2dp_stream_start, on_a2dp_stream_stop);
+    a2dp_sink_demo_set_playback_listener(on_playback_start, on_playback_stop);
+    a2dp_sink_demo_set_stream_listener(on_a2dp_stream_start, on_a2dp_stream_stop);
 #endif
 
     /* ---- screen: flat dark ---- */

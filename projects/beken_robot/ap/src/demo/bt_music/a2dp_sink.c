@@ -60,8 +60,9 @@ enum
     BT_AUDIO_A2DP_DATA_IND_MSG,
     BT_AUDIO_USER_START_MSG,
     BT_AUDIO_VOLUME_UPDATE_MSG,
-    BT_AUDIO_APPLY_PLAYBACK_MSG,
-    BT_AUDIO_AVRCP_PLAY_PAUSE,
+    BT_AUDIO_AVRCP_PLAY_STATUS_CHANGED_MSG,
+    BT_AUDIO_AVRCP_PLAY,
+    BT_AUDIO_AVRCP_PAUSE,
     BT_AUDIO_AVRCP_NEXT,
     BT_AUDIO_AVRCP_PREV,
     BT_AUDIO_AVRCP_VOL_UP,
@@ -80,13 +81,14 @@ static uint8_t s_mix_multi_channel = 1;
 static uint8_t s_a2dp_sink_inited = 0;
 static uint8_t s_a2dp_sink_closing = 0;
 static uint8_t s_a2dp_connected = 0;
-static uint8_t s_remote_playback = 0;
 static uint8_t s_bt_manager_index = 0xFF;
 static uint8_t s_codec_type = CODEC_AUDIO_SBC;
 
 static uint8_t s_bt_manager_up = 0;
 static a2dp_sink_playback_fn_t s_playback_on_start;
 static a2dp_sink_playback_fn_t s_playback_on_stop;
+static a2dp_sink_playback_fn_t s_stream_on_start;
+static a2dp_sink_playback_fn_t s_stream_on_stop;
 
 static int a2dp_sink_queue_push(uint8_t type, const void *data, uint16_t len, uint32_t timeout_ms);
 static uint8_t a2dp_sink_get_local_volume(void);
@@ -114,14 +116,11 @@ static void a2dp_sink_run_avrcp_transport(uint8_t type)
     }
 
     switch (type) {
-    case BT_AUDIO_AVRCP_PLAY_PAUSE:
-        if (a2dp_sink_demo_is_playing()) {
-            a2dp_sink_post_playback(BK_AVRCP_PLAYBACK_PAUSED);
-            (void)bk_avrcp_ct_pause();
-        } else {
-            a2dp_sink_post_playback(BK_AVRCP_PLAYBACK_PLAYING);
-            (void)bk_avrcp_ct_play();
-        }
+    case BT_AUDIO_AVRCP_PLAY:
+        (void)bk_avrcp_ct_play();
+        break;
+    case BT_AUDIO_AVRCP_PAUSE:
+        (void)bk_avrcp_ct_pause();
         break;
     case BT_AUDIO_AVRCP_NEXT:
         (void)bk_avrcp_ct_next();
@@ -151,17 +150,13 @@ static void a2dp_sink_start_pairing(void)
     }
 }
 
-/** Single place: playback state, UI/rhythm, and speaker mute/unmute. */
-static void apply_playback(uint8_t play_status)
+static void a2dp_sink_emit_playback(uint8_t play_status)
 {
-    s_remote_playback = play_status;
-
     if (play_status == BK_AVRCP_PLAYBACK_PLAYING)
     {
         if (s_playback_on_start) {
             s_playback_on_start();
         }
-        a2dp_sink_audio_set_gain(a2dp_sink_get_local_volume());
     }
     else if (play_status == BK_AVRCP_PLAYBACK_PAUSED ||
              play_status == BK_AVRCP_PLAYBACK_STOPPED)
@@ -169,13 +164,12 @@ static void apply_playback(uint8_t play_status)
         if (s_playback_on_stop) {
             s_playback_on_stop();
         }
-        a2dp_sink_audio_set_gain(0);
     }
 }
 
 static void a2dp_sink_post_playback(uint8_t play_status)
 {
-    (void)a2dp_sink_queue_push(BT_AUDIO_APPLY_PLAYBACK_MSG,
+    (void)a2dp_sink_queue_push(BT_AUDIO_AVRCP_PLAY_STATUS_CHANGED_MSG,
                                &play_status,
                                sizeof(play_status),
                                BEKEN_NO_WAIT);
@@ -471,23 +465,20 @@ static void a2dp_sink_demo_task(void *arg)
             if (msg.data && msg.len == sizeof(bk_a2dp_mcc_t))
             {
                 const bk_a2dp_mcc_t *codec = (const bk_a2dp_mcc_t *)msg.data;
-                uint8_t remote_playing = (s_remote_playback != BK_AVRCP_PLAYBACK_PAUSED);
 
                 spk_task_start_vote |= (1 << BK_A2DP_AUDIO_OPEN_VOTE_A2DP);
                 s_codec_type = codec->type;
-                /* Stream start implies playing unless we already know PAUSED. */
-                if (remote_playing)
-                {
-                    apply_playback(BK_AVRCP_PLAYBACK_PLAYING);
-                }
 
                 if (a2dp_sink_audio_start(codec,
                                           spk_task_start_vote,
                                           s_mix_multi_channel,
-                                          remote_playing ?
-                                          a2dp_sink_get_local_volume() : 0) != BK_OK)
+                                          a2dp_sink_get_local_volume()) != BK_OK)
                 {
                     LOGE("audio player open failed\n");
+                }
+                else if (s_stream_on_start) 
+                {
+                    s_stream_on_start();
                 }
             }
             break;
@@ -495,17 +486,19 @@ static void a2dp_sink_demo_task(void *arg)
         case BT_AUDIO_A2DP_SUSPEND_MSG:
             spk_task_start_vote &= ~(1 << BK_A2DP_AUDIO_OPEN_VOTE_A2DP);
             a2dp_sink_audio_stop();
-            /* Late suspend after user resumed: keep PLAYING UI until AVRCP says otherwise. */
-            if (s_remote_playback != BK_AVRCP_PLAYBACK_PLAYING)
+            if (s_stream_on_stop) 
             {
-                apply_playback(BK_AVRCP_PLAYBACK_STOPPED);
+                s_stream_on_stop();
             }
             break;
 
         case BT_AUDIO_A2DP_DISCONNECT_MSG:
             spk_task_start_vote &= ~(1 << BK_A2DP_AUDIO_OPEN_VOTE_A2DP);
             a2dp_sink_audio_stop();
-            apply_playback(BK_AVRCP_PLAYBACK_STOPPED);
+            if (s_stream_on_stop) 
+            {
+                s_stream_on_stop();
+            }
             break;
 
         case BT_AUDIO_A2DP_DATA_IND_MSG:
@@ -539,22 +532,19 @@ static void a2dp_sink_demo_task(void *arg)
         case BT_AUDIO_VOLUME_UPDATE_MSG:
             if (msg.data && msg.len == sizeof(uint8_t))
             {
-                uint8_t vol = *(uint8_t *)msg.data;
-                if (s_remote_playback == BK_AVRCP_PLAYBACK_PLAYING)
-                {
-                    a2dp_sink_audio_set_gain(vol);
-                }
+                a2dp_sink_audio_set_gain(*(uint8_t *)msg.data);
             }
             break;
 
-        case BT_AUDIO_APPLY_PLAYBACK_MSG:
+        case BT_AUDIO_AVRCP_PLAY_STATUS_CHANGED_MSG:
             if (msg.data && msg.len == sizeof(uint8_t))
             {
-                apply_playback(*(uint8_t *)msg.data);
+                a2dp_sink_emit_playback(*(uint8_t *)msg.data);
             }
             break;
 
-        case BT_AUDIO_AVRCP_PLAY_PAUSE:
+        case BT_AUDIO_AVRCP_PLAY:
+        case BT_AUDIO_AVRCP_PAUSE:
         case BT_AUDIO_AVRCP_NEXT:
         case BT_AUDIO_AVRCP_PREV:
         case BT_AUDIO_AVRCP_VOL_UP:
@@ -725,9 +715,18 @@ static void on_avrcp_ct_evt(bk_avrcp_ct_evt_t evt, void *arg, void *user_data)
 
 static int a2dp_sink_demo_init(uint8_t aac_supported, uint8_t auto_accept_conn)
 {
-    bk_a2dp_sink_cfg_t sink_cfg;
-    bk_avrcp_ct_cfg_t avrcp_ct_cfg;
-    bk_avrcp_tg_cfg_t avrcp_tg_cfg;
+    bk_a2dp_sink_cfg_t sink_cfg = {
+        .aac_supported = aac_supported,
+        .auto_accept_conn = auto_accept_conn,
+    };
+    bk_avrcp_ct_cfg_t avrcp_ct_cfg = {
+        .auto_ct_connect_after_a2dp = 1,
+        .remote_volume_mode = 0,
+    };
+    bk_avrcp_tg_cfg_t avrcp_tg_cfg = {
+        .default_volume = DEFAULT_A2DP_VOLUME,
+        .player_mode = 0,
+    };
 
     if (aac_supported)
     {
@@ -763,8 +762,6 @@ static int a2dp_sink_demo_init(uint8_t aac_supported, uint8_t auto_accept_conn)
     bk_avrcp_tg_register_event_cb(on_avrcp_tg_evt, NULL);
     a2dp_sink_bt_manager_callback_register();
 
-    sink_cfg.aac_supported = aac_supported;
-    sink_cfg.auto_accept_conn = auto_accept_conn;
     if (bk_a2dp_sink_service_init(&sink_cfg) != BK_OK)
     {
         LOGE("%s bk_a2dp_sink_service_init err\n", __func__);
@@ -773,7 +770,6 @@ static int a2dp_sink_demo_init(uint8_t aac_supported, uint8_t auto_accept_conn)
         return BK_FAIL;
     }
 
-    avrcp_ct_cfg.auto_ct_connect_after_a2dp = 1;
     if (bk_avrcp_ct_service_init(&avrcp_ct_cfg) != BK_OK)
     {
         LOGE("%s bk_avrcp_ct_service_init err\n", __func__);
@@ -783,7 +779,6 @@ static int a2dp_sink_demo_init(uint8_t aac_supported, uint8_t auto_accept_conn)
         return BK_FAIL;
     }
 
-    avrcp_tg_cfg.default_volume = DEFAULT_A2DP_VOLUME;
     if (bk_avrcp_tg_service_init(&avrcp_tg_cfg) != BK_OK)
     {
         LOGE("%s bk_avrcp_tg_service_init err\n", __func__);
@@ -865,15 +860,9 @@ static int a2dp_sink_demo_deinit(void)
     }
 
     s_a2dp_connected = 0;
-    s_remote_playback = 0;
     s_a2dp_sink_closing = 0;
     s_a2dp_sink_inited = 0;
     return BK_OK;
-}
-
-uint8_t a2dp_sink_demo_is_playing(void)
-{
-    return s_remote_playback == BK_AVRCP_PLAYBACK_PLAYING;
 }
 
 void a2dp_sink_demo_begin_teardown(void)
@@ -985,9 +974,21 @@ void a2dp_sink_demo_set_playback_listener(a2dp_sink_playback_fn_t on_start,
     s_playback_on_stop = on_stop;
 }
 
-void a2dp_sink_demo_play_pause(void)
+void a2dp_sink_demo_set_stream_listener(a2dp_sink_playback_fn_t on_start,
+                                        a2dp_sink_playback_fn_t on_stop)
 {
-    a2dp_sink_post_avrcp(BT_AUDIO_AVRCP_PLAY_PAUSE);
+    s_stream_on_start = on_start;
+    s_stream_on_stop = on_stop;
+}
+
+void a2dp_sink_demo_play(void)
+{
+    a2dp_sink_post_avrcp(BT_AUDIO_AVRCP_PLAY);
+}
+
+void a2dp_sink_demo_pause(void)
+{
+    a2dp_sink_post_avrcp(BT_AUDIO_AVRCP_PAUSE);
 }
 
 void a2dp_sink_demo_next(void)
