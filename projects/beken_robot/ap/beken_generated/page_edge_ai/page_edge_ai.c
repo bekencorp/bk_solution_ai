@@ -518,16 +518,19 @@ static void archive_refresh_view(void)
         }
         lv_obj_clear_flag(s_archive_rows[i], LV_OBJ_FLAG_HIDDEN);
         yoloface_archive_item_t *item = &s_archive_info.items[i];
+        bool focused = (i == s_archive_focus);
+        bool selected = (i == s_archive_selected);
         snprintf(text, sizeof(text), face_recognition_tr(FACE_REC_STR_ARCHIVE_ROW_FMT),
-                 i == s_archive_selected ? "> " : "  ",
+                 selected ? "> " : "  ",
                  (unsigned)item->profile_id,
                  (unsigned)item->feature_count);
         lv_label_set_text(lv_obj_get_child(s_archive_rows[i], 0), text);
         lv_obj_set_style_bg_color(s_archive_rows[i],
-                                  i == s_archive_focus ? lv_color_hex(0x32d5ff) :
+                                  focused ? lv_color_hex(0x32d5ff) :
+                                  selected ? lv_color_hex(0x24364a) :
                                   lv_color_hex(0x1a2230),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_width(s_archive_rows[i], i == s_archive_focus ? 2 : 0,
+        lv_obj_set_style_border_width(s_archive_rows[i], focused ? 2 : selected ? 1 : 0,
                                       LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_color(s_archive_rows[i], lv_color_hex(0xffffff),
                                       LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1005,7 +1008,6 @@ static void archive_on_focus_prev(bk_lv_ui_t *ui)
 
     s_archive_focus = (s_archive_focus + count - 1) % count;
     if (s_archive_focus < archive_visible_count()) {
-        s_archive_selected = s_archive_focus;
         if (s_archive_rows[s_archive_focus] != NULL &&
             lv_obj_is_valid(s_archive_rows[s_archive_focus])) {
             lv_obj_scroll_to_view(s_archive_rows[s_archive_focus], LV_ANIM_OFF);
@@ -1026,7 +1028,6 @@ static void archive_on_focus_next(bk_lv_ui_t *ui)
 
     s_archive_focus = (s_archive_focus + 1) % count;
     if (s_archive_focus < archive_visible_count()) {
-        s_archive_selected = s_archive_focus;
         if (s_archive_rows[s_archive_focus] != NULL &&
             lv_obj_is_valid(s_archive_rows[s_archive_focus])) {
             lv_obj_scroll_to_view(s_archive_rows[s_archive_focus], LV_ANIM_OFF);
@@ -1043,6 +1044,7 @@ static void archive_on_confirm(bk_lv_ui_t *ui)
     visible = archive_visible_count();
     if (s_archive_focus < visible) {
         s_archive_selected = s_archive_focus;
+        s_archive_focus = visible;
         archive_refresh_view();
     } else if (s_archive_focus == visible) {
         archive_delete_click_cb(NULL);
