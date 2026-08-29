@@ -139,6 +139,7 @@ projects/beken_genie/build/bk7258/beken_genie/package/all-app.bin
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | [beken_genie](../projects/beken_genie/) | 声网 Agora RTC 版本：双屏显示、语音唤醒与 AI 对话、图像识别、AEC / NS / KWS、多种大语言模型接入（OpenAI、豆包、DeepSeek 等），以及陀螺仪 / NFC / 按键 / 震动马达 / LED / 充电管理 / DVP 摄像头等外设参考。 | [详细说明及使用说明在线文档](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/projects/beken_genie/index.html) |
 | [volc_rtc](../projects/volc_rtc/)       | 火山引擎 RTC 版本：功能与 `beken_genie` 类似，RTC 后端替换为火山引擎（VolcEngine）。                                                                               | [详细说明及使用说明在线文档](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/projects/volc_rtc/index.html)    |
+| [volc_rtc_ab](../projects/volc_rtc_ab/) | 火山引擎 RTC OTA A/B 版本：功能与 `volc_rtc` 一致，在其基础上增加 OTA A/B 双分区升级能力（区别在于分区布局与固件升级流程）。                                                             | [详细说明及使用说明在线文档](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/projects/volc_rtc_ab/index.html) |
 
 
 工程选型说明请参阅在线文档 [参考工程](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/projects/index.html)。

@@ -6,7 +6,7 @@ Quick Start
 .. rubric:: Before you start
 
 - **BK AI vs SMP**: This repository contains solution and application code. Firmware builds depend on **BK AVDK SMP** via ``SDK_DIR``. Drivers, RTOS, Wi-Fi/BLE, etc. are provided by SMP. See :doc:`../intro/index`.
-- **Choosing a project**: For ``beken_genie``, ``volc_rtc``, ``ai_camera``, see **Choosing a project** in :doc:`../projects/index`.
+- **Choosing a project**: For ``beken_genie``, ``volc_rtc``, ``volc_rtc_ab`` (OTA A/B), see **Choosing a project** in :doc:`../projects/index`.
 
 .. note::
 

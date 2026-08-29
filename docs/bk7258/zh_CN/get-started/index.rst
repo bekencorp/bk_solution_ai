@@ -6,7 +6,7 @@
 .. rubric:: 阅读前说明
 
 - **BK AI 与 SMP**：本仓库为解决方案与业务代码；固件编译依赖 **BK AVDK SMP**，通过 ``SDK_DIR`` 指向 SMP 工程。驱动、RTOS、Wi‑Fi/蓝牙等能力以 SMP 为准。详见 :doc:`../intro/index`。
-- **工程选型**：声网 ``beken_genie``、火山 ``volc_rtc``、``ai_camera`` 等如何选择，见 :doc:`../projects/index` 中的「工程选型」。
+- **工程选型**：声网 ``beken_genie``、火山 ``volc_rtc``、火山 OTA A/B ``volc_rtc_ab`` 等如何选择，见 :doc:`../projects/index` 中的「工程选型」。
 
 .. note::
 

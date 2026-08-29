@@ -136,6 +136,7 @@ For the detailed flashing process, see [Armino SMP Quick Start](https://docs.bek
 | --- | --- | --- |
 | [beken_genie](../projects/beken_genie/) | Agora RTC version: dual-screen display, voice wake-up and AI dialog, image recognition, AEC / NS / KWS, integration with multiple large language models (OpenAI, Doubao, DeepSeek, etc.), and peripheral references such as gyroscope / NFC / buttons / vibration motor / LED / charging management / DVP camera. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/beken_genie/index.html) |
 | [volc_rtc](../projects/volc_rtc/) | VolcEngine RTC version: similar to `beken_genie`, with the RTC backend replaced by VolcEngine. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/volc_rtc/index.html) |
+| [volc_rtc_ab](../projects/volc_rtc_ab/) | VolcEngine RTC OTA A/B version: same functionality as `volc_rtc`, adding OTA A/B dual-partition upgrade support (differs in partition layout and firmware upgrade flow). | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/volc_rtc_ab/index.html) |
 
 For project selection guidance, see [Reference Projects](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/index.html) in the online documentation.
 
