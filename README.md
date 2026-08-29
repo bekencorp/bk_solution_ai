@@ -1,122 +1,148 @@
-Armino AI Solution Introduction
-------------------------------------
+# Beken BK7258 AI Solution
 
-:link_to_translation:`zh_CN:[中文]`
+- [中文](./README_CN.md)
 
-Overview
------------------------------------
+## Overview
 
-Armino AI Solution is an intelligent AI device solution developed by Beken Corporation based on the Armino SMP architecture. This solution provides complete end-to-cloud and cloud-to-large-model AI interaction capabilities, supports multiple large language model integrations, and offers developers a complete development framework for rapidly building intelligent AI devices. Currently supports large model applications such as VolcEngine and Agora.
+The **BK7258 AI Solution** is an open-source, intelligent AI device solution released by Beken. It is based on the **BK7258** SoC and depends on the Armino base SDK **BK_AVDK_SMP**, providing complete end-to-cloud and cloud-to-large-model AI interaction. The solution supports voice wake-up, voice and vision dialog, image recognition, and dual-screen display, and integrates real-time RTC audio/video and on-device audio processing, together with peripherals such as dual LCD screens, a camera, and a microphone.
 
+## Documentation
 
-Project Compilation
-------------------------------------
+- [BK7258 AI Solution online documentation](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/index.html)
+- [Armino SMP SDK (BK AVDK SMP)](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/en/v3.1.1/index.html)
 
-1. Environment Setup
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+## Hardware
 
-1.1  **Download Armino SMP SDK**:
+The hardware for this solution is the BK7258 AI Toy Development Kit. The kit integrates the BK7258 SoC, dual SPI LCD displays, a DVP camera, a microphone, and a speaker, along with common AI-device peripherals such as a gyroscope, NFC, buttons, LEDs, a vibration motor, charging management, a lithium battery, and SD NAND.
 
-You can download Armino SMP code from gitlab::
+- [Development kit hardware materials](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/hw-reference/index.html)
+- [BK7258 Datasheet](https://docs.bekencorp.com/spec/BK7258/BK7258%C2%A0Datasheet.pdf)
 
-    mkdir -p ~/armino
-    cd ~/armino
-    git clone https://gitlab.bekencorp.com/armino/bk_avdk_smp.git -b release/v3.1.1
+Development kit purchase links: [AIDK development board (Taobao)](https://item.taobao.com/item.htm?id=899826514287); BK7258 [chip purchase (Taobao)](https://item.taobao.com/item.htm?id=952954434009).
 
-1.2 **Download AI Solution Code**:
+## Version Strategy
 
-You can download Armino AI Solution code from gitlab::
+This solution uses a "maintenance branch + release tag" version management approach:
 
-    mkdir -p ~/armino
-    cd ~/armino
-    git clone https://gitlab.bekencorp.com/armino/smp_solution/bk_solution_ai.git -b release/v3.1.1
+- `release/v3.1.1` is the ongoing maintenance branch, used for feature iteration and bug fixes of this version series. It always contains the latest code, but may include changes that have not yet completed full release testing.
+- `release/v3.1.1.x` are formal release tags, for example `release/v3.1.1.1` and `release/v3.1.1.2`. Each tag has gone through the complete test and release process and can be used for mass production.
+- The AI Solution and the Armino SMP SDK must use exactly the same version tag. For example, when the solution code uses `release/v3.1.1.4`, the SDK must also use `release/v3.1.1.4`.
 
+We recommend that you choose the tag with the highest version number in the `release/v3.1.1.x` series for development and mass production. Only use the `release/v3.1.1` branch when you need to try the latest features or participate in development.
 
-2. Project Introduction
---------------------------------
-Armino AI Solution mainly includes Agora RTC version project, VolcEngine RTC version project, and AI camera version project.
+## Get the Code
 
-Agora RTC Version Project (beken_genie)
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+The BK7258 AI Solution and the Armino SMP SDK are published simultaneously on GitHub, Gitee, and GitLab. Choose a code source based on your network environment and access permissions.
 
-An AI device solution based on BK7258 chip and Agora RTC SDK, providing complete end-to-cloud and cloud-to-large-model AI interaction capabilities.
-- Supports Agora RTC real-time audio/video communication, integrated audio processing engine (AEC, NS, KWS)
-- Supports OPUS, PCM audio encoding formats, supports prompt tone playback
-- Supports multiple large language model integrations (OpenAI, Doubao, DeepSeek, etc.)
-- Supports dual SPI LCD screen display, providing visual and voice interaction experience
-- Includes rich peripheral reference designs: gyroscope, NFC, buttons, vibration motor, NAND Flash, LED effects, charging management, DVP camera, etc.
+AI Solution:
 
-VolcEngine RTC Version Project (volc_rtc)
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+- GitHub: <https://github.com/bekencorp/bk_solution_ai>
+- Gitee: <https://gitee.com/bekencorp/bk_solution_ai>
+- GitLab: <https://gitlab.bekencorp.com/armino/smp_solution/bk_solution_ai>
 
-A real-time audio/video communication solution based on BK7258 chip and VolcEngine RTC SDK, supporting real-time conversation with cloud AI Agent.
-- Supports VolcEngine RTC real-time audio/video communication, integrated audio processing engine (AEC, NS)
-- Supports G722, OPUS, PCM audio encoding formats
-- Supports VolcEngine AI Agent service integration, supports voice conversation and image recognition
-- Supports dual SPI LCD screen display, providing visual and voice interaction experience
-- Includes rich peripheral reference designs: gyroscope, NFC, buttons, vibration motor, NAND Flash, LED effects, charging management, DVP camera, etc.
+Armino SMP SDK:
 
-AI Camera Version Project (ai_camera)
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+- GitHub: <https://github.com/bekencorp/bk_avdk_smp>
+- Gitee: <https://gitee.com/bekencorp/bk_avdk_smp>
+- GitLab: <https://gitlab.bekencorp.com/armino/bk_avdk_smp>
 
-AI camera solution, currently under development.
+GitHub and Gitee are publicly accessible. GitLab is open to enterprise customers only; enterprise customers who need access should contact their FAE or sales representative to apply for permission.
 
+**Note for Windows users:** When using Git for Windows to get the code, we recommend disabling automatic line-ending conversion before cloning, to avoid scripts or source files being converted to CRLF and causing build failures. This is not required on Linux, macOS, or WSL.
 
-3. Compile Project
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+```bash
+git config --global core.autocrlf false
+```
 
-**Method 1: Direct Compilation**
+If the code has already been cloned, changing this setting will not automatically restore the files; we recommend re-cloning after applying it.
 
-.. code:: bash
+The commands below use GitHub and the `release/v3.1.1.8` tag as an example. **When actually getting the code, choose the latest released tag, and make sure the solution code and the SDK use exactly the same tag.** When using another code source, simply replace the corresponding repository URL.
 
-    cd ~/armino/bk_solution_ai/projects/beken_genie
-    make clean SDK_DIR=~/armino/bk_avdk_smp
-    make bk7258 SDK_DIR=~/armino/bk_avdk_smp
+```bash
+mkdir -p ~/armino && cd ~/armino
 
-**Method 2: Specify SDK Path via export**
+# Armino SMP SDK
+git clone --branch release/v3.1.1.8 https://github.com/bekencorp/bk_avdk_smp.git
 
-.. code:: bash
+# AI Solution
+git clone --branch release/v3.1.1.8 https://github.com/bekencorp/bk_solution_ai.git
+```
 
-    cd ~/armino/bk_solution_ai/projects/beken_genie
-    export SDK_DIR=~/armino/bk_avdk_smp
-    make clean
-    make bk7258
+For more details on getting the code, see [Quick Start](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/get-started/index.html).
 
-**Method 3: Using Docker (Linux/Mac)**
+## Set Up the Build Environment
 
-.. code:: bash
+Armino SMP supports both local builds and Docker builds. Choose one of the following methods to set up the build environment based on your development platform.
 
-    cd ~/armino/bk_solution_ai/projects/beken_genie
-        export SDK_DIR=~/armino/bk_avdk_smp
-        ./dbuild.sh make clean
-        ./dbuild.sh make bk7258
+### Local Build on Linux
 
-**Method 4: Using Docker (Windows PowerShell)**
+Enter the SDK directory and run the environment setup script:
 
-.. code:: powershell
+```bash
+# The setup script is located in the bk_avdk_smp repository
+cd ~/armino/bk_avdk_smp
+sudo bash tools/env_tools/setup/armino_env_setup.sh
+```
 
-    cd C:\armino\bk_solution_ai\projects\beken_genie
-        $env:SDK_DIR = "C:\armino\bk_avdk_smp"
-        .\dbuild.ps1 make clean
-        .\dbuild.ps1 make bk7258
+### Local Build on Windows
 
-4. Flash Firmware to Device
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Download and install [Armino Bash](https://dl.bekencorp.com/tools/arminosdk/WindowsInstaller/Armino-Bash-Setup_0.3.0.exe).
 
-After compilation, the all-app.bin file will be generated in the /build/bk7258/beken_genie/package directory of the AI Solution code. Use the flashing tool to flash it to the development board.
+### Docker Build
 
-4.1 **Resource File Flashing**
+The Docker build image is [`bekencorp/armino-idk`](https://hub.docker.com/r/bekencorp/armino-idk/tags). Choose an image tag of `1.5` or higher; it supports Windows / Linux / macOS.
 
-    - 1. Armino supports firmware flashing on Windows/Linux platforms. Refer to the flashing tool documentation for flashing methods. For Windows platform, Armino currently supports UART flashing.
+For detailed setup steps, see [Armino SMP Quick Start: Environment deployment and build](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/en/v3.1.1/get-started/index.html).
 
-      For specific `flashing procedures <https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/en/v3.1.1/get-started/index.html>`_, please refer to `SMP <https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/en/v3.1.1/index.html>`_
+## Build the Project
 
+Using the `beken_genie` project as an example (located at `projects/beken_genie`), build locally by pointing `SDK_DIR` to the Armino SMP SDK (the root directory of the cloned `bk_avdk_smp` repository):
 
-5. Project Demo and Operation Steps
-----------------------------------
+```bash
+cd ~/armino/bk_solution_ai/projects/beken_genie
+make bk7258 SDK_DIR=~/armino/bk_avdk_smp        # or export SDK_DIR first, then run make bk7258
+```
 
-5.1  APP Download: `Download <https://docs.bekencorp.com/arminodoc/bk_app/app/en/v2.0.1/app_download/index.html>`_
+Docker builds are also supported (use `./dbuild.sh` on Linux / macOS, and `.\dbuild.ps1` in Windows PowerShell):
 
-    Registration and Login: Register and login using email
+```bash
+cd ~/armino/bk_solution_ai/projects/beken_genie
+export SDK_DIR=~/armino/bk_avdk_smp
+./dbuild.sh make bk7258
+```
 
-5.2  Operation Steps: Mainly includes APP network configuration methods and procedures, how to properly start Agent. For detailed procedures, please refer to `AI Solution <https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/intro/index.html>`_
+After a successful build, the firmware file used for flashing is located at the following path (relative to the `bk_solution_ai/` repository root):
+
+```text
+projects/beken_genie/build/bk7258/beken_genie/package/all-app.bin
+```
+
+For other projects, replace the path in the commands with the corresponding `projects/<project_name>`. For detailed build commands, see [Quick Start](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/get-started/index.html).
+
+## Flash the Firmware
+
+You can flash the firmware using either of the following methods:
+
+- Download and use the [BKFIL local flashing tool](https://dl.bekencorp.com/tools/flash/)
+- Use the [BKFIL web flashing tool](https://connect.aclsemi.com/)
+
+When flashing, select the `all-app.bin` firmware file generated in the previous section.
+
+For the detailed flashing process, see [Armino SMP Quick Start](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/en/v3.1.1/get-started/index.html).
+
+## Reference Projects
+
+| Project | Main features | Details |
+| --- | --- | --- |
+| [beken_genie](../projects/beken_genie/) | Agora RTC version: dual-screen display, voice wake-up and AI dialog, image recognition, AEC / NS / KWS, integration with multiple large language models (OpenAI, Doubao, DeepSeek, etc.), and peripheral references such as gyroscope / NFC / buttons / vibration motor / LED / charging management / DVP camera. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/beken_genie/index.html) |
+| [volc_rtc](../projects/volc_rtc/) | VolcEngine RTC version: similar to `beken_genie`, with the RTC backend replaced by VolcEngine. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/volc_rtc/index.html) |
+| [volc_rtc_ab](../projects/volc_rtc_ab/) | VolcEngine RTC OTA A/B version: same functionality as `volc_rtc`, adding OTA A/B dual-partition upgrade support (differs in partition layout and firmware upgrade flow). | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/volc_rtc_ab/index.html) |
+
+For project selection guidance, see [Reference Projects](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/index.html) in the online documentation.
+
+## Beken Resources
+
+- [Beken official website](https://www.bekencorp.com/)
+- [Armino developer forum](https://armino.bekencorp.com/)
+- [Beken documentation center](https://docs.bekencorp.com/)
+- Bilibili: Beken product solutions
