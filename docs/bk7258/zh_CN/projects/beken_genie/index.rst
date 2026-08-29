@@ -556,11 +556,11 @@ Beken Genie AI
 3.2 UI资源替换
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 
-    - 1、将要使用的avi视频文件通过SDK中的 ``<bk_aidk源代码路径>/bk_avdk/components/multimedia/tools/aviconvert/bk_avi.7z`` 转换工具进行格式转换，具体使用方法可参考工具中的readme.txt说明
+    - 1、将要使用的 avi 视频文件请使用 `AVI 转换工具（BEKEN 下载站） <https://dl.bekencorp.com/tools/aviconvert>`_ 获取工具包并完成格式转换，具体使用方法可参考工具包内的 readme.txt 说明
 
     - 2、将转换后的文件重新放进SD NAND中，并修改为只包含英文或数字的名称
 
-    - 3、修改 ``<bk_aidk源代码路径>/project/common_components/dual_screen_avi_play/lvgl_ui.c`` 文件中传入函数 ``bk_avi_play_open()`` 的文件名。
+    - 3、修改 ``/components/bk_dual_screen_avi_play/bk_dual_screen_avi_player.c`` 文件中传入函数 ``bk_dual_screen_avi_player_start()`` 的文件名。
 
 3.3 多个UI资源切换
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
@@ -656,7 +656,7 @@ Beken Genie AI
 
 ..
 
-4. 调试命令
+1. 调试命令
 ---------------------------------
 .. warning::
 

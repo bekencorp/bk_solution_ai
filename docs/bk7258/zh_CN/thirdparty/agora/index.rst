@@ -58,7 +58,7 @@ Agora
 
    本文采用REST API，使用curl命令，在PC端启动Agora AI Agent的方式控制
    
-   详细的参数指令，请参考声网提供的原始文档 ``<bk_aidk源代码路径>/docs/thirdparty/agora_ai_agent``
+   详细的参数指令，请参考声网提供的原始文档 ``/docs/thirdparty/agora_ai_agent``
 
 
 2.1 Open AI
@@ -276,13 +276,13 @@ Agora
 
 
 
-3. 参考链接
+1. 参考链接
 --------------------
 
 	声网参考文档：https://docs.agora.io/cn/Agora%20Platform/manage_projects?platform=Android
 
 	声网APPID申请链接：https://sso2.agora.io/cn/v5/login?_gl=1%2ardr355%2a_ga%2aMzkyNDM4ODYyLjE2NzM1MTM3MTU.%2a_ga_BFVGG7E02W%2aMTY3ODg1MjM0My4xMi4wLjE2Nzg4NTIzNDYuMC4wLjA.
 
-	声网AI Agent指导手册： ``<bk_aidk源代码路径>/docs/thirdparty/agora_ai_agent``
+	声网AI Agent指导手册： ``/docs/thirdparty/agora_ai_agent``
 
 	字节TTS账号申请：https://www.volcengine.com/docs/6561/163043

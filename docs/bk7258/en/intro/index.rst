@@ -64,12 +64,24 @@ Core Features
 System Architecture
 -------------------
 
-The Armino AI Solution is based on the Armino SMP architecture, using a dual-core design of AP (Application Processor) + CP (Communication Processor):
+.. rubric:: Relationship between BK AI and BK AVDK SMP
 
-- **AP (CPU1 + CPU2)**: Runs core functions such as multimedia applications, AI interaction, and audio/video processing
-- **CP (CPU0)**: Runs communication functions such as Wi-Fi, BLE, and low-power protocol stack
+The BK AI Solution delivered in this repository relates to the underlying platform BK AVDK SMP (Armino SMP SDK) as follows:
 
-Software Architecture Layers:
+#. **Development and scope**: BK AI is a scenario-oriented solution built on BK AVDK SMP, focusing on AI business logic, RTC, and cloud large-model integration. The chip, RTOS, drivers, and Wi-Fi/BLE stacks are provided by BK AVDK SMP.
+
+#. **Build and compilation**: BK AI does **not** ship a standalone build system. Firmware build, toolchain, Kconfig, and project generation rely on the **BK AVDK SMP** build environment (for example, point ``SDK_DIR`` to the SMP SDK tree).
+
+#. **Code boundary**: This repository mainly contains **solution and business implementation** code. It does **not** include hardware drivers, RTOS, memory management, or Wi-Fi/BLE stacks; use the interfaces and components provided by **BK AVDK SMP** when you need those capabilities.
+
+The following describes the typical processor split and software layering on BK7258 from the **BK AVDK SMP** platform perspective (BK AI business code runs at the application and service layers and depends on OS, drivers, and networking from SMP).
+
+The Armino SMP architecture uses AP (Application Processor) + CP (Communication Processor):
+
+- **AP (CPU1 + CPU2)**: Runs multimedia applications, AI interaction, audio/video processing, and related core functions
+- **CP (CPU0)**: Runs Wi-Fi, BLE, and low-power protocol stacks
+
+Software architecture layers (illustrative):
 
 ::
 
@@ -97,7 +109,7 @@ Main Application Scenarios
 Technical Advantages
 --------------------
 
-1. **Complete Development Framework**: Provides complete code and documentation from hardware drivers to application layer
+1. **Solution stack with SMP**: BK AI provides scenario solutions and reference projects with documentation; hardware drivers, RTOS, and stacks are provided by BK AVDK SMP, together forming a complete development path
 
 2. **Modular Design**: Each functional module is independent, facilitating customization and expansion
 

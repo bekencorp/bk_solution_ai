@@ -133,37 +133,26 @@ LED effect development reference code: led_blink.c.
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
         - 1. Local Gsensor supports system wake-up function. Users can shake the development board in an S-shaped trajectory to wake up the system
 
+
 1.7 Charging Management
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
         - 1. The current development board uses charging management chip model (ETA3422)
         - 2. When fully charged, the red light next to the charging port will turn off and green light will turn on; red light on indicates charging
         - 3. Note: During charging or when external power is connected, the system switches to external input voltage source for voltage detection instead of using battery voltage. At this time, the voltage obtained by command is the external input voltage.
-        - 4. Charging status monitoring depends on GPIO51 and GPIO26.
-            - GPIO51 is responsible for detecting whether it is charging state. When GPIO51 is high, there is external power supply input, otherwise there is not.
-            - When GPIO26 is high, it indicates the battery is charging. When low, it indicates the battery is fully charged.
-            - Note: This function requires confirmation that R14 resistor is soldered on hardware. If not soldered, additional soldering is required.
+        - 4. Charging status monitoring depends on GPIO51 and GPIO26. GPIO51 indicates external power (high = present). GPIO26 indicates charging (high) or full (low). **Note:** R14 must be soldered for this function; otherwise solder it before use.
+
 
         - 5. To enable charging management function, configure CONFIG_BAT_MONITOR=y. To enable charging management test cases, configure CONFIG_BATTERY_TEST=y.
-        - 6. After enabling battery test command configuration, battery information can be obtained through battery command.
-            - For example, "battery init" can initialize the battery monitoring task.
-            - "battery get_battery_info" can view basic battery information.
-            - "battery get_voltage" can view the current voltage value of the battery.
-            - "battery get_level" can view the current battery level.
-            - When using the above commands, note whether it is under external power supply, otherwise the detected voltage information is the external power supply voltage.
-            - For other specific commands, you can just send "battery" to print related command support. For further information, please refer to the definition in cli_battery.c.
+        - 6. After enabling battery test command configuration, battery information can be obtained through the battery CLI. Examples: ``battery init`` starts the monitoring task; ``battery get_battery_info``, ``battery get_voltage``, and ``battery get_level`` read status. When on external power, reported voltage reflects the supply, not the cell. Send ``battery`` alone for more commands; see ``cli_battery.c`` for details.
 
-        - 7. When battery level is equal to or less than 20%, a low battery warning event will be sent.
-            - Only triggered when not plugged in. External power supply or charging will not send low battery warning.
-            - Only sent once each time entering low battery state.
-            - At this time, the red light on the other side slow blinks for 30s.
+        - 7. When battery level is equal to or less than 20%, a low battery warning is sent only when not plugged in (not while charging), once per low-battery entry; the red indicator slow-blinks for 30s.
 
         - 8. The charging management task will print "Device is charging..." information when charging.
         - 9. When fully charged, it will print "Battery is full." information.
         - 10. Although the battery has low voltage protection function, it is recommended that users charge in time when battery is low to extend battery life.
         - 11. If users use batteries from other manufacturers, they need to modify the battery level lookup table s_chargeLUT and battery basic information content in iot_battery_open according to specific battery information.
         - 12. In our SDK, we provide API functions for current, voltage, and battery level. Currently, the battery only supports voltage and battery level detection functions. It should be noted that although the current detection API interface is reserved, it is not yet implemented. Therefore, if the user's device supports current detection, the current API needs to be implemented by the user.
-        - 13. Since the current hardware only supports battery level detection in non-charging state, if users need to detect voltage during charging, hardware modification is required.
-            - Only remove D6 diode and R21 resistor.
+        - 13. Since the current hardware only supports battery level detection in non-charging state, if users need to detect voltage during charging, hardware modification is required (remove D6 diode and R21 resistor only).
 
         - 14. The USB port next to the key is both a charging port and a serial port.
         - 15. The ADC interface for battery level sampling is the internal ADC0 of the chip. External resistor voltage divider circuit plus ADC channel acquisition is not required. ADC0 is directly connected to the VBAT monitoring channel. This interface is a dedicated internal interface of the chip with no external connections.
@@ -570,11 +559,11 @@ LED effect development reference code: led_blink.c.
 3.2 UI Resource Replacement
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 
-    - 1. Convert the AVI video file to be used through the conversion tool in SDK ``<bk_aidk source code path>/bk_avdk/components/multimedia/tools/aviconvert/bk_avi.7z``. For specific usage, please refer to the readme.txt instructions in the tool
+    - 1. Download the AVI conversion package from `BEKEN download (aviconvert) <https://dl.bekencorp.com/tools/aviconvert>`_ and convert the AVI file to the required format. See readme.txt inside the package for usage
 
     - 2. Put the converted file back into SD NAND and rename it to a name containing only English letters or numbers
 
-    - 3. Modify the file name passed to function ``bk_avi_play_open()`` in ``<bk_aidk source code path>/project/common_components/dual_screen_avi_play/lvgl_ui.c`` file.
+    - 3. Modify the file name passed to function ``bk_dual_screen_avi_player_start()`` in ``/components/bk_dual_screen_avi_play/bk_dual_screen_avi_player.c`` file.
 
 3.3 Multiple UI Resource Switching
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,

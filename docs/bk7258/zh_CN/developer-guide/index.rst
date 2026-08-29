@@ -9,7 +9,7 @@ AI Solution 开发者指南
 ---------------------------------
 
 .. toctree::
-    :maxdepth: 2
+    :maxdepth: 1
     :caption: 模块文档:
 
     audio_engine

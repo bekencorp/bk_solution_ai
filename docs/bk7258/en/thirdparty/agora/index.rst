@@ -58,7 +58,7 @@ Agora
 
    This article uses REST API, using curl commands, to control starting Agora AI Agent on PC side
    
-   For detailed parameter instructions, please refer to the original document provided by Agora ``<bk_aidk source code path>/docs/thirdparty/agora_ai_agent``
+   For detailed parameter instructions, please refer to the original document provided by Agora ``/docs/thirdparty/agora_ai_agent``
 
 
 2.1 Open AI
@@ -283,7 +283,7 @@ Please replace the following strings before use:
 
 	Agora APPID application link: https://sso2.agora.io/cn/v5/login?_gl=1%2ardr355%2a_ga%2aMzkyNDM4ODYyLjE2NzM1MTM3MTU.%2a_ga_BFVGG7E02W%2aMTY3ODg1MjM0My4xMi4wLjE2Nzg4NTIzNDYuMC4wLjA.
 
-	Agora AI Agent guide: ``<bk_aidk source code path>/docs/thirdparty/agora_ai_agent``
+	Agora AI Agent guide: ``/docs/thirdparty/agora_ai_agent``
 
 	ByteDance TTS account application: https://www.volcengine.com/docs/6561/163043
 

@@ -1,123 +1,133 @@
-Armino AI 解决方案简介
-------------------------------------
+# 博通集成 AI 解决方案
 
-:link_to_translation:`en:[English]`
+## 概述
 
-概述
-------------------------------------
+**BK AI 解决方案**是博通集成电路（上海）股份有限公司基于 **Armino SMP（BK AVDK SMP）** 架构开发的智能 AI 设备解决方案，提供端到云、云到大模型的 AI 交互能力，支持多种大语言模型接入，便于快速构建智能 AI 设备。当前支持声网（Agora）、火山引擎（VolcEngine）等大模型与 RTC 应用。
 
-Armino AI 解决方案是博通集成电路（上海）股份有限公司基于 Armino SMP 架构开发的智能 AI 设备解决方案。该方案提供了完整的端到云、云到大模型的 AI 交互能力，支持多种大语言模型接入，为开发者提供快速构建智能 AI 设备的完整开发框架。当前支持火山、声网等大模型应用。
+## 文档
 
+- [AI 解决方案在线文档（首页）](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/index.html)
+- [快速入门](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/get-started/index.html)（含代码获取、编译环境、编译与烧录）
+- [Armino SMP（BK AVDK SMP）](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/index.html)
 
-工程编译
--------------------------------------
+本地仓库中文文档源码目录：`docs/bk7258/zh_CN/`（含简介、快速入门、H/W 参考、开发者指南、参考工程、第三方工程等）。文档目录说明与本地构建见 [docs/README_CN.md](docs/README_CN.md)。
 
-1. 环境准备
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+## 获取代码
 
-1.1  **下载 Armino SMP SDK**:
+### 1. Armino SMP SDK
 
-您可从 gitlab 上下载 Armino SMP 代码::
+**GitLab**
 
-    mkdir -p ~/armino
-    cd ~/armino
-    git clone https://gitlab.bekencorp.com/armino/bk_avdk_smp.git -b release/v3.1.1
+```bash
+mkdir -p ~/armino
+cd ~/armino
+git clone https://gitlab.bekencorp.com/armino/bk_avdk_smp.git -b release/v3.1.1
+```
 
-1.2 **下载 AI 解决方案代码**:
+**GitHub**
 
-您可从 gitlab 上下载 Armino AI解决方案 代码::
+```bash
+mkdir -p ~/armino
+cd ~/armino
+git clone https://github.com/bekencorp/bk_avdk_smp.git -b release/v3.1.1
+```
 
-    mkdir -p ~/armino
-    cd ~/armino
-    git clone https://gitlab.bekencorp.com/armino/smp_solution/bk_solution_ai.git -b release/v3.1.1
+### 2. AI 解决方案（本仓库）
 
+**GitLab**
 
-2. 工程介绍
---------------------------------
-Armino AI 解决方案主要包含声网RTC版本工程、火山RTC版本工程、AI camera版本工程。
+```bash
+mkdir -p ~/armino
+cd ~/armino
+git clone https://gitlab.bekencorp.com/armino/smp_solution/bk_solution_ai.git -b release/v3.1.1
+```
 
-声网RTC版本工程 (beken_genie)
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+**GitHub**
 
-基于BK7258芯片和声网RTC SDK的AI设备解决方案，提供端到云、云到大模型的完整AI交互能力。
-- 支持声网RTC实时音视频通信，集成音频处理引擎（AEC、NS、KWS）
-- 支持OPUS、PCM音频编码格式，支持提示音播放
-- 支持多种大语言模型接入（OpenAI、豆包、DeepSeek等）
-- 支持双SPI LCD屏幕显示，提供视觉加语音的交互体验
-- 包含丰富外设参考设计：陀螺仪、NFC、按键、震动马达、NAND Flash、LED灯效、充电管理、DVP camera等
+```bash
+mkdir -p ~/armino
+cd ~/armino
+git clone https://github.com/bekencorp/bk_solution_ai.git -b release/v3.1.1
+```
 
-火山RTC版本工程 (volc_rtc)
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+## 编译环境
 
-基于BK7258芯片和火山引擎RTC SDK的实时音视频通信解决方案，支持与云端AI Agent进行实时对话。
-- 支持火山引擎RTC实时音视频通信，集成音频处理引擎（AEC、NS）
-- 支持G722、OPUS、PCM音频编码格式
-- 支持火山引擎AI Agent服务集成，支持语音对话和图像识别
-- 支持双SPI LCD屏幕显示，提供视觉加语音的交互体验
-- 包含丰富外设参考设计：陀螺仪、NFC、按键、震动马达、NAND Flash、LED灯效、充电管理、DVP camera等
+在编译工程前，需完成 SMP SDK 侧编译环境部署：可使用 **本地编译环境**（推荐，适用于 Windows / Linux）或 **Docker 编译环境**（Linux / macOS / Windows）。不熟悉 Docker 或网络受限时，请使用本地部署。
 
-AI Camera版本工程 (ai_camera)
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+详细步骤（本地安装脚本、Windows Armino Bash、Docker 镜像与 `dbuild` 等）见在线文档 [快速入门](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/get-started/index.html) 中的「环境部署及编译」及子章节。
 
-AI相机解决方案，目前正在开发中。
+## 编译项目
 
+以下以 `beken_genie` 工程为例（其他工程请将路径改为对应 `projects/<工程名>`）。
 
-3. 编译项目
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+**方式一：命令行直接指定 SDK 路径**
 
-**方式一：直接编译**
+```bash
+cd ~/armino/bk_solution_ai/projects/beken_genie
+make clean SDK_DIR=~/armino/bk_avdk_smp
+make bk7258 SDK_DIR=~/armino/bk_avdk_smp
+```
 
-.. code:: bash
+**方式二：通过环境变量指定 SDK 路径**
 
-    cd ~/armino/bk_solution_ai/projects/beken_genie
-    make clean SDK_DIR=~/armino/bk_avdk_smp
-    make bk7258 SDK_DIR=~/armino/bk_avdk_smp
+```bash
+cd ~/armino/bk_solution_ai/projects/beken_genie
+export SDK_DIR=~/armino/bk_avdk_smp
+make clean
+make bk7258
+```
 
-**方式二：或者可以通过export来指定SDK路径**
+**方式三：Docker（Linux / macOS）**
 
-.. code:: bash
+```bash
+cd ~/armino/bk_solution_ai/projects/beken_genie
+export SDK_DIR=~/armino/bk_avdk_smp
+./dbuild.sh make clean
+./dbuild.sh make bk7258
+```
 
-    cd ~/armino/bk_solution_ai/projects/beken_genie
-    export SDK_DIR=~/armino/bk_avdk_smp
-    make clean
-    make bk7258
+**方式四：Docker（Windows PowerShell）**
 
-**方式三：使用 Docker（Linux/Mac）**
+```powershell
+cd C:\armino\bk_solution_ai\projects\beken_genie
+$env:SDK_DIR = "C:\armino\bk_avdk_smp"
+.\dbuild.ps1 make clean
+.\dbuild.ps1 make bk7258
+```
 
-.. code:: bash
+## 参考工程简介
 
-    cd ~/armino/bk_solution_ai/projects/beken_genie
-        export SDK_DIR=~/armino/bk_avdk_smp
-        ./dbuild.sh make clean
-        ./dbuild.sh make bk7258
+BK AI 解决方案主要包含声网 RTC 版本、火山 RTC 版本、AI Camera 版本等参考工程。
 
-**方式四：使用 Docker（Windows PowerShell）**
+### 声网 RTC 版本（`beken_genie`）
 
-.. code:: powershell
+基于 BK7258 与声网 RTC SDK，提供端到云、云到大模型的 AI 交互能力。
 
-    cd C:\armino\bk_solution_ai\projects\beken_genie
-        $env:SDK_DIR = "C:\armino\bk_avdk_smp"
-        .\dbuild.ps1 make clean
-        .\dbuild.ps1 make bk7258
+- 声网 RTC 实时音视频，集成音频处理（AEC、NS、KWS）
+- 支持 OPUS、PCM 等音频编码，支持提示音
+- 支持多种大语言模型（OpenAI、豆包、DeepSeek 等）
+- 支持双 SPI LCD，外设参考：陀螺仪、NFC、按键、震动马达、NAND Flash、LED、充电管理、DVP 摄像头等
 
-4. 烧录固件到设备
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+### 火山 RTC 版本（`volc_rtc`）
 
-在编译完成后，在AI 解决方案代码的/build/bk7258/beken_genie/package目录下将生成all-app.bin，使用烧录工具烧录到开发板即可。
+基于 BK7258 与火山引擎 RTC SDK，支持与云端 AI Agent 实时对话。
 
-4.1 **资源文件烧录**
+- 火山 RTC、音频处理（AEC、NS），G722 / OPUS / PCM 等
+- 火山 AI Agent、语音与图像相关能力，双 SPI LCD 及类似外设参考设计
 
-    - 1、Armino 支持在 Windows/Linux 平台进行固件烧录, 烧录方法参考烧录工具中指导文档。以Windows 平台为例， Armino 目前支持 UART 烧录。
+### AI Camera 版本（`ai_camera`）
 
-      具体 `烧录流程 <https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/get-started/index.html>`_ 请参考 `SMP <https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/index.html>`_
+AI 相机类方案（持续演进中）。
 
+更完整的工程说明见在线文档 [参考工程](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/projects/index.html)。
 
-5. 工程演示以及操作步骤请见如下链接
-----------------------------------
+## 烧录固件
 
-5.1  APP下载地址：`下载 <https://docs.bekencorp.com/arminodoc/bk_app/app/zh_CN/v2.0.1/app_download/index.html>`_
+编译完成后，在 AI 解决方案目录下 `build/bk7258/<工程名>/package` 中生成 `all-app.bin`（示例工程为 `beken_genie` 时路径为 `build/bk7258/beken_genie/package`），使用烧录工具写入开发板。
 
-    注册登录：使用邮箱注册登录
+固件烧录流程与工具说明请参考 [SMP 文档 - 快速入门 / 烧录相关章节](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/get-started/index.html) 及 [SMP 文档首页](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/index.html)。
 
-5.2  操作步骤：主要包含关于APP配网方式和流程，如何正常启动Agent，详细流程请参考 `AI解决方案 <https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/intro/index.html>`_
+## APP 与演示
 
+- APP 下载：[应用下载说明](https://docs.bekencorp.com/arminodoc/bk_app/app/zh_CN/v2.0.1/app_download/index.html)（使用邮箱注册登录）
+- 配网、启动 Agent 等操作步骤：见 [AI 解决方案简介](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/intro/index.html) 与 [快速入门](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/get-started/index.html)

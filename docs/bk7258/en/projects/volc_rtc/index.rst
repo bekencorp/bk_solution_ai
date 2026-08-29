@@ -114,30 +114,18 @@ LED effect development reference code: led_blink.c.
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
     - Local Gsensor supports system wake-up function. Users can shake the development board in an S-shaped trajectory to wake up the system
 
+
 **1.7 Charging Management**
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
     - 1. The current development board uses charging management chip model (ETA3422)
     - 2. When fully charged, the red light next to the charging port will turn off and green light will turn on; red light on indicates charging
     - 3. Note: During charging or when external power is connected, the system switches to external input voltage source for voltage detection instead of using battery voltage. At this time, the voltage obtained by command is the external input voltage.
-    - 4. Charging status monitoring depends on GPIO51 and GPIO26.
-        - GPIO51 is responsible for detecting whether it is charging state. When GPIO51 is high, there is external power supply input, otherwise there is not.
-        - When GPIO26 is high, it indicates the battery is charging. When low, it indicates the battery is fully charged.
-        - Note: This function requires confirmation that R14 resistor is soldered on hardware. If not soldered, additional soldering is required.
-        - Specific hardware information is subject to the project schematic.
+    - 4. Charging status monitoring depends on GPIO51 and GPIO26. GPIO51 indicates external power (high = present). GPIO26 indicates charging (high) or full (low). **Note:** R14 must be soldered for this function. Hardware details follow the project schematic.
 
     - 5. To enable charging management function, configure CONFIG_BAT_MONITOR=y. To enable charging management test cases, configure CONFIG_BATTERY_TEST=y.
-    - 6. After enabling battery test command configuration, battery information can be obtained through battery command.
-        - For example, "battery init" can initialize the battery monitoring task.
-        - "battery get_battery_info" can view basic battery information.
-        - "battery get_voltage" can view the current voltage value of the battery.
-        - "battery get_level" can view the current battery level.
-        - When using the above commands, note whether it is under external power supply, otherwise the detected voltage information is the external power supply voltage.
-        - For other specific commands, you can just send "battery" to print related command support. For further information, please refer to the definition in cli_battery.c.
+    - 6. After enabling battery test command configuration, battery information can be obtained through the battery CLI. Examples: ``battery init``; ``battery get_battery_info``; ``battery get_voltage``; ``battery get_level``. On external power, reported voltage reflects the supply. Send ``battery`` for more commands; see ``cli_battery.c``.
 
-    - 7. When battery level is equal to or less than 20%, a low battery warning event will be sent.
-        - Only triggered when not plugged in. External power supply or charging will not send low battery warning.
-        - Only sent once each time entering low battery state.
-        - At this time, the red light on the other side slow blinks for 30s.
+    - 7. When battery level is equal to or less than 20%, a low battery warning is sent only when not plugged in, once per low-battery entry; the red indicator slow-blinks for 30s.
 
     - 8. The charging management task will print "Device is charging..." information when charging.
     - 9. When fully charged, it will print "Battery is full." information.
