@@ -1,5 +1,7 @@
 # 博通集成 AI 解决方案
 
+* [English](./README.md)
+
 ## 概述
 
 **BK AI 解决方案**是博通集成电路（上海）股份有限公司基于 **Armino SMP（BK AVDK SMP）** 架构开发的智能 AI 设备解决方案，提供端到云、云到大模型的 AI 交互能力，支持多种大语言模型接入，便于快速构建智能 AI 设备。当前支持声网（Agora）、火山引擎（VolcEngine）等大模型与 RTC 应用。

@@ -1,5 +1,7 @@
 # Beken BK AI Solution
 
+* [中文](./README_CN.md)
+
 ## Overview
 
 The **BK AI Solution** is an intelligent AI device solution developed by Beken Corporation based on the **Armino SMP (BK AVDK SMP)** architecture. It provides end-to-cloud and cloud-to-large-model AI interaction, supports multiple large language model integrations, and helps you build AI devices quickly. It currently supports integrations such as **Agora** and **VolcEngine** RTC and large-model applications.
