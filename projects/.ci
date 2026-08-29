@@ -1,3 +1,2 @@
 cd volc_rtc;make bk7258
-cd ai_camera;make bk7258
 cd beken_genie;make bk7258
