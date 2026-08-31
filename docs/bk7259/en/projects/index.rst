@@ -3,14 +3,16 @@ Reference Projects
 
 :link_to_translation:`zh_CN:[中文]`
 
-This section lists the currently published reference project for the BK7259 Robot solution.
+This section lists the reference projects for the BK7259 Robot solution.
 
 Project list
 ---------------------------------
 
-- **``beken_robot``**: the only currently published reference project. It uses **Agora RTC** to reach a cloud AI Agent, covering voice dialog, vision Q&A, sound source localization, BLE provisioning, the LVGL UI, keys, audio, video and sensors.
+- **``beken_robot``**: uses **Agora RTC** to reach a cloud AI Agent, covering voice dialog, vision Q&A, sound source localization, BLE provisioning, the LVGL UI, keys, audio, video and sensors.
+- **``secureboot_ai``**: integrates BL1, BL2/MCUboot, TF-M, image signing and Flash AES with the robot AI application stack.
 
 .. toctree::
     :maxdepth: 1
 
     BK7259 Robot project <beken_robot/index>
+    BK7259 Secure Boot AI project <secureboot_ai/index>
