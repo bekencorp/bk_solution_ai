@@ -36,6 +36,13 @@
 #if CONFIG_USB && CONFIG_USBD_MSC
 extern int msc_storage_init(void);
 extern int msc_storage_deinit(void);
+/* USB device connect/disconnect (D+ pull-up toggle) provided by the CherryUSB
+ * adapter (cherryusb_adapter/include/bk_cherryusb_adapter.h). Re-enumerates the
+ * already-initialised gadget on each mux switch without a full, fragile
+ * controller re-init (which re-locks the USB PHY PLL and drifts the MIPI-DSI
+ * display). Declared extern here to match the msc_storage_* pattern. */
+extern bk_err_t bk_cherryusb_device_connect(void);
+extern bk_err_t bk_cherryusb_device_disconnect(void);
 #define BOARD_HAVE_USB_MSC 1
 #else
 #define BOARD_HAVE_USB_MSC 0
@@ -69,6 +76,10 @@ extern int msc_storage_deinit(void);
 
 #define USB_SW_LEVEL_USB   (CONFIG_BOARD_USB_SWITCH_USB_LEVEL ? 1 : 0)
 #define USB_SW_LEVEL_UART  (CONFIG_BOARD_USB_SWITCH_USB_LEVEL ? 0 : 1)
+
+/* Hold the D+ pull-up low long enough for the host to register an unplug before
+ * we re-assert it (or route the bus to CH340). */
+#define USB_REENUMERATION_DELAY_MS 100u
 
 /* -----------------------------------------------------------------------
  *  Low-level GPIO helper: claim a free GPIO, disable pulls, drive a level.
@@ -418,32 +429,57 @@ static bk_err_t board_usb_msc_down(void)
     s_usb_msc_initialized = 0;
     return BK_OK;
 }
+
+/* Toggle only the D+ pull-up on the already-initialised controller. Used to
+ * present a genuine detach/attach to the host across a mux switch without
+ * re-running the PHY/clock/PM bring-up (which hangs the second time on the
+ * Non-Secure AP under secure boot). */
+static void board_usb_set_attach(bool attach)
+{
+    if (attach) {
+        (void)bk_cherryusb_device_connect();
+    } else {
+        (void)bk_cherryusb_device_disconnect();
+    }
+}
 #else
 static bk_err_t board_usb_msc_up(void)   { return BK_OK; }
 static bk_err_t board_usb_msc_down(void) { return BK_OK; }
+static void board_usb_set_attach(bool attach) { (void)attach; }
 #endif /* BOARD_HAVE_USB_MSC */
 
 bk_err_t board_usb_switch_to_uart(void)
 {
-    /* ONLY flip the FSW3157A mux back to CH340. We deliberately KEEP the USB
-     * device MSC stack initialised.
+    /* Soft-disconnect the BK7259 gadget (drop D+ pull-up via SOFTCONN) BEFORE
+     * routing the mux back to CH340, then leave the controller/PHY/MSC stack
+     * fully initialised.
      *
-     * Flipping the mux already tears D+/D- away from the host, so the PC sees
-     * a clean unplug on its own -- we do not need msc_storage_deinit() for
-     * that. Crucially, keeping the controller up means the next USB->on switch
-     * is a plain hot-replug (mux flip only), NOT a usbd_deinitialize() +
-     * usbd_initialize() cycle. That repeated re-init is exactly what hung the
-     * second UART->USB switch on BK7259 and left the PC with no drive.
+     * Why not just flip the mux (the previous approach)? Flipping the FSW3157A
+     * alone is too brief and does not change the D+ pull-up, so the host often
+     * fails to register an unplug -- the very first switch enumerated, but every
+     * later USB->on switch showed nothing on the PC. Dropping SOFTCONN gives the
+     * host a genuine detach.
+     *
+     * Why not msc_storage_deinit()? That runs usbd_deinitialize() ->
+     * usb_dc_low_level_deinit(), i.e. a full PHY/clock/PM power-down. Repeating
+     * that power cycle hangs the second bring-up on the Non-Secure AP under
+     * secure boot. Toggling SOFTCONN alone re-enumerates reliably without ever
+     * re-running that fragile path.
      *
      * MSC is torn down only on demand by board_usb_switch_prepare_nand_access()
      * when the AP itself needs the SD-NAND through FatFs. */
+    if (s_usb_msc_initialized) {
+        board_usb_set_attach(false);
+        rtos_delay_milliseconds(USB_REENUMERATION_DELAY_MS);
+    }
+
     bk_err_t err = board_drive_gpio(CONFIG_BOARD_USB_SWITCH_GPIO,
                                     USB_SW_LEVEL_UART);
     if (err == BK_OK) {
         s_usb_sw_in_usb_mode = 0;
         LOGI("USB-switch: Type-C -> CH340 UART (GPIO_%d = %u)%s\n",
              CONFIG_BOARD_USB_SWITCH_GPIO, USB_SW_LEVEL_UART,
-             s_usb_msc_initialized ? " [MSC kept up for fast re-plug]" : "");
+             s_usb_msc_initialized ? " [MSC kept up, D+ soft-disconnected]" : "");
     }
     return err;
 }
@@ -476,13 +512,9 @@ bk_err_t board_usb_switch_to_usb(void)
 {
     board_sd_nand_power_on();
 
-    /* Flip the FSW3157A mux to BK7259 USB FIRST, then bring MSC up. This is
-     * the ordering that reliably enumerates on the first switch (running
-     * msc_storage_init() while the data lines were still on CH340, with no
-     * host present, hung the init). On a repeat switch MSC is already up --
-     * board_usb_switch_to_uart() keeps it alive -- so this call is then just
-     * the mux flip = a plain hot-replug, avoiding the fragile usbd re-init
-     * that used to hang and left the PC without a drive. */
+    /* Flip the FSW3157A mux to BK7259 USB FIRST, then attach the gadget. Running
+     * msc_storage_init() while the data lines were still on CH340, with no host
+     * present, hung the init, so the mux must lead. */
     bk_err_t err = board_drive_gpio(CONFIG_BOARD_USB_SWITCH_GPIO,
                                     USB_SW_LEVEL_USB);
     if (err != BK_OK) {
@@ -494,14 +526,22 @@ bk_err_t board_usb_switch_to_usb(void)
     LOGW("CH340 UART path is now disconnected from the Type-C port.\n");
 
 #if BOARD_HAVE_USB_MSC
-    /* First switch: bring MSC up now (host already sees the flipped D+).
-     * Repeat switch: idempotent no-op because MSC was kept alive. */
-    (void)board_usb_msc_up();
+    if (!s_usb_msc_initialized) {
+        /* First switch: one-time full controller bring-up (PHY/clock/IRQ +
+         * SOFTCONN). This path is known to enumerate reliably and runs once. */
+        return board_usb_msc_up();
+    }
+    /* Repeat switch: controller/PHY are still live (to_uart only dropped the D+
+     * pull-up). Re-assert SOFTCONN so the host sees a fresh connect and
+     * re-enumerates -- no fragile re-init, so no hang. */
+    board_usb_set_attach(true);
+    LOGI("USB MSC: D+ soft-reconnected -> PC should re-enumerate the disk\n");
+    return BK_OK;
 #else
     LOGW("USB DEVICE / MSC not compiled in -> PC will see no U-disk.\n");
     LOGW("Enable CONFIG_USB_DEVICE=y + CONFIG_USBD_MSC=y in defconfig.\n");
-#endif
     return BK_OK;
+#endif
 }
 
 #if CONFIG_CLI

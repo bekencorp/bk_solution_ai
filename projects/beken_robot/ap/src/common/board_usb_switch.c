@@ -36,6 +36,14 @@
 #if CONFIG_USB && CONFIG_USBD_MSC
 extern int msc_storage_init(void);
 extern int msc_storage_deinit(void);
+/* USB device connect/disconnect (D+ pull-up toggle) provided by the CherryUSB
+ * adapter (cherryusb_adapter/include/bk_cherryusb_adapter.h). Re-enumerates the
+ * already initialised gadget on each mux switch WITHOUT a full
+ * usb_dc_low_level_init() re-init -- the full re-init re-locks the USB PHY PLL,
+ * which perturbs the analog PLL shared with the MIPI-DSI display (screen drift /
+ * color glitch). Declared extern here to match the msc_storage_* pattern. */
+extern bk_err_t bk_cherryusb_device_connect(void);
+extern bk_err_t bk_cherryusb_device_disconnect(void);
 #define BOARD_HAVE_USB_MSC 1
 #else
 #define BOARD_HAVE_USB_MSC 0
@@ -419,29 +427,42 @@ static bk_err_t board_usb_msc_down(void)
     s_usb_msc_initialized = 0;
     return BK_OK;
 }
+
+/* Toggle only the D+ pull-up (MUSB POWER.SOFTCONN) via the CherryUSB adapter,
+ * without re-running usb_dc_low_level_init()/deinit() (which re-locks the USB
+ * PHY PLL and drifts the MIPI-DSI display). */
+static void board_usb_set_attach(bool attach)
+{
+    if (attach) {
+        (void)bk_cherryusb_device_connect();
+    } else {
+        (void)bk_cherryusb_device_disconnect();
+    }
+}
 #else
 static bk_err_t board_usb_msc_up(void)   { return BK_OK; }
 static bk_err_t board_usb_msc_down(void) { return BK_OK; }
+static void board_usb_set_attach(bool attach) { (void)attach; }
 #endif /* BOARD_HAVE_USB_MSC */
 
 bk_err_t board_usb_switch_to_uart(void)
 {
-    /* Disconnect the active gadget before selecting the already-powered CH340.
-     * The mux break time alone is too short for a host to detect an unplug. */
-    int msc_was_initialized = s_usb_msc_initialized;
-    bk_err_t err = board_usb_msc_down();
-    if (err != BK_OK) {
-        return err;
-    }
-    if (msc_was_initialized) {
+    /* Soft-disconnect the BK7259 gadget (drop the D+ pull-up) so the host sees
+     * a genuine detach, then route the mux back to CH340. The controller/PHY
+     * stay initialised -- no usbd_deinitialize()/PHY re-init, so the USB PHY PLL
+     * is not re-locked and the MIPI-DSI display is not disturbed. MSC is torn
+     * down only on demand by board_usb_switch_prepare_nand_access(). */
+    if (s_usb_msc_initialized) {
+        board_usb_set_attach(false);
         rtos_delay_milliseconds(USB_REENUMERATION_DELAY_MS);
     }
 
-    err = board_drive_gpio(CONFIG_BOARD_USB_SWITCH_GPIO, USB_SW_LEVEL_UART);
+    bk_err_t err = board_drive_gpio(CONFIG_BOARD_USB_SWITCH_GPIO, USB_SW_LEVEL_UART);
     if (err == BK_OK) {
         s_usb_sw_in_usb_mode = 0;
-        LOGI("USB-switch: Type-C -> CH340 UART (GPIO_%d = %u)\n",
-             CONFIG_BOARD_USB_SWITCH_GPIO, USB_SW_LEVEL_UART);
+        LOGI("USB-switch: Type-C -> CH340 UART (GPIO_%d = %u)%s\n",
+             CONFIG_BOARD_USB_SWITCH_GPIO, USB_SW_LEVEL_UART,
+             s_usb_msc_initialized ? " [MSC kept up, D+ soft-disconnected]" : "");
     }
     return err;
 }
@@ -472,17 +493,7 @@ bk_err_t board_usb_switch_to_usb(void)
 {
     board_sd_nand_power_on();
 
-    if (s_usb_sw_in_usb_mode) {
-        return board_usb_msc_up();
-    }
-
-    /* Select BK7259 while its pull-up is disabled, keep the bus detached long
-     * enough for the host to drop CH340, then start MSC and assert attach. */
-    bk_err_t err = board_usb_msc_down();
-    if (err != BK_OK) {
-        return err;
-    }
-    err = board_drive_gpio(CONFIG_BOARD_USB_SWITCH_GPIO, USB_SW_LEVEL_USB);
+    bk_err_t err = board_drive_gpio(CONFIG_BOARD_USB_SWITCH_GPIO, USB_SW_LEVEL_USB);
     if (err != BK_OK) {
         return err;
     }
@@ -492,8 +503,17 @@ bk_err_t board_usb_switch_to_usb(void)
     LOGW("CH340 UART path is now disconnected from the Type-C port.\n");
 
 #if BOARD_HAVE_USB_MSC
-    rtos_delay_milliseconds(USB_REENUMERATION_DELAY_MS);
-    return board_usb_msc_up();
+    if (!s_usb_msc_initialized) {
+        /* First switch: one-time full controller bring-up (PHY/clock/IRQ +
+         * SOFTCONN). Runs exactly once; later switches do NOT re-init/re-lock. */
+        return board_usb_msc_up();
+    }
+    /* Repeat switch: controller/PHY still live (to_uart only dropped the D+
+     * pull-up). Re-assert SOFTCONN so the host re-enumerates -- no PHY re-init,
+     * so no PLL re-lock and no display drift. */
+    board_usb_set_attach(true);
+    LOGI("USB MSC: D+ soft-reconnected -> PC should re-enumerate the disk\n");
+    return BK_OK;
 #else
     LOGW("USB DEVICE / MSC not compiled in -> PC will see no U-disk.\n");
     LOGW("Enable CONFIG_USB_DEVICE=y + CONFIG_USBD_MSC=y in defconfig.\n");
