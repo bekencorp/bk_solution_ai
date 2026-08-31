@@ -898,6 +898,18 @@ int a2dp_sink_demo_start(uint8_t aac_supported, uint8_t auto_accept_conn)
         return BK_OK;
     }
 
+#if CONFIG_AE_ENABLE_PA_CNTRL
+    {
+        onboard_speaker_pa_ctrl_t pa = DEFAULT_ONBOARD_SPEAKER_PA_CTRL();
+        pa.pa_ctrl_en   = true;
+        pa.pa_ctrl_gpio = CONFIG_AE_PA_CNTRL_GPIO;
+        pa.pa_on_level  = CONFIG_AE_PA_ON_LEVEL;
+        pa.pa_on_delay  = CONFIG_AE_PA_ON_DELAY;
+        pa.pa_off_delay = CONFIG_AE_PA_OFF_DELAY;
+        a2dp_sink_audio_set_pa_ctrl(&pa);
+    }
+#endif
+
     if (!s_bt_manager_up) {
         uint8_t bt_mac[6] = {0};
         static char local_name[30] = {0};

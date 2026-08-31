@@ -791,6 +791,13 @@ static int pipeline_build(const char *vfs_path)
     /* Inherit the user-selected Page 10 volume so each music start does
      * NOT reset the DAC dig_gain to the SDK default (-7 dB). */
     spk_cfg.dig_gain = audio_engine_volume_get_gain_db();
+#if CONFIG_AE_ENABLE_PA_CNTRL
+    spk_cfg.pa_ctrl_en   = true;
+    spk_cfg.pa_ctrl_gpio = CONFIG_AE_PA_CNTRL_GPIO;
+    spk_cfg.pa_on_level  = CONFIG_AE_PA_ON_LEVEL;
+    spk_cfg.pa_on_delay  = CONFIG_AE_PA_ON_DELAY;
+    spk_cfg.pa_off_delay = CONFIG_AE_PA_OFF_DELAY;
+#endif
     /* Lower play_energy_threshold so quiet passages still register as
      * "playing" for the meter. */
     spk_cfg.play_energy_threshold  = 1;
