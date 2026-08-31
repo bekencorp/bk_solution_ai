@@ -12,7 +12,7 @@ bk7259/
 │   ├── get-started/   # 快速入门（含 env-manual / env-docker）
 │   ├── hw-reference/  # 硬件参考
 │   ├── developer-guide/   # 各 components 模块开发者指南
-│   ├── projects/      # 参考工程（仅 beken_robot）
+│   ├── projects/      # 参考工程（beken_robot / secureboot_ai / baf_example）
 │   └── thirdparty/    # 第三方（仅 agora）
 └── zh_CN/                                                  # 中文文档（结构同 en/）
 ```
