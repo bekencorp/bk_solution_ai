@@ -31,18 +31,18 @@ extern "C" {
 /* Gain that turns the normalized palm offset (in [-0.5, +0.5]) into a
  * per-frame angle offset. Larger -> turns more aggressively. */
 #ifndef BK_AIMI_PALM_TRACKER_DEFAULT_GAIN
-#define BK_AIMI_PALM_TRACKER_DEFAULT_GAIN      20.0f
+#define BK_AIMI_PALM_TRACKER_DEFAULT_GAIN      10.0f
 #endif
 
 /* Hard cap on |offset| each frame, to keep motion smooth. */
 #ifndef BK_AIMI_PALM_TRACKER_DEFAULT_MAX_STEP
-#define BK_AIMI_PALM_TRACKER_DEFAULT_MAX_STEP  5
+#define BK_AIMI_PALM_TRACKER_DEFAULT_MAX_STEP  2
 #endif
 
 /* Dead band on normalized palm offset; below this the palm is considered
  * already centered on this axis and the angle holds. */
 #ifndef BK_AIMI_PALM_TRACKER_DEFAULT_DEADBAND
-#define BK_AIMI_PALM_TRACKER_DEFAULT_DEADBAND  0.06f
+#define BK_AIMI_PALM_TRACKER_DEFAULT_DEADBAND  0.08f
 #endif
 
 /* ===================== Public API ===================== */
