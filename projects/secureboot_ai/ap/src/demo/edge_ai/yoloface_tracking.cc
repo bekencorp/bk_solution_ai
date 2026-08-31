@@ -52,6 +52,7 @@ bk_err_t bk_robot_lvgl_resume_display(void);
 int page_edge_ai_enter(void);
 int page_edge_ai_archive_enter(void);
 void page_edge_ai_face_recognition_set_status(const char *text);
+void page_edge_ai_face_recognition_set_ready(bool ready);
 void page_edge_ai_face_recognition_destroy(void);
 }
 #endif
@@ -72,10 +73,10 @@ static FaceRecognitionModel *s_face_recognition_model = NULL;
 #define YOLOFACE_FACE_RECOGNITION_FACE_VERIFY_MODEL_SD_PATH "1:/tflite/face_verify_int8_vela.tflite"
 #endif
 
-/* Display canvas (GPU mp output) the OSD boxes are scaled to. Must match the
- * mp_width/mp_height programmed in yoloface_detection_config() below. The NN
- * input (model->getWidth()/getHeight()) is the *source* coordinate space the
- * boxes are reported in, and the ISP secondary path is auto-sized to it by
+/* Display canvas the OSD boxes are scaled to. In the LVGL blend face-recognition mode the
+ * MP channel outputs full-frame NV12 directly; the non-LVGL path still uses the
+ * GPU MP output. The NN input is the source coordinate space the boxes are
+ * reported in, and the ISP secondary path is auto-sized to it by
  * AvdkVideoReatorOSD::OpenISPCamera(). */
 #define YOLOFACE_DISPLAY_W   400
 #define YOLOFACE_DISPLAY_H   320
@@ -90,6 +91,13 @@ static FaceRecognitionModel *s_face_recognition_model = NULL;
 #define YOLOFACE_BLEND_FG_X       22
 #define YOLOFACE_BLEND_FG_Y       102
 #define YOLOFACE_BLEND_BOX_MAX    8
+#define YOLOFACE_MP_READ_TIMEOUT_MS 1000
+#define YOLOFACE_MP_READER_TASK_PRIORITY BEKEN_DEFAULT_WORKER_PRIORITY
+#define YOLOFACE_MP_READER_TASK_STACK_SIZE (1024 * 2)
+#define YOLOFACE_MP_READER_TASK_NAME       "yoloface_mp_reader"
+#define YOLOFACE_MP_READER_WARMUP_DROP_FRAMES 3
+#define YOLOFACE_LVGL_READY_REFRESH_INTERVAL 20
+#define YOLOFACE_LVGL_READY_LOG_INTERVAL     100
 
 #define YOLOFACE_FACE_DIR_BASE        "1:/faces"
 #define YOLOFACE_FACE_DIR_PREFIX      "face_"
@@ -145,12 +153,18 @@ static volatile bool s_yoloface_enroll_save_stop = false;
 #define YOLOFACE_START_TASK_NAME         "yoloface_start"
 
 static beken_thread_t s_yoloface_start_thread = NULL;
+static beken_thread_t s_yoloface_mp_reader_thread = NULL;
+static beken_semaphore_t s_yoloface_mp_reader_exit_sem = NULL;
 static volatile bool s_yoloface_started = false;
+static volatile bool s_yoloface_mp_reader_stop = false;
 static volatile bool s_yoloface_return_to_edge_ai = false;
 static volatile bool s_yoloface_return_to_archive = false;
 static volatile bool s_yoloface_keep_model_on_stop = false;
 static volatile bool s_yoloface_model_ready = false;
 static volatile bool s_yoloface_lvgl_camera_blend = false;
+static volatile bool s_yoloface_face_recognition_ready = false;
+static volatile bool s_yoloface_pipeline_ready = false;
+static volatile bool s_yoloface_preview_frame_ready = false;
 
 #if CONFIG_LVGL
 static beken_thread_t s_yoloface_exit_thread = NULL;
@@ -161,6 +175,9 @@ static volatile bool s_yoloface_lvgl_stopped = false;
 static void yoloface_overlay_back(void *arg)
 {
     (void)arg;
+    if (yoloface_face_recognition_enroll_is_active()) {
+        (void)yoloface_face_recognition_enroll_cancel();
+    }
     (void)yoloface_detection_exit_to_menu();
 }
 #endif
@@ -172,6 +189,58 @@ static void yoloface_face_recognition_status(const char *text)
 #else
     (void)text;
 #endif
+}
+
+static void yoloface_invalidate_active_screen(void)
+{
+#if CONFIG_LVGL
+    lv_vendor_disp_lock();
+    {
+        lv_obj_t *active = lv_screen_active();
+        if (active != NULL) {
+            lv_obj_invalidate(active);
+        }
+    }
+    lv_vendor_disp_unlock();
+#endif
+}
+
+static void yoloface_face_recognition_set_ready(bool ready)
+{
+    s_yoloface_face_recognition_ready = ready;
+#if CONFIG_LVGL
+    page_edge_ai_face_recognition_set_ready(ready);
+#else
+    (void)ready;
+#endif
+}
+
+static void yoloface_face_recognition_reset_ready_state(void)
+{
+    s_yoloface_pipeline_ready = false;
+    s_yoloface_preview_frame_ready = false;
+    yoloface_face_recognition_set_ready(false);
+}
+
+static void yoloface_face_recognition_update_ready(void)
+{
+    if (s_yoloface_lvgl_camera_blend &&
+        s_yoloface_pipeline_ready &&
+        s_yoloface_preview_frame_ready &&
+        !s_yoloface_face_recognition_ready) {
+        yoloface_face_recognition_set_ready(true);
+        yoloface_face_recognition_status("摄像头预览");
+    }
+}
+
+static void yoloface_blend_first_frame_cb(void *user_data)
+{
+    (void)user_data;
+
+    if (!s_yoloface_preview_frame_ready) {
+        s_yoloface_preview_frame_ready = true;
+        yoloface_face_recognition_update_ready();
+    }
 }
 
 static void yoloface_verify_session_reset(void);
@@ -1192,7 +1261,7 @@ static void yoloface_enroll_save_worker_stop(void)
  *
  * src = model input size, dst = display canvas size. The OSD holds the previous
  * boxes until the next successful frame overwrites them, so on an empty frame we
- * explicitly clear the path. */
+ * explicitly clear the active overlay backend. */
 static void yoloface_detection_box_cb(Box *boxes, int count)
 {
     bool has_face = boxes != NULL && count > 0;
@@ -1214,14 +1283,15 @@ static void yoloface_detection_box_cb(Box *boxes, int count)
             yoloface_face_recognition_verify_set_pending(false);
             yoloface_face_recognition_status("未检测到人脸");
         }
-        box_detection_path_clear();
+        if (!s_yoloface_lvgl_camera_blend) {
+            box_detection_path_clear();
+        }
         return;
     }
 
     if (s_yoloface_lvgl_camera_blend &&
         (s_yoloface_verify_pending || s_yoloface_verify_result_pending)) {
         (void)bk_camera_lvgl_blend_set_boxes(NULL, 0);
-        box_detection_path_clear();
         return;
     }
 
@@ -1267,7 +1337,6 @@ static void yoloface_detection_box_cb(Box *boxes, int count)
         }
 
         (void)bk_camera_lvgl_blend_set_boxes(rects, rect_count);
-        box_detection_path_clear();
         return;
     }
 
@@ -1296,20 +1365,160 @@ static AvdkDetectionModel *yoloface_detection_create_model(void)
     return model;
 }
 
-static void yoloface_detection_frame_complete(void *frame, uint32_t frame_size, void *args)
+static bool yoloface_face_recognition_should_hold_camera_preview(void)
 {
-    (void)args;
+    return s_yoloface_enroll_pending || s_yoloface_verify_pending ||
+           s_yoloface_verify_result_pending;
+}
 
-    if (s_yoloface_lvgl_camera_blend) {
-        if (s_yoloface_enroll_pending || s_yoloface_verify_pending ||
-            s_yoloface_verify_result_pending) {
-            app_gpu_frame_free(frame);
-            return;
-        }
-        (void)bk_camera_lvgl_blend_push_camera_frame(frame, frame_size);
-    } else {
-        app_gpu_frame_free(frame);
+static void yoloface_mp_reader_task(void *arg)
+{
+    (void)arg;
+
+    const uint32_t frame_size = bk_image_size_get(YOLOFACE_LVGL_CAMERA_W,
+                                                  YOLOFACE_LVGL_CAMERA_H,
+                                                  BK_PIXEL_FORMAT_NV12);
+    uint32_t warmup_drop_frames = YOLOFACE_MP_READER_WARMUP_DROP_FRAMES;
+    uint32_t wait_ready_count = 0;
+    bool ready_logged = false;
+
+    if (frame_size == 0) {
+        bk_printf("yoloface_mp_reader: invalid NV12 frame size\n");
+        goto out;
     }
+
+    bk_printf("yoloface_mp_reader: start frame_size=%u\n", (unsigned)frame_size);
+
+    while (!s_yoloface_mp_reader_stop) {
+        if (!bk_camera_lvgl_blend_is_lvgl_ready()) {
+            wait_ready_count++;
+            if ((wait_ready_count % YOLOFACE_LVGL_READY_REFRESH_INTERVAL) == 0) {
+                yoloface_invalidate_active_screen();
+            }
+            if (wait_ready_count == 1 ||
+                (wait_ready_count % YOLOFACE_LVGL_READY_LOG_INTERVAL) == 0) {
+                bk_printf("yoloface_mp_reader: waiting lvgl_ready count=%u\n",
+                          (unsigned)wait_ready_count);
+            }
+            rtos_delay_milliseconds(10);
+            continue;
+        }
+
+        if (!ready_logged) {
+            ready_logged = true;
+            bk_printf("yoloface_mp_reader: lvgl_ready after wait_count=%u\n",
+                      (unsigned)wait_ready_count);
+        }
+
+        uint8_t *frame = (uint8_t *)bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED,
+                                                           frame_size);
+        if (frame == NULL) {
+            bk_printf("yoloface_mp_reader: frame malloc failed, size=%u\n",
+                      (unsigned)frame_size);
+            rtos_delay_milliseconds(20);
+            continue;
+        }
+
+        int ret = app_isp_camera_channel_read(APP_ISP_MP_CHN_ID,
+                                              frame,
+                                              frame_size,
+                                              YOLOFACE_MP_READ_TIMEOUT_MS);
+        if (ret != BK_OK) {
+            bk_frame_buffer_free(frame);
+            if (!s_yoloface_mp_reader_stop) {
+                rtos_delay_milliseconds(20);
+            }
+            continue;
+        }
+
+        if (s_yoloface_mp_reader_stop ||
+            yoloface_face_recognition_should_hold_camera_preview()) {
+            bk_frame_buffer_free(frame);
+            continue;
+        }
+
+        if (warmup_drop_frames > 0) {
+            warmup_drop_frames--;
+            bk_frame_buffer_free(frame);
+            continue;
+        }
+
+        ret = bk_camera_lvgl_blend_push_camera_frame(frame, frame_size);
+        if (ret != BK_OK) {
+            bk_printf("yoloface_mp_reader: push frame failed ret=%d\n", ret);
+        }
+        rtos_delay_milliseconds(2);
+    }
+
+out:
+    bk_printf("yoloface_mp_reader: exit wait=%u\n", (unsigned)wait_ready_count);
+    if (s_yoloface_mp_reader_exit_sem != NULL) {
+        rtos_set_semaphore(&s_yoloface_mp_reader_exit_sem);
+    }
+    rtos_delete_thread(NULL);
+}
+
+static int yoloface_mp_reader_start(void)
+{
+    if (s_yoloface_mp_reader_thread != NULL) {
+        return BK_OK;
+    }
+
+    s_yoloface_mp_reader_stop = false;
+    if (s_yoloface_mp_reader_exit_sem == NULL &&
+        rtos_init_semaphore_ex(&s_yoloface_mp_reader_exit_sem, 1, 0) != BK_OK) {
+        return BK_FAIL;
+    }
+
+    bk_err_t ret = rtos_create_thread(&s_yoloface_mp_reader_thread,
+                                      YOLOFACE_MP_READER_TASK_PRIORITY,
+                                      YOLOFACE_MP_READER_TASK_NAME,
+                                      (beken_thread_function_t)yoloface_mp_reader_task,
+                                      YOLOFACE_MP_READER_TASK_STACK_SIZE,
+                                      NULL);
+    if (ret != BK_OK) {
+        rtos_deinit_semaphore(&s_yoloface_mp_reader_exit_sem);
+        s_yoloface_mp_reader_exit_sem = NULL;
+        return ret;
+    }
+
+    return BK_OK;
+}
+
+static int yoloface_mp_reader_stop(void)
+{
+    if (s_yoloface_mp_reader_thread == NULL) {
+        return BK_OK;
+    }
+
+    s_yoloface_mp_reader_stop = true;
+
+    if (s_yoloface_mp_reader_exit_sem != NULL) {
+        bk_err_t ret = rtos_get_semaphore(&s_yoloface_mp_reader_exit_sem, 5000);
+        if (ret != BK_OK) {
+            bk_printf("yoloface_mp_reader_stop: wait exit failed (%d)\n", ret);
+            return ret;
+        }
+        rtos_deinit_semaphore(&s_yoloface_mp_reader_exit_sem);
+        s_yoloface_mp_reader_exit_sem = NULL;
+    }
+
+    s_yoloface_mp_reader_thread = NULL;
+    return BK_OK;
+}
+
+static int yoloface_open_blend_display(void)
+{
+    if (app_mipi_lcd_state_get()) {
+        return BK_OK;
+    }
+
+    display_board_config_t *display_config = app_display_board_config_get();
+    if (display_config == NULL) {
+        return BK_FAIL;
+    }
+
+    return app_mipi_lcd_turn_on(display_config);
 }
 
 static void yoloface_detection_config(void)
@@ -1330,7 +1539,7 @@ static void yoloface_detection_config(void)
     camera_board.mipi.hmirror = 1;
     camera_board.mipi.vflip = 0;
     camera_board.isp.mp_enable = true;
-    camera_board.isp.mp_flexa = true;
+    camera_board.isp.mp_flexa = !s_yoloface_lvgl_camera_blend;
 
     if (s_yoloface_lvgl_camera_blend) {
         camera_board.isp.mp_width = YOLOFACE_LVGL_CAMERA_W;
@@ -1365,17 +1574,14 @@ static void yoloface_detection_config(void)
     gpu_board.flexa.dst_compress = true;
     gpu_board.flexa.scale = false;
 
-    if (s_yoloface_lvgl_camera_blend) {
-        gpu_board.flexa.frame_done = yoloface_detection_frame_complete;
-        gpu_board.flexa.frame_done_args = NULL;
-    } else {
-        gpu_board.flexa.frame_done = NULL;
-        gpu_board.flexa.frame_done_args = NULL;
-    }
+    gpu_board.flexa.frame_done = NULL;
+    gpu_board.flexa.frame_done_args = NULL;
 
     /* Board config for Multimedia config */
     app_camera_board_config_set(&camera_board);
-    app_gpu_board_config_set(&gpu_board);
+    if (!s_yoloface_lvgl_camera_blend) {
+        app_gpu_board_config_set(&gpu_board);
+    }
 
     display_board_config_t *display_config = app_display_board_config_get();
     if (display_config) {
@@ -1398,6 +1604,7 @@ static void yoloface_detection_start_task(void *arg)
 
     s_yoloface_latest_face_count = -1;
     s_yoloface_latest_face_ms = 0;
+    yoloface_face_recognition_reset_ready_state();
 
 #if CONFIG_LVGL
     if (!s_yoloface_lvgl_camera_blend) {
@@ -1417,22 +1624,18 @@ static void yoloface_detection_start_task(void *arg)
             .fg_height = YOLOFACE_LVGL_CAMERA_H,
             .fg_x = YOLOFACE_BLEND_FG_X,
             .fg_y = YOLOFACE_BLEND_FG_Y,
+            .camera_format = BK_PIXEL_FORMAT_NV12,
+            .camera_compress = false,
+            .camera_rotate_degree = 270,
+            .camera_alpha_blend = false,
         };
         ret = bk_camera_lvgl_blend_start(&blend_cfg);
         if (ret != BK_OK) {
             bk_printf("yoloface_detection_start_task: blend start failed (%d)\n", ret);
             goto fail;
         }
-#if CONFIG_LVGL
-        lv_vendor_disp_lock();
-        {
-            lv_obj_t *active = lv_screen_active();
-            if (active != NULL) {
-                lv_obj_invalidate(active);
-            }
-        }
-        lv_vendor_disp_unlock();
-#endif
+        bk_camera_lvgl_blend_set_first_frame_cb(yoloface_blend_first_frame_cb, NULL);
+        yoloface_invalidate_active_screen();
     }
 
     if (s_yoloface_lvgl_camera_blend) {
@@ -1497,8 +1700,12 @@ static void yoloface_detection_start_task(void *arg)
     }
     camera_opened = true;
 
-    display_open_attempted = true;
-    ret = s_video_reator->OpenDisplay();
+    if (s_yoloface_lvgl_camera_blend) {
+        ret = yoloface_open_blend_display();
+    } else {
+        display_open_attempted = true;
+        ret = s_video_reator->OpenDisplay();
+    }
     if (ret != BK_OK) {
         bk_printf("yoloface_detection_start_task: OpenDisplay failed (%d)\n", ret);
         goto fail;
@@ -1507,16 +1714,17 @@ static void yoloface_detection_start_task(void *arg)
 #if CONFIG_LVGL
     if (s_yoloface_lvgl_camera_blend) {
         bk_camera_lvgl_blend_set_render_ready(true);
-        lv_vendor_disp_lock();
-        {
-            lv_obj_t *active = lv_screen_active();
-            if (active != NULL) {
-                lv_obj_invalidate(active);
-            }
-        }
-        lv_vendor_disp_unlock();
+        yoloface_invalidate_active_screen();
     }
 #endif
+
+    if (s_yoloface_lvgl_camera_blend) {
+        ret = yoloface_mp_reader_start();
+        if (ret != BK_OK) {
+            bk_printf("yoloface_detection_start_task: MP reader start failed (%d)\n", ret);
+            goto fail;
+        }
+    }
 
     ret = s_video_reator->start();
     if (ret != BK_OK) {
@@ -1525,13 +1733,19 @@ static void yoloface_detection_start_task(void *arg)
     }
 
 #if CONFIG_LVGL && CONFIG_TP
-    ret = ui_overlay_swipe_back_start(yoloface_overlay_back, NULL);
-    if (ret != BK_OK) {
-        bk_printf("yoloface_detection_start_task: overlay swipe start failed (%d)\n", ret);
+    if (!s_yoloface_lvgl_camera_blend) {
+        ret = ui_overlay_swipe_back_start(yoloface_overlay_back, NULL);
+        if (ret != BK_OK) {
+            bk_printf("yoloface_detection_start_task: overlay swipe start failed (%d)\n", ret);
+        }
     }
 #endif
 
     bk_printf("yoloface_detection_start_task: done, exiting worker\n");
+    if (s_yoloface_lvgl_camera_blend) {
+        s_yoloface_pipeline_ready = true;
+        yoloface_face_recognition_update_ready();
+    }
 
     s_yoloface_start_thread = NULL;
     rtos_delete_thread(NULL);
@@ -1539,8 +1753,10 @@ static void yoloface_detection_start_task(void *arg)
 
 fail:
     bk_printf("yoloface_detection_start_task: failed (%d), aborting\n", ret);
+    yoloface_face_recognition_reset_ready_state();
 
     if (s_yoloface_lvgl_camera_blend) {
+        (void)yoloface_mp_reader_stop();
         yoloface_enroll_save_worker_stop();
     }
 
@@ -1616,6 +1832,7 @@ static int yoloface_detection_start(void)
         return 0;
     }
 
+    yoloface_face_recognition_reset_ready_state();
     s_yoloface_started = true;
 
     bk_err_t ret = rtos_create_thread(&s_yoloface_start_thread,
@@ -1626,6 +1843,7 @@ static int yoloface_detection_start(void)
                                       NULL);
     if (ret != BK_OK) {
         s_yoloface_started = false;
+        yoloface_face_recognition_reset_ready_state();
         s_yoloface_start_thread = NULL;
         bk_printf("yoloface_detection_start: create thread failed, ret=%d\n", ret);
         return -1;
@@ -1665,6 +1883,11 @@ extern "C" bool yoloface_face_recognition_ui_is_active(void)
     return s_yoloface_started && s_yoloface_lvgl_camera_blend;
 }
 
+extern "C" bool yoloface_face_recognition_is_ready(void)
+{
+    return s_yoloface_face_recognition_ready;
+}
+
 static int yoloface_detection_stop(void)
 {
     if (!s_yoloface_started) {
@@ -1684,17 +1907,25 @@ static int yoloface_detection_stop(void)
         return BK_FAIL;
     }
 
+    yoloface_face_recognition_reset_ready_state();
+
+    if (s_face_recognition_model != NULL) {
+        s_face_recognition_model->setVerifyEnabled(false);
+    }
+    yoloface_face_recognition_enroll_set_pending(false);
+    yoloface_face_recognition_verify_set_pending(false);
+    s_yoloface_verify_result_pending = false;
+    yoloface_verify_session_reset();
+    if (s_yoloface_enroll_session_active) {
+        yoloface_enroll_session_cancel();
+    }
+
 #if CONFIG_LVGL
     if (!s_yoloface_lvgl_stopped) {
         lv_vendor_stop();
         s_yoloface_lvgl_stopped = true;
     }
 #endif
-
-    if (s_yoloface_lvgl_camera_blend) {
-        (void)bk_camera_lvgl_blend_stop();
-        yoloface_enroll_save_worker_stop();
-    }
 
     if (s_video_reator != NULL) {
         int ret = s_video_reator->stop();
@@ -1704,10 +1935,20 @@ static int yoloface_detection_stop(void)
         }
     }
 
-    box_detection_path_clear();
+    if (s_yoloface_lvgl_camera_blend) {
+        (void)yoloface_mp_reader_stop();
+        (void)bk_camera_lvgl_blend_stop();
+        yoloface_enroll_save_worker_stop();
+    }
+
+    if (!s_yoloface_lvgl_camera_blend) {
+        box_detection_path_clear();
+    }
 
     if (s_video_reator != NULL) {
-        (void)s_video_reator->CloseDisplay();
+        if (!s_yoloface_lvgl_camera_blend) {
+            (void)s_video_reator->CloseDisplay();
+        }
         (void)s_video_reator->CloseCamera();
         delete s_video_reator;
         s_video_reator = NULL;
@@ -1729,13 +1970,6 @@ static int yoloface_detection_stop(void)
     }
 
     s_yoloface_started = false;
-    yoloface_face_recognition_enroll_set_pending(false);
-    yoloface_face_recognition_verify_set_pending(false);
-    s_yoloface_verify_result_pending = false;
-    yoloface_verify_session_reset();
-    if (s_yoloface_enroll_session_active) {
-        yoloface_enroll_session_cancel();
-    }
     s_yoloface_lvgl_camera_blend = false;
     s_yoloface_keep_model_on_stop = false;
     return 0;
@@ -1873,7 +2107,7 @@ extern "C" void yoloface_tracking_set_lvgl_camera_blend(bool enable)
 extern "C" int yoloface_face_recognition_enroll_request(void)
 {
     if (!s_yoloface_started || !s_yoloface_lvgl_camera_blend ||
-        s_face_recognition_model == NULL) {
+        !s_yoloface_face_recognition_ready || s_face_recognition_model == NULL) {
         return -1;
     }
     if (yoloface_face_recognition_is_busy()) {
@@ -1916,7 +2150,7 @@ extern "C" bool yoloface_face_recognition_enroll_is_active(void)
 extern "C" int yoloface_face_recognition_verify_request(void)
 {
     if (!s_yoloface_started || !s_yoloface_lvgl_camera_blend ||
-        s_face_recognition_model == NULL) {
+        !s_yoloface_face_recognition_ready || s_face_recognition_model == NULL) {
         return -1;
     }
     if (yoloface_face_recognition_is_busy()) {
@@ -1941,6 +2175,9 @@ extern "C" int yoloface_face_recognition_verify_request(void)
 
 extern "C" int yoloface_face_recognition_archive_enter_request(void)
 {
+    if (!s_yoloface_face_recognition_ready) {
+        return YOLOFACE_FACE_RECOGNITION_ERR_BUSY;
+    }
     if (yoloface_face_recognition_is_busy()) {
         return YOLOFACE_FACE_RECOGNITION_ERR_BUSY;
     }

@@ -8,6 +8,7 @@
  */
 #include "page_edge_ai.h"
 
+
 #ifdef ROBOT_TEST
 
 #include <stdint.h>
@@ -67,6 +68,8 @@ static lv_obj_t *s_face_recognition_screen;
 static lv_obj_t *s_face_recognition_status_label;
 static lv_obj_t *s_face_recognition_buttons[FACE_RECOGNITION_BUTTON_COUNT];
 static uint32_t s_face_recognition_selected;
+static bool s_face_recognition_ready;
+static volatile bool s_face_recognition_ready_pending;
 static lv_obj_t *s_archive_screen;
 static lv_obj_t *s_archive_status_label;
 static lv_obj_t *s_archive_panel;
@@ -85,6 +88,8 @@ static yoloface_archive_info_t s_archive_worker_info;
 static int s_archive_worker_rc;
 static bool s_archive_worker_deleted;
 static archive_op_t s_archive_worker_op;
+static volatile uint32_t s_archive_task_seq;
+static uint32_t s_archive_worker_seq;
 static beken_thread_t s_reset_thread;
 static volatile bool s_reset_busy;
 static uint32_t s_reset_confirm_deadline;
@@ -104,6 +109,7 @@ static const ui_page_nav_ops_t s_face_recognition_nav_ops;
 static void archive_row_click_cb(lv_event_t *e);
 static void face_recognition_status_apply_async(void *arg);
 static void face_recognition_status_clear_async(void *arg);
+static void face_recognition_ready_apply_async(void *arg);
 
 typedef enum {
     FACE_REC_STR_ENROLL = 0,
@@ -422,6 +428,7 @@ static void set_nav_button_selected(lv_obj_t *btn, bool selected)
 
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x2d75b9),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(btn, selected ? 2 : 0,
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_color(btn, lv_color_hex(0x32d5ff),
@@ -439,6 +446,31 @@ static void face_recognition_refresh_nav(void)
     for (uint32_t i = 0; i < FACE_RECOGNITION_BUTTON_COUNT; i++) {
         set_nav_button_selected(s_face_recognition_buttons[i], i == s_face_recognition_selected);
     }
+}
+
+static void face_recognition_set_ready_state(bool ready)
+{
+    s_face_recognition_ready = ready;
+    for (uint32_t i = 0; i < FACE_RECOGNITION_BUTTON_COUNT; i++) {
+        lv_obj_t *btn = s_face_recognition_buttons[i];
+        if (btn == NULL || !lv_obj_is_valid(btn)) {
+            continue;
+        }
+        if (ready) {
+            lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+        } else {
+            lv_obj_clear_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
+    face_recognition_refresh_nav();
+}
+
+static bool face_recognition_require_ready(void)
+{
+    if (s_face_recognition_ready && yoloface_face_recognition_is_ready()) {
+        return true;
+    }
+    return false;
 }
 
 static uint32_t archive_visible_count(void)
@@ -516,16 +548,19 @@ static void archive_refresh_view(void)
         }
         lv_obj_clear_flag(s_archive_rows[i], LV_OBJ_FLAG_HIDDEN);
         yoloface_archive_item_t *item = &s_archive_info.items[i];
+        bool focused = (i == s_archive_focus);
+        bool selected = (i == s_archive_selected);
         snprintf(text, sizeof(text), face_recognition_tr(FACE_REC_STR_ARCHIVE_ROW_FMT),
-                 i == s_archive_selected ? "> " : "  ",
+                 selected ? "> " : "  ",
                  (unsigned)item->profile_id,
                  (unsigned)item->feature_count);
         lv_label_set_text(lv_obj_get_child(s_archive_rows[i], 0), text);
         lv_obj_set_style_bg_color(s_archive_rows[i],
-                                  i == s_archive_focus ? lv_color_hex(0x32d5ff) :
+                                  focused ? lv_color_hex(0x32d5ff) :
+                                  selected ? lv_color_hex(0x24364a) :
                                   lv_color_hex(0x1a2230),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_width(s_archive_rows[i], i == s_archive_focus ? 2 : 0,
+        lv_obj_set_style_border_width(s_archive_rows[i], focused ? 2 : selected ? 1 : 0,
                                       LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_color(s_archive_rows[i], lv_color_hex(0xffffff),
                                       LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -564,6 +599,10 @@ static void archive_apply_async(void *arg)
 {
     (void)arg;
 
+    if (s_archive_worker_seq != s_archive_task_seq) {
+        return;
+    }
+
     if (!s_archive_active || s_archive_screen == NULL ||
         !lv_obj_is_valid(s_archive_screen)) {
         return;
@@ -583,7 +622,7 @@ static void archive_apply_async(void *arg)
 
 static void archive_task(void *arg)
 {
-    (void)arg;
+    uint32_t seq = (uint32_t)(uintptr_t)arg;
     bool deleted = false;
 
     memset(&s_archive_worker_info, 0, sizeof(s_archive_worker_info));
@@ -593,6 +632,7 @@ static void archive_task(void *arg)
     s_archive_worker_op = s_archive_op;
     s_archive_worker_deleted = deleted;
     s_archive_worker_rc = yoloface_face_recognition_archive_query(&s_archive_worker_info);
+    s_archive_worker_seq = seq;
     (void)lv_async_call(archive_apply_async, NULL);
 
     s_archive_busy = false;
@@ -610,6 +650,7 @@ static int archive_start_task(archive_op_t op, uint32_t profile_id)
     }
 
     s_archive_busy = true;
+    s_archive_task_seq++;
     s_archive_op = op;
     s_archive_delete_profile = profile_id;
     if (s_archive_screen != NULL && lv_obj_is_valid(s_archive_screen)) {
@@ -620,7 +661,7 @@ static int archive_start_task(archive_op_t op, uint32_t profile_id)
                                       ARCH_TASK_NAME,
                                       (beken_thread_function_t)archive_task,
                                       ARCH_TASK_STACK_SIZE,
-                                      NULL);
+                                      (void *)(uintptr_t)s_archive_task_seq);
     if (ret != BK_OK) {
         s_archive_thread = NULL;
         s_archive_busy = false;
@@ -652,13 +693,18 @@ static void archive_return_click_cb(lv_event_t *e)
         return;
     }
     s_archive_active = false;
+    s_archive_task_seq++;
     if (s_archive_screen != NULL && lv_obj_is_valid(s_archive_screen)) {
         ui_nav_unregister_screen(s_archive_screen);
     }
     (void)page_edge_ai_face_recognition_enter();
     yoloface_tracking_set_return_to_edge_ai(true);
     yoloface_tracking_set_lvgl_camera_blend(true);
-    (void)yoloface_tracking_start();
+    if (yoloface_tracking_start() != 0 &&
+        s_face_recognition_status_label != NULL &&
+        lv_obj_is_valid(s_face_recognition_status_label)) {
+        set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
+    }
 }
 
 static void archive_delete_click_cb(lv_event_t *e)
@@ -742,6 +788,10 @@ static void face_recognition_reset_click_cb(lv_event_t *e)
 {
     (void)e;
 
+    if (!face_recognition_require_ready()) {
+        return;
+    }
+
     if (yoloface_face_recognition_enroll_is_active()) {
         (void)yoloface_face_recognition_enroll_cancel();
         return;
@@ -773,6 +823,9 @@ static void face_recognition_enroll_click_cb(lv_event_t *e)
 {
     (void)e;
     int rc;
+    if (!face_recognition_require_ready()) {
+        return;
+    }
     if (s_reset_busy) {
         if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
             set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
@@ -795,6 +848,9 @@ static void face_recognition_verify_click_cb(lv_event_t *e)
 {
     (void)e;
     int rc;
+    if (!face_recognition_require_ready()) {
+        return;
+    }
     if (s_reset_busy) {
         if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
             set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
@@ -819,6 +875,9 @@ static void face_recognition_query_click_cb(lv_event_t *e)
 {
     (void)e;
     int rc;
+    if (!face_recognition_require_ready()) {
+        return;
+    }
     if (s_reset_busy) {
         if (s_face_recognition_status_label != NULL && lv_obj_is_valid(s_face_recognition_status_label)) {
             set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
@@ -889,6 +948,12 @@ void page_edge_ai_face_recognition_set_status(const char *text)
     }
 }
 
+void page_edge_ai_face_recognition_set_ready(bool ready)
+{
+    s_face_recognition_ready_pending = ready;
+    (void)lv_async_call(face_recognition_ready_apply_async, NULL);
+}
+
 static void face_recognition_status_apply_async(void *arg)
 {
     (void)arg;
@@ -910,6 +975,13 @@ static void face_recognition_status_clear_async(void *arg)
         set_status_label_text(s_face_recognition_status_label, "摄像头预览");
         lv_obj_invalidate(s_face_recognition_status_label);
     }
+}
+
+static void face_recognition_ready_apply_async(void *arg)
+{
+    (void)arg;
+
+    face_recognition_set_ready_state(s_face_recognition_ready_pending);
 }
 
 static void face_recognition_on_screen_prev(bk_lv_ui_t *ui)
@@ -992,7 +1064,6 @@ static void archive_on_focus_prev(bk_lv_ui_t *ui)
 
     s_archive_focus = (s_archive_focus + count - 1) % count;
     if (s_archive_focus < archive_visible_count()) {
-        s_archive_selected = s_archive_focus;
         if (s_archive_rows[s_archive_focus] != NULL &&
             lv_obj_is_valid(s_archive_rows[s_archive_focus])) {
             lv_obj_scroll_to_view(s_archive_rows[s_archive_focus], LV_ANIM_OFF);
@@ -1013,7 +1084,6 @@ static void archive_on_focus_next(bk_lv_ui_t *ui)
 
     s_archive_focus = (s_archive_focus + 1) % count;
     if (s_archive_focus < archive_visible_count()) {
-        s_archive_selected = s_archive_focus;
         if (s_archive_rows[s_archive_focus] != NULL &&
             lv_obj_is_valid(s_archive_rows[s_archive_focus])) {
             lv_obj_scroll_to_view(s_archive_rows[s_archive_focus], LV_ANIM_OFF);
@@ -1030,6 +1100,7 @@ static void archive_on_confirm(bk_lv_ui_t *ui)
     visible = archive_visible_count();
     if (s_archive_focus < visible) {
         s_archive_selected = s_archive_focus;
+        s_archive_focus = visible;
         archive_refresh_view();
     } else if (s_archive_focus == visible) {
         archive_delete_click_cb(NULL);
@@ -1049,13 +1120,18 @@ static const ui_page_nav_ops_t s_archive_nav_ops = {
 void page_edge_ai_face_recognition_destroy(void)
 {
     s_archive_active = false;
-    s_archive_busy = false;
-    s_archive_thread = NULL;
-    s_reset_busy = false;
-    s_reset_thread = NULL;
+    s_archive_task_seq++;
+    if (s_archive_thread == NULL) {
+        s_archive_busy = false;
+    }
+    if (s_reset_thread == NULL) {
+        s_reset_busy = false;
+    }
     s_reset_confirm_deadline = 0;
     s_face_recognition_status_seq++;
     s_face_recognition_status_clear_seq = s_face_recognition_status_seq;
+    s_face_recognition_ready = false;
+    s_face_recognition_ready_pending = false;
 
     if (s_archive_screen != NULL && lv_obj_is_valid(s_archive_screen)) {
         ui_nav_unregister_screen(s_archive_screen);
@@ -1175,6 +1251,8 @@ int page_edge_ai_face_recognition_enter(void)
         s_face_recognition_buttons[i] = NULL;
     }
     s_face_recognition_selected = 0;
+    s_face_recognition_ready = false;
+    s_face_recognition_ready_pending = false;
 
     s_face_recognition_screen = lv_obj_create(NULL);
     lv_obj_set_size(s_face_recognition_screen, FACE_REC_SCREEN_W, FACE_REC_SCREEN_H);

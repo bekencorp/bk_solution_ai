@@ -3,6 +3,7 @@
 #include <common/bk_include.h>
 #include <os/mem.h>
 #include <os/os.h>
+#include <components/bk_frame_buffer.h>
 #include <modules/vg_lite_gpu/vg_lite.h>
 
 #include "app_display.h"
@@ -129,10 +130,13 @@ static bk_err_t blend_output_cb(void *user_data,
                    BK_OK :
                    BK_FAIL;
     if (ret == BK_OK && !s_blend.first_output_reported) {
+        LOGI("first output frame ok frame=%p\n", frame_buffer);
         s_blend.first_output_reported = true;
         if (s_blend.first_frame_cb != NULL) {
             s_blend.first_frame_cb(s_blend.first_frame_user_data);
         }
+    } else if (ret != BK_OK) {
+        LOGW("output frame failed ret=%d frame=%p\n", ret, frame_buffer);
     }
     return ret;
 }
@@ -146,7 +150,8 @@ static void blend_overlay_cb(void *user_data, vg_lite_buffer_t *output)
 
 static int blend_camera_frame_free_cb(void *frame)
 {
-    return app_gpu_frame_free(frame);
+    bk_frame_buffer_free(frame);
+    return BK_OK;
 }
 
 static bk_pixel_format_t blend_camera_format_get(void)
@@ -294,6 +299,10 @@ void bk_camera_lvgl_blend_set_suspended(bool suspended)
 
 void bk_camera_lvgl_blend_set_render_ready(bool ready)
 {
+    if (s_blend.render_ready != ready) {
+        LOGI("render_ready %d -> %d, lvgl_ready=%d\n",
+             s_blend.render_ready, ready, s_blend.lvgl_ready);
+    }
     s_blend.render_ready = ready;
     if (!ready) {
         s_blend.lvgl_ready = false;
@@ -315,17 +324,17 @@ bk_err_t bk_camera_lvgl_blend_push_camera_frame(void *frame, uint32_t frame_size
     }
 
     if (!s_blend.active || s_blend.stopping || s_blend.async_handle == NULL) {
-        app_gpu_frame_free(frame);
+        bk_frame_buffer_free(frame);
         return BK_FAIL;
     }
 
     if (!s_blend.render_ready || !s_blend.lvgl_ready) {
-        app_gpu_frame_free(frame);
+        bk_frame_buffer_free(frame);
         return BK_OK;
     }
 
     if (s_blend.suspended) {
-        app_gpu_frame_free(frame);
+        bk_frame_buffer_free(frame);
         return BK_OK;
     }
 
@@ -343,10 +352,15 @@ bk_err_t bk_camera_lvgl_blend_push_camera_frame(void *frame, uint32_t frame_size
         .alpha_blend = blend_camera_alpha_blend_get(),
     };
 
-    return lv_camera_blend_async_push_camera_frame(s_blend.async_handle,
-                                                   &camera,
-                                                   frame_size,
-                                                   blend_camera_frame_free_cb);
+    bk_err_t ret = lv_camera_blend_async_push_camera_frame(s_blend.async_handle,
+                                                           &camera,
+                                                           frame_size,
+                                                           blend_camera_frame_free_cb);
+    if (ret != BK_OK) {
+        LOGW("push camera frame failed ret=%d frame=%p size=%u\n",
+             ret, frame, (unsigned)frame_size);
+    }
+    return ret;
 }
 
 bk_err_t bk_camera_lvgl_blend_update_lvgl_frame(void *frame, int (*release_cb)(void *args))
@@ -356,12 +370,20 @@ bk_err_t bk_camera_lvgl_blend_update_lvgl_frame(void *frame, int (*release_cb)(v
         return BK_FAIL;
     }
 
+    uint32_t old_seq = lv_camera_blend_async_get_bg_sequence(s_blend.async_handle);
     bk_err_t ret = lv_camera_blend_async_update_lvgl_frame(s_blend.async_handle,
                                                            frame,
                                                            (lv_camera_blend_free_cb_t)release_cb);
-    if (ret == BK_OK &&
-        lv_camera_blend_async_get_bg_sequence(s_blend.async_handle) != 0) {
+    uint32_t new_seq = lv_camera_blend_async_get_bg_sequence(s_blend.async_handle);
+    if (ret == BK_OK && new_seq != 0) {
+        if (!s_blend.lvgl_ready) {
+            LOGI("lvgl ready, bg_seq=%u old_seq=%u frame=%p\n",
+                 (unsigned)new_seq, (unsigned)old_seq, frame);
+        }
         s_blend.lvgl_ready = true;
+    } else if (ret != BK_OK) {
+        LOGW("update lvgl frame failed ret=%d old_seq=%u new_seq=%u frame=%p\n",
+             ret, (unsigned)old_seq, (unsigned)new_seq, frame);
     }
 
     return ret;

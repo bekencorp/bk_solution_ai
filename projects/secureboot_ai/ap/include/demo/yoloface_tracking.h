@@ -50,6 +50,7 @@ int yoloface_face_recognition_enroll_cancel(void);
 bool yoloface_face_recognition_enroll_is_active(void);
 int yoloface_face_recognition_verify_request(void);
 bool yoloface_face_recognition_ui_is_active(void);
+bool yoloface_face_recognition_is_ready(void);
 int yoloface_face_recognition_archive_enter_request(void);
 int yoloface_face_recognition_archive_query(yoloface_archive_info_t *info);
 int yoloface_face_recognition_archive_delete(uint32_t profile_id);

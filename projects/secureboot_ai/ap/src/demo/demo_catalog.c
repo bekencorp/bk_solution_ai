@@ -156,8 +156,12 @@ static void edge_on_select(int index, void *user_data)
     case 6:
         yoloface_tracking_set_return_to_edge_ai(true);
         yoloface_tracking_set_lvgl_camera_blend(true);
-        (void)page_edge_ai_face_recognition_enter();
-        (void)yoloface_tracking_start();
+        if (yoloface_tracking_start() == 0) {
+            (void)page_edge_ai_face_recognition_enter();
+        } else {
+            ui_theme_create_popup(demo_lang() == UI_LANG_ZH ?
+                                  "操作中,  请稍后" : "Busy, please wait");
+        }
         break;
     default:
         break;
@@ -432,6 +436,15 @@ static void demo_center_select_focused(void)
 
 static void demo_center_row_press_cb(lv_event_t *e)
 {
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    const ui_list_menu_config_t *cfg = demo_center_cfg_for_category(s_demo_center_active_cat);
+
+    if (cfg != NULL && idx >= 0 && idx < cfg->item_count) {
+        s_demo_center_focus = idx;
+        demo_center_apply_focus();
+        lv_refr_now(NULL);
+    }
+
     ui_touch_tap_press(e, &s_demo_center_tap_state);
 }
 
@@ -451,6 +464,7 @@ static void demo_center_row_release_cb(lv_event_t *e)
 
     s_demo_center_focus = idx;
     demo_center_apply_focus();
+    lv_refr_now(NULL);
     demo_center_select_focused();
 }
 
