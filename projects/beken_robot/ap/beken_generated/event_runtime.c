@@ -27,6 +27,16 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+static void release_prev_screen_async(void *user_data)
+{
+    lv_obj_t *prev = (lv_obj_t *)user_data;
+
+    /* Defer deletion until the current LVGL event dispatch has unwound. Deleting
+     * the object that is currently dispatching an event can leave LVGL walking a
+     * freed event descriptor list. */
+    bk_page_release_prev_screen(prev, lv_screen_active());
+}
+
 /**
  * @brief Switch to a screen (with lazy initialization)
  * @param target Pointer to the page pointer in bk_lv_tool_ui structure (e.g., &bk_lv_tool_ui.page_2)
@@ -53,12 +63,12 @@ void navigate_to_screen(lv_obj_t** target, lv_screen_load_anim_t anim_type, int 
         lv_screen_load_anim(*target, anim_type, anim_time, delay, auto_del);
         /* Free the previous page (except keep-alive hubs / dynamic screens)
          * so deep UI navigation does not accumulate resident pages.
-         * Only safe on the immediate-load path (time==0 && delay==0), where
-         * lv_screen_load_anim() switches the active screen synchronously;
-         * with a real transition the swap is deferred and `prev` would still
-         * be active here, so we leave it to LVGL's auto_del in that case. */
+         * For immediate loads the active screen is switched synchronously, but
+         * navigate_to_screen() is often called from an LVGL event callback on the
+         * previous page. Queue the release so the current lv_event_send() can
+         * finish before the old object's event list is destroyed. */
         if (anim_time == 0 && delay == 0) {
-            bk_page_release_prev_screen(prev, *target);
+            (void)lv_async_call(release_prev_screen_async, prev);
         }
     }
 }
