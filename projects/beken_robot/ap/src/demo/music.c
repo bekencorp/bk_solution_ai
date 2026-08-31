@@ -986,9 +986,25 @@ static uint32_t pipeline_get_elapsed_ms(void)
  *  PART 2 -- Catalog (FatFS scan of "1:/music")
  * ==================================================================== */
 
-static char  s_track[MUSIC_MAX_TRACKS][MUSIC_NAME_LEN];
+/* Track name table (~768B); allocate from PSRAM so it does not eat AP .bss. */
+static char (*s_track)[MUSIC_NAME_LEN] = NULL;
 static int   s_track_count;
 static int   s_current_idx;
+
+static int catalog_ensure_track_buf(void)
+{
+    if (s_track != NULL) {
+        return 0;
+    }
+    s_track = (char (*)[MUSIC_NAME_LEN])psram_malloc(
+        (size_t)MUSIC_MAX_TRACKS * MUSIC_NAME_LEN);
+    if (s_track == NULL) {
+        LOGE("track catalog psram_malloc fail\n");
+        return -1;
+    }
+    os_memset(s_track, 0, (size_t)MUSIC_MAX_TRACKS * MUSIC_NAME_LEN);
+    return 0;
+}
 
 static bool s_vfs_mounted;
 
@@ -1054,6 +1070,10 @@ static int catalog_refresh(void)
 
     s_track_count = 0;
     s_current_idx = 0;
+
+    if (catalog_ensure_track_buf() != 0) {
+        return 0;
+    }
 
     if (prepare_storage() != 0) {
         return 0;

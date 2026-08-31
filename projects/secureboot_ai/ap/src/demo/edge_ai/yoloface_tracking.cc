@@ -127,7 +127,8 @@ typedef struct {
 } yoloface_enroll_save_msg_t;
 
 static FATFS *s_face_fs = NULL;
-static FIL s_yoloface_file;
+/* FatFS FIL is ~4KB; keep it out of AP .bss — allocate from PSRAM on first use. */
+static FIL *s_yoloface_file = NULL;
 static volatile bool s_faces_storage_ready = false;
 static volatile bool s_yoloface_enroll_pending = false;
 static volatile bool s_yoloface_verify_pending = false;
@@ -673,23 +674,44 @@ static int yoloface_pick_enroll_slot(uint32_t *out_profile_id,
     return 0;
 }
 
+static FIL *yoloface_file_obj(void)
+{
+    if (s_yoloface_file == NULL) {
+        s_yoloface_file = (FIL *)psram_malloc(sizeof(FIL));
+        if (s_yoloface_file == NULL) {
+            bk_printf("yoloface: FIL psram_malloc(%u) failed\n",
+                      (unsigned)sizeof(FIL));
+        } else {
+            os_memset(s_yoloface_file, 0, sizeof(FIL));
+        }
+    }
+    return s_yoloface_file;
+}
+
 static int yoloface_write_file(const char *path, const void *data, uint32_t size)
 {
+    FIL *fp;
+
     if (path == NULL || data == NULL || size == 0) {
         bk_printf("yoloface_write_file: invalid args path=%p data=%p size=%u\n",
                   path, data, (unsigned)size);
         return -1;
     }
 
-    FRESULT fr = f_open(&s_yoloface_file, path, FA_CREATE_ALWAYS | FA_WRITE);
+    fp = yoloface_file_obj();
+    if (fp == NULL) {
+        return -1;
+    }
+
+    FRESULT fr = f_open(fp, path, FA_CREATE_ALWAYS | FA_WRITE);
     if (fr != FR_OK) {
         bk_printf("yoloface_write_file: open %s failed fr=%d\n", path, fr);
         return -1;
     }
 
     UINT bw = 0;
-    fr = f_write(&s_yoloface_file, data, size, &bw);
-    (void)f_close(&s_yoloface_file);
+    fr = f_write(fp, data, size, &bw);
+    (void)f_close(fp);
     if (fr != FR_OK || bw != size) {
         bk_printf("yoloface_write_file: write %s failed fr=%d bw=%u size=%u\n",
                   path, fr, (unsigned)bw, (unsigned)size);
@@ -699,18 +721,25 @@ static int yoloface_write_file(const char *path, const void *data, uint32_t size
 
 static int yoloface_read_file(const char *path, void *data, uint32_t size)
 {
+    FIL *fp;
+
     if (path == NULL || data == NULL || size == 0) {
         return -1;
     }
 
-    FRESULT fr = f_open(&s_yoloface_file, path, FA_READ);
+    fp = yoloface_file_obj();
+    if (fp == NULL) {
+        return -1;
+    }
+
+    FRESULT fr = f_open(fp, path, FA_READ);
     if (fr != FR_OK) {
         return -1;
     }
 
     UINT br = 0;
-    fr = f_read(&s_yoloface_file, data, size, &br);
-    (void)f_close(&s_yoloface_file);
+    fr = f_read(fp, data, size, &br);
+    (void)f_close(fp);
     return (fr == FR_OK && br == size) ? 0 : -1;
 }
 
@@ -905,7 +934,12 @@ static int yoloface_write_enroll_pair(const char *dir_path,
         return -1;
     }
 
-    fr = f_open(&s_yoloface_file, file_path, FA_CREATE_ALWAYS | FA_WRITE);
+    FIL *fp = yoloface_file_obj();
+    if (fp == NULL) {
+        return -1;
+    }
+
+    fr = f_open(fp, file_path, FA_CREATE_ALWAYS | FA_WRITE);
     if (fr != FR_OK) {
         bk_printf("yoloface_save_enroll_sample: open %s failed fr=%d\n",
                   file_path, fr);
@@ -915,10 +949,10 @@ static int yoloface_write_enroll_pair(const char *dir_path,
     n = snprintf(ppm_header, sizeof(ppm_header), "P6\n112 112\n255\n");
     UINT bw = 0;
     bool ok = (n > 0 &&
-               f_write(&s_yoloface_file, ppm_header, (UINT)n, &bw) == FR_OK && bw == (UINT)n &&
-               f_write(&s_yoloface_file, aligned_rgb, aligned_rgb_size, &bw) == FR_OK &&
+               f_write(fp, ppm_header, (UINT)n, &bw) == FR_OK && bw == (UINT)n &&
+               f_write(fp, aligned_rgb, aligned_rgb_size, &bw) == FR_OK &&
                bw == aligned_rgb_size);
-    (void)f_close(&s_yoloface_file);
+    (void)f_close(fp);
     if (!ok) {
         bk_printf("yoloface_save_enroll_sample: write %s failed bw=%u size=%u\n",
                   file_path, (unsigned)bw, (unsigned)aligned_rgb_size);
