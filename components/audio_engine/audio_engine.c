@@ -737,6 +737,13 @@ static bk_player_cfg_t standalone_cfg(void)
 #endif
 
     pcfg.spk_cfg.onboard_spk_cfg.dig_gain = audio_engine_volume_get_gain_db();
+#if CONFIG_AE_ENABLE_PA_CNTRL
+    pcfg.spk_cfg.onboard_spk_cfg.pa_ctrl_en   = true;
+    pcfg.spk_cfg.onboard_spk_cfg.pa_ctrl_gpio = CONFIG_AE_PA_CNTRL_GPIO;
+    pcfg.spk_cfg.onboard_spk_cfg.pa_on_level  = CONFIG_AE_PA_ON_LEVEL;
+    pcfg.spk_cfg.onboard_spk_cfg.pa_on_delay  = CONFIG_AE_PA_ON_DELAY;
+    pcfg.spk_cfg.onboard_spk_cfg.pa_off_delay = CONFIG_AE_PA_OFF_DELAY;
+#endif
     return pcfg;
 }
 

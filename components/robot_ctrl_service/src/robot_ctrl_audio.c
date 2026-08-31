@@ -104,6 +104,13 @@ bk_err_t robot_ctrl_handle_audio(const char *method, cJSON *id, cJSON *params)
             if (cfg.enc_type == AUDIO_ENC_TYPE_INVALID || cfg.dec_type == AUDIO_DEC_TYPE_INVALID) {
                 return robot_ctrl_send_error(id, -32602, "unsupported audio config");
             }
+#if CONFIG_AE_ENABLE_PA_CNTRL
+            cfg.pa_enable    = true;
+            cfg.pa_gpio      = CONFIG_AE_PA_CNTRL_GPIO;
+            cfg.pa_on_level  = CONFIG_AE_PA_ON_LEVEL;
+            cfg.pa_on_delay  = CONFIG_AE_PA_ON_DELAY;
+            cfg.pa_off_delay = CONFIG_AE_PA_OFF_DELAY;
+#endif
             s_robot_ctrl_audio_enc_type = cfg.enc_type;
             cfg.read_cb = robot_ctrl_audio_read_cb;
             cfg.user_data = &s_robot_ctrl_audio_enc_type;
