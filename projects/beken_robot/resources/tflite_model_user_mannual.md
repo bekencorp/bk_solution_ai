@@ -16,9 +16,7 @@
 ```text
 resources/
 ├── tflite/
-│   ├── palm_detection_builtin_256_integer_quant_vela.tflite
 │   ├── hand_gesture_detection_vela.tflite
-│   ├── yoloface_int8_vela.tflite
 │   ├── face_detection_int8_vela.tflite
 │   └── face_verify_int8_vela.tflite
 ├── kws_model/
@@ -31,13 +29,11 @@ resources/
 
 端侧视觉 AI 模型必须放在设备存储根目录下的 `tflite/` 子目录中：
 
-| 模型文件                                                 | 设备上目标路径（FatFS）                                            | 设备上等价路径（VFS）                                                | 典型业务                      |
-| -------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------- | ----------------------------- |
-| `palm_detection_builtin_256_integer_quant_vela.tflite` | `1:/tflite/palm_detection_builtin_256_integer_quant_vela.tflite` | `/sd0/tflite/palm_detection_builtin_256_integer_quant_vela.tflite` | 掌心检测 / 云台跟踪           |
-| `hand_gesture_detection_vela.tflite`                   | `1:/tflite/hand_gesture_detection_vela.tflite`                   | `/sd0/tflite/hand_gesture_detection_vela.tflite`                   | 手势识别 / 机械手 / 小车跟踪  |
-| `yoloface_int8_vela.tflite`                            | `1:/tflite/yoloface_int8_vela.tflite`                            | `/sd0/tflite/yoloface_int8_vela.tflite`                            | 人脸检测 / 人脸跟踪           |
-| `face_detection_int8_vela.tflite`                      | `1:/tflite/face_detection_int8_vela.tflite`                      | `/sd0/tflite/face_detection_int8_vela.tflite`                      | 人脸识别：检测模型            |
-| `face_verify_int8_vela.tflite`                         | `1:/tflite/face_verify_int8_vela.tflite`                         | `/sd0/tflite/face_verify_int8_vela.tflite`                         | 人脸识别：特征提取 / 比对模型 |
+| 模型文件 | 设备上目标路径（FatFS） | 设备上等价路径（VFS） | 典型业务 |
+| --- | --- | --- | --- |
+| `hand_gesture_detection_vela.tflite` | `1:/tflite/hand_gesture_detection_vela.tflite` | `/sd0/tflite/hand_gesture_detection_vela.tflite` | 手掌跟随 / 手势识别 / 小车跟随 |
+| `face_detection_int8_vela.tflite` | `1:/tflite/face_detection_int8_vela.tflite` | `/sd0/tflite/face_detection_int8_vela.tflite` | 人脸识别：检测模型 |
+| `face_verify_int8_vela.tflite` | `1:/tflite/face_verify_int8_vela.tflite` | `/sd0/tflite/face_verify_int8_vela.tflite` | 人脸识别：特征提取 / 比对模型 |
 
 ---
 
@@ -45,18 +41,16 @@ resources/
 
 `beken_robot` AP 默认配置已启用从 SD-NAND / FatFS 加载端侧 AI 模型。客户使用预编译固件时通常无需修改。
 
-| 配置项                                    | 期望值 | 作用                                             |
-| ----------------------------------------- | ------ | ------------------------------------------------ |
-| `CONFIG_TFLITE_MICRO`                   | `y`  | 启用 TensorFlow Lite Micro                       |
-| `CONFIG_TFLM_PALM_DETECTION_V1`         | `y`  | 编译掌心检测模型封装                             |
-| `CONFIG_TFLM_YOLOFACE_V1`               | `y`  | 编译 YOLOFace 检测模型封装                       |
-| `CONFIG_TFLM_HAND_GESTURE_DETECTION_V1` | `y`  | 编译手势检测模型封装                             |
-| `CONFIG_TFLM_FACE_RECOG_V1`             | `y`  | 编译人脸识别模型封装                             |
-| `CONFIG_SDCARD`                         | `y`  | `avdk_nn_module` 从 FatFS 文件加载 `.tflite` |
-| `CONFIG_FATFS`                          | `y`  | 启用 FatFS 文件系统                              |
-| `CONFIG_FATFS_SDCARD`                   | `y`  | 让 SD-NAND / SDIO 存储以 FatFS 方式访问          |
-| `CONFIG_BOARD_SD_NAND_ENABLE`           | `y`  | 启用板载 SD-NAND                                 |
-| `CONFIG_BOARD_USB_SWITCH_ENABLE`        | `y`  | Type-C 可切换到 USB MSC，方便 PC 拷贝文件        |
+| 配置项 | 期望值 | 作用 |
+| --- | --- | --- |
+| `CONFIG_TFLITE_MICRO` | `y` | 启用 TensorFlow Lite Micro |
+| `CONFIG_TFLM_HAND_GESTURE_DETECTION_V1` | `y` | 编译手势检测模型封装 |
+| `CONFIG_TFLM_FACE_RECOG_V1` | `y` | 编译人脸识别模型封装 |
+| `CONFIG_SDCARD` | `y` | `avdk_nn_module` 从 FatFS 文件加载 `.tflite` |
+| `CONFIG_FATFS` | `y` | 启用 FatFS 文件系统 |
+| `CONFIG_FATFS_SDCARD` | `y` | 让 SD-NAND / SDIO 存储以 FatFS 方式访问 |
+| `CONFIG_BOARD_SD_NAND_ENABLE` | `y` | 启用板载 SD-NAND |
+| `CONFIG_BOARD_USB_SWITCH_ENABLE` | `y` | Type-C 可切换到 USB MSC，方便 PC 拷贝文件 |
 
 当前 `avdk_nn_module` 的编译逻辑是：
 
@@ -73,9 +67,7 @@ resources/
 ```text
 /sd0/
 ├── tflite/
-│   ├── palm_detection_builtin_256_integer_quant_vela.tflite
 │   ├── hand_gesture_detection_vela.tflite
-│   ├── yoloface_int8_vela.tflite
 │   ├── face_detection_int8_vela.tflite
 │   └── face_verify_int8_vela.tflite
 ├── kws_model/
@@ -99,9 +91,7 @@ resources/
 
 ```text
 E:\
-├── tflite\palm_detection_builtin_256_integer_quant_vela.tflite
 ├── tflite\hand_gesture_detection_vela.tflite
-├── tflite\yoloface_int8_vela.tflite
 ├── tflite\face_detection_int8_vela.tflite
 └── tflite\face_verify_int8_vela.tflite
 ```
@@ -120,14 +110,12 @@ E:\resources\tflite\...
 
 当前工程代码对模型路径有明确要求，文件名和目录必须完全一致。
 
-| 业务入口                              | 模型类 / Runtime              | 代码加载路径                                                       | 备注                                                      |
-| ------------------------------------- | ----------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------- |
-| `palm_tracking`                     | `PalmDetectionModel`        | `1:/tflite/palm_detection_builtin_256_integer_quant_vela.tflite` | 输入尺寸固定为 256x256 RGB                                |
-| `hand_gesture`                      | `HandGestureDetectionModel` | `1:/tflite/hand_gesture_detection_vela.tflite`                   | 输入尺寸固定为 320x320 RGB                                |
-| `car_tracking`                      | `HandGestureDetectionModel` | `1:/tflite/hand_gesture_detection_vela.tflite`                   | 与`hand_gesture` 共用同一个手势模型                     |
-| `yoloface_tracking`（人脸跟踪模式） | `YolofaceDetectionModel`    | `1:/tflite/yoloface_int8_vela.tflite`                            | 输入尺寸固定为 56x56 RGB                                  |
-| `yoloface_tracking`（人脸识别模式） | `FaceDetectionRuntime`      | `1:/tflite/face_detection_int8_vela.tflite`                      | 人脸检测，输入尺寸固定为 320x320 RGB                      |
-| `yoloface_tracking`（人脸识别模式） | `FaceVerifyRuntime`         | `1:/tflite/face_verify_int8_vela.tflite`                         | 人脸特征提取，输入尺寸固定为 112x112 RGB，输出 512 维特征 |
+| UI 入口 / 功能 | Demo / 模型类 | 代码加载路径 | 备注 |
+| -------------- | ------------- | ------------ | ---- |
+| `palm_tracking` / 手掌跟随 | `HandGestureDetectionModel` | `1:/tflite/hand_gesture_detection_vela.tflite` | 当前与手势识别共用手势检测模型，输入尺寸固定为 320x320 RGB |
+| `hand_gesture` / 手势识别 | `HandGestureDetectionModel` | `1:/tflite/hand_gesture_detection_vela.tflite` | 输入尺寸固定为 320x320 RGB |
+| `car_tracking` / 小车跟随 | `HandGestureDetectionModel` | `1:/tflite/hand_gesture_detection_vela.tflite` | 与 `hand_gesture` 共用同一个手势模型 |
+| `yoloface_tracking` / 人脸检测、人脸识别 | `FaceRecognitionModel` 内部的 `FaceDetectionRuntime` + `FaceVerifyRuntime` | `1:/tflite/face_detection_int8_vela.tflite`；`1:/tflite/face_verify_int8_vela.tflite` | 检测模型输入固定为 320x320 RGB；特征模型输入固定为 112x112 RGB，输出 512 维特征 |
 
 加载流程由 `components/avdk_nn_module` 统一处理：
 
@@ -158,10 +146,10 @@ E:\resources\tflite\...
 部署完成后建议按下列项检查：
 
 - [ ] PC 磁盘根目录可见 `tflite` 文件夹，而不是 `resources/tflite`
-- [ ] `tflite` 文件夹内包含本文列出的 5 个 `.tflite` 文件
+- [ ] `tflite` 文件夹内包含本文列出的 3 个 `.tflite` 文件
 - [ ] 文件名大小写、下划线、后缀完全一致
 - [ ] 退出 U 盘模式 / 安全弹出后已重启或重新进入对应 Demo
-- [ ] 进入掌心、手势、人脸跟踪、人脸识别页面时串口没有出现 `f_open`、`Failed to load model` 或 `Model schema version mismatch`
+- [ ] 进入手掌跟随、手势识别、人脸检测、人脸识别页面时串口没有出现 `f_open`、`Failed to load model` 或 `Model schema version mismatch`
 - [ ] 如果 KWS 或提示音也需要使用，已按另一份手册部署 `kws_model/` 与根目录 `*.mp3`
 
 若端侧 AI Demo 启动失败：优先检查 `1:/tflite/<model>.tflite` 是否存在。
@@ -178,7 +166,7 @@ E:\resources\tflite\...
 不能。当前代码查找的是 `1:/tflite/<文件名>.tflite`，必须有 `tflite/` 子目录。
 
 **Q3：能否只拷贝正在使用的模型？**
-可以。如果只使用掌心跟踪，只需要对应的 palm 模型；但交付整机功能时建议一次性放齐 5 个模型，避免客户切换到其他端侧 AI 页面时加载失败。
+可以。如果只使用手掌跟随 / 手势识别 / 小车跟随，只需要 `hand_gesture_detection_vela.tflite`；如果使用人脸检测或人脸识别，需要同时放置 `face_detection_int8_vela.tflite` 和 `face_verify_int8_vela.tflite`。交付整机功能时建议一次性放齐本文列出的 3 个模型，避免客户切换到其他端侧 AI 页面时加载失败。
 
 **Q4：能否重命名模型文件？**
 默认不能。文件名已写在 `projects/beken_robot/ap/src/demo/edge_ai/*.cc` 和 `components/avdk_nn_module/src/tflm_*` 的默认路径宏中；如需改名，必须同步改代码并重新编译固件。

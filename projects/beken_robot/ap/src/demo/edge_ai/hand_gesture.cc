@@ -51,6 +51,12 @@ static const bk_hiwonder_hand_servo_hw_map_t s_hiwonder_servo_hw_map[] = {
     {3, GPIO_27},  /* servo 6 */
 };
 
+#define HAND_GESTURE_HIWONDER_SERVO_COUNT \
+    (sizeof(s_hiwonder_servo_hw_map) / sizeof(s_hiwonder_servo_hw_map[0]))
+#define HAND_GESTURE_EXIT_RESET_PULSE_US   1500U
+#define HAND_GESTURE_EXIT_RESET_MOVE_MS    100U
+#define HAND_GESTURE_EXIT_RESET_SETTLE_MS   40U
+
 #ifndef HAND_GESTURE_MODEL_SD_PATH
 #define HAND_GESTURE_MODEL_SD_PATH "1:/tflite/hand_gesture_detection_vela.tflite"
 #endif
@@ -93,6 +99,23 @@ static void hand_gesture_result_cb(int class_id, const char *class_name, float s
               class_id,
               (class_name != NULL) ? class_name : "?",
               score);
+}
+
+static void hand_gesture_servo_reset_to_default(void)
+{
+    if (s_hiwonder_servo == NULL) {
+        return;
+    }
+
+    for (uint8_t id = 1; id <= HAND_GESTURE_HIWONDER_SERVO_COUNT; id++) {
+        bk_hiwonder_hand_servo_set_pulse_and_time(s_hiwonder_servo,
+                                                  id,
+                                                  HAND_GESTURE_EXIT_RESET_PULSE_US,
+                                                  HAND_GESTURE_EXIT_RESET_MOVE_MS);
+    }
+
+    rtos_delay_milliseconds(HAND_GESTURE_EXIT_RESET_MOVE_MS +
+                            HAND_GESTURE_EXIT_RESET_SETTLE_MS);
 }
 
 static void hand_gesture_detection_box_cb(Box *boxes, int count)
@@ -279,6 +302,7 @@ fail:
     }
 
     if (s_hiwonder_servo != NULL) {
+        hand_gesture_servo_reset_to_default();
         bk_hiwonder_hand_servo_deinit(s_hiwonder_servo);
         s_hiwonder_servo = NULL;
     }
@@ -409,6 +433,7 @@ static int hand_gesture_detection_stop(void)
     }
 
     if (s_hiwonder_servo != NULL) {
+        hand_gesture_servo_reset_to_default();
         bk_hiwonder_hand_servo_deinit(s_hiwonder_servo);
         s_hiwonder_servo = NULL;
     }

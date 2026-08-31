@@ -36,7 +36,6 @@ extern "C" {
 #include "AvdkVideoReatorOSD.h"
 #include "AvdkDetectionModel.h"
 #include "FaceRecognitionModel.h"
-#include "YolofaceDetectionModel.h"
 #include "box.h"
 
 #if CONFIG_LVGL
@@ -60,10 +59,6 @@ void page_edge_ai_face_recognition_destroy(void);
 static AvdkVideoReatorOSD *s_video_reator = NULL;
 static AvdkDetectionModel *s_model = NULL;
 static FaceRecognitionModel *s_face_recognition_model = NULL;
-
-#ifndef YOLOFACE_TRACKING_MODEL_SD_PATH
-#define YOLOFACE_TRACKING_MODEL_SD_PATH "1:/tflite/yoloface_int8_vela.tflite"
-#endif
 
 #ifndef YOLOFACE_FACE_RECOGNITION_FACE_DETECT_MODEL_SD_PATH
 #define YOLOFACE_FACE_RECOGNITION_FACE_DETECT_MODEL_SD_PATH "1:/tflite/face_detection_int8_vela.tflite"
@@ -1347,20 +1342,15 @@ static void yoloface_detection_box_cb(Box *boxes, int count)
 
 static AvdkDetectionModel *yoloface_detection_create_model(void)
 {
-    if (s_yoloface_lvgl_camera_blend) {
-        FaceRecognitionModel *model = new FaceRecognitionModel();
-        if (model != NULL) {
-            model->setModelFilePath(YOLOFACE_FACE_RECOGNITION_FACE_DETECT_MODEL_SD_PATH);
-            model->setVerifyModelFilePath(YOLOFACE_FACE_RECOGNITION_FACE_VERIFY_MODEL_SD_PATH);
-            model->setEnrollResultCallback(yoloface_enroll_result_cb);
-            s_face_recognition_model = model;
-        }
-        return model;
-    }
-
-    YolofaceDetectionModel *model = new YolofaceDetectionModel();
+    FaceRecognitionModel *model = new FaceRecognitionModel();
     if (model != NULL) {
-        model->setModelFilePath(YOLOFACE_TRACKING_MODEL_SD_PATH);
+        model->setModelFilePath(YOLOFACE_FACE_RECOGNITION_FACE_DETECT_MODEL_SD_PATH);
+        model->setVerifyModelFilePath(YOLOFACE_FACE_RECOGNITION_FACE_VERIFY_MODEL_SD_PATH);
+        model->setVerifyEnabled(false);
+        if (s_yoloface_lvgl_camera_blend) {
+            model->setEnrollResultCallback(yoloface_enroll_result_cb);
+        }
+        s_face_recognition_model = model;
     }
     return model;
 }
