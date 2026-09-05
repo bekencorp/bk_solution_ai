@@ -15,7 +15,7 @@
 - **可信启动链**：BootROM → BL1 → BL2/MCUboot → TF-M Secure → CP Non-Secure → AP Non-Secure。
 - **镜像保护**：使用 EC-P256 对镜像签名，并启用固定密钥 Flash AES 加密。
 - **安全隔离**：TF-M 使用 `profile_medium`、隔离等级 2，并启用 Crypto 服务；安全操作通过受控接口提供给 Non-Secure 应用。
-- **Flash 布局**：使用 8 MB Flash，当前为 `XIP_FORCE_A` 单槽策略；Secondary 分区仅为占位，不是完整的 A/B 双槽升级空间。
+- **Flash 布局**：使用 8 MB Flash，采用 `OVERWRITE_ONLY` 单槽策略，仅保留一个用于 AI 固件的 Primary 执行槽和 `ota_control`；当前未配置 OTA 暂存分区。
 - **密钥配置**：开发签名密钥位于 `config/key/`，安全启动、加密与版本计数配置位于 `partitions/bk7259/security.csv` 和 `ota.csv`。
 
 ### 板级配置
@@ -51,7 +51,6 @@ build/bk7259/secureboot_ai/package/
 
 - `all-app.bin`：完整烧录镜像。
 - `bootloader.bin`：安全启动 Bootloader 包。
-- `ota.bin`：加密 OTA 包。
 - `otp_efuse_config.json`：构建生成的 OTP/eFuse 配置参考。
 
 开发阶段可使用 BKFIL 烧录 `all-app.bin`。环境安装和烧录方法请参考仓库根目录的[中文说明](../../README_CN.md)。

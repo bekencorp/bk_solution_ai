@@ -1,7 +1,7 @@
 #
-# secureboot_ai CP defconfig — aligned with secureboot_xip (diff vs board).
-# Only intentional AI delta: BL2_UPGRADE_STRATEGY=OVERWRITE_ONLY (8MB flash,
-# single large AP slot; xip uses DIRECT_XIP A/B).
+# secureboot_ai CP defconfig.
+# The 8MB flash layout uses OVERWRITE_ONLY with one large primary application
+# slot for the AI firmware.
 #
 
 # --- SMP base (CP = 2 cores) ---
@@ -37,11 +37,8 @@ CONFIG_TFM_LOG_LEVEL="INFO"
 CONFIG_TFM_BL2_LOG_LEVEL="INFO"
 
 # --- MCUboot upgrade strategy ---
-# Keep a small secondary placeholder in the partition table, but BL2 must only
-# read, validate and boot the large primary slot.
+# The partition table contains only the primary slot.
 CONFIG_BL2_UPGRADE_STRATEGY="OVERWRITE_ONLY"
-# CONFIG_XIP_NO_VERSION is not set
-# CONFIG_XIP_FORCE_SLOT_A is not set
 
 # --- SPE RAM / heap (CP SPE = 0x14000 = 80KB) ---
 CONFIG_CPU0_SPE_RAM_SIZE=0x14000

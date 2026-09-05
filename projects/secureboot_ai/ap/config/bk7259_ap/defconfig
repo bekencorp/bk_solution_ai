@@ -254,9 +254,9 @@ CONFIG_SUPPORT_WWDT=y
 CONFIG_GENERAL_DMA=y
 # CONFIG_SPI_DMA is not set
 
-# This 8 MB variant is single-slot secure boot, not DIRECT_XIP A/B OTA.
-# No ota/ota_control partitions: 8MB cannot hold AI AP/CP plus compress.bin.
-# CONFIG_SECURE_OTA_XIP is not set
+# This 8 MB variant uses single-slot secure boot with ota_control retained.
+# There is no ota staging partition because the AI firmware and compress.bin
+# cannot both fit in flash.
 # CONFIG_SECURE_OTA_OVERWRITE is not set
 # CONFIG_OTA_FUNCTION is not set
 # CONFIG_OTA_HTTP is not set

@@ -15,7 +15,7 @@ In addition to secure boot, the project provides the same LCD touch UI, BLE/Wi-F
 - **Trusted boot chain**: BootROM → BL1 → BL2/MCUboot → TF-M Secure → CP Non-Secure → AP Non-Secure.
 - **Image protection**: EC-P256 image signing and fixed-key Flash AES encryption are enabled.
 - **Isolation**: TF-M uses `profile_medium`, isolation level 2, and the Crypto service. Secure operations are exposed to Non-Secure applications through controlled interfaces.
-- **Flash layout**: an 8 MB flash device is used with the `XIP_FORCE_A` single-slot strategy. Secondary partitions are placeholders and do not provide a complete A/B update slot.
+- **Flash layout**: the 8 MB flash device uses the `OVERWRITE_ONLY` single-slot strategy, with one Primary execution slot for the AI firmware and `ota_control`. No OTA staging partition is currently configured.
 - **Key configuration**: development signing keys are under `config/key/`. Secure boot, encryption, and version-counter settings are in `partitions/bk7259/security.csv` and `ota.csv`.
 
 ### Board
@@ -51,7 +51,6 @@ build/bk7259/secureboot_ai/package/
 
 - `all-app.bin`: complete flash image.
 - `bootloader.bin`: secure-boot bootloader package.
-- `ota.bin`: encrypted OTA package.
 - `otp_efuse_config.json`: generated OTP/eFuse configuration reference.
 
 During development, use BKFIL to flash `all-app.bin`. See the repository-level [English guide](../../README.md) for environment setup and flashing instructions.
