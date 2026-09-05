@@ -1,158 +1,104 @@
-# Beken Genie AI 解决方案DEMO开发指南
+# BK7259 机器人示例工程
 
-* [English](./README.md)
+- [English](./README.md)
 
-## 1 项目概述
+## 1. 工程简介
 
-本项目是一个基于BK7258芯片的通用AI设备解决方案框架，提供了完整的端到云、云到大模型的AI交互能力。项目支持声网RTC方案，集成了音频处理引擎、网络传输模块、事件管理系统和丰富的外设支持，适用于智能AI设备、语音助手、智能音箱等应用场景的开发。
+`beken_robot` 是面向 BK7259 机器人开发套件的综合示例工程，提供 LCD 触控界面、网络连接、本地 AI、云端 AI、音视频和外设控制等可直接体验的 Demo。本文只介绍开始使用该工程所需的步骤；方案代码与 Armino SMP SDK 应使用相同的发布版本。
 
-## 2 功能特性
+## 2. 主要配置
 
-### 2.1 实时音视频通信
-- 支持双向音视频通信
-- 支持多路音视频流
-- 支持自适应码率控制（BWE）
-- 支持关键帧请求机制
+- **目标芯片**：BK7259，编译目标为 `bk7259`。
+- **显示与输入**：LVGL 图形界面、CST9217 触摸屏，以及 S2～S5 实体按键。
+- **SD-NAND**：板载 SD-NAND 连接到 **SDIO1**，使用 GPIO14～GPIO19 的 CLK、CMD 和 DATA0～DATA3；设备侧 FatFS 盘符为 `1:`，VFS 挂载点为 `/sd0`。
+- **Type-C 接口**：可在串口日志模式与 USB U 盘模式之间切换。U 盘模式用于从 PC 访问板载 SD-NAND；切换到 U 盘模式后，串口日志会暂时断开。
+- **摄像头与音频**：工程包含摄像头、麦克风、扬声器及相关音视频处理示例。
 
-### 2.2 音频处理
-- 支持多种音频编码格式：
-  - OPUS（推荐）
-  - PCM
-- 支持AEC（回声消除）
-- 支持NS（噪声抑制）
-- 支持KWS（关键词唤醒）
-- 支持音频采集和播放
-- 支持提示音播放
+需要修改功能配置时，请使用 SDK 的 `menuconfig`，并确认工程所需的 SD-NAND、LVGL、按键、KWS 和提示音文件系统加载等选项已启用。
 
-### 2.3 视频处理（可选）
-- 支持H264编码
-- 支持JPEG编码
-- 支持视频采集和传输
-- 支持图像识别
+## 3. 编译工程
 
-### 2.4 网络功能
-- 支持WiFi STA模式连接
-- 支持WiFi AP模式热点
-- 支持蓝牙配网
-- 支持TCP/UDP协议
-- 支持HTTP/HTTPS请求
-
-### 2.5 AI Agent集成
-- 支持与多种AI Agent服务集成
-- 支持语音对话和图像识别
-- 支持Agent启动、停止和更新
-- 支持从BK服务器或自定义服务器启动Agent
-- 支持多种大语言模型（OpenAI、豆包、DeepSeek等）
-
-### 2.6 房间管理
-- 支持加入/离开RTC房间
-- 支持用户上线/下线通知
-- 支持Token权限管理
-- 支持Token过期警告和自动刷新
-
-### 2.7 外设支持
-- **显示**: 支持双SPI LCD屏幕（GC9D01 160x160）
-- **输入**: 麦克风、按键、陀螺仪、NFC
-- **输出**: 扬声器、LED灯效、震动马达
-- **存储**: SD NAND 128MB
-- **电源**: 锂电池、充电管理（ETA3422）
-- **摄像头**: DVP摄像头（gc2145）
-
-## 3 快速开始
-
-### 3.1 编译和烧录
-
-编译流程参考 `AI 解决方案 <../../README_CN.md>`_
-
-烧录流程参考 具体 `烧录流程 <https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/get-started/index.html>`_ 请参考 `SMP <https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/index.html>`_
-
-编译生成的烧录bin文件路径：``projects/beken_genie/build/bk7258/beken_genie/package/all-app.bin``
-
-
-**编译命令示例：**
+先安装 Armino SMP 编译环境，并准备与方案代码版本一致的 `bk_avdk_smp` SDK。
 
 ```bash
-cd ~/armino/bk_solution_ai/projects/beken_genie
+cd ~/armino/bk_solution_ai/projects/beken_robot
+make bk7259 SDK_DIR=~/armino/bk_avdk_smp
+```
+
+重新完整编译：
+
+```bash
+make clean SDK_DIR=~/armino/bk_avdk_smp
+make bk7259 SDK_DIR=~/armino/bk_avdk_smp
+```
+
+也可以使用仓库提供的 Docker 编译脚本：
+
+```bash
 export SDK_DIR=~/armino/bk_avdk_smp
-make clean
-make bk7258
+./dbuild.sh make bk7259
 ```
 
-## 4 API参考
+编译成功后的烧录文件为：
 
-本章节提供项目中核心功能的API接口说明。
-
-### 4.1 声网RTC API
-
-如果启用声网RTC（`CONFIG_AGORA_RTC_EN=y`），可以使用以下API：
-
-#### 4.1.1 bk_agora_start
-```c
-/**
- * @brief 启动完整的声网RTC和Agent服务
- * 
- * @param device_id 设备ID字符串
- * 
- * @return int 操作结果
- *         - BK_OK: 启动成功
- *         - BK_FAIL: 启动失败
- * 
- * @see bk_agora_stop()
- */
-int bk_agora_start(void *device_id);
+```text
+build/bk7259/beken_robot/package/all-app.bin
 ```
 
-#### 6.1.2 bk_agora_stop
-```c
-/**
- * @brief 停止完整的声网RTC和Agent服务
- * 
- * @param device_id 设备ID字符串
- * 
- * @return int 操作结果
- *         - BK_OK: 停止成功
- *         - BK_FAIL: 停止失败
- * 
- * @see bk_agora_start()
- */
-int bk_agora_stop(void *device_id);
-```
+烧录方法及编译环境安装请参考仓库根目录的[中文说明](../../README_CN.md)。
 
-### 4.2 通用API
+## 4. 使用前准备
 
-#### 4.2.1 音频引擎API
-```c
-/**
- * @brief 初始化音频引擎
- * 
- * @return bk_err_t 操作结果
- */
-bk_err_t audio_engine_init(void);
-```
+1. 编译并烧录 `all-app.bin`，连接 LCD、触摸屏、摄像头、麦克风、扬声器和其他需要体验的外设。
+2. 将配套 `resources` 资源目录中的**内容**复制到 SD-NAND 根目录，不要在磁盘中再套一层 `resources`：
 
-#### 4.2.2 网络传输API
-```c
-/**
- * @brief 初始化网络传输模块
- * 
- * @return bk_err_t 操作结果
- */
-bk_err_t ntwk_trans_init(void);
-```
+   ```text
+   /sd0/
+   ├── kws_model/
+   │   ├── bk_kws_wakeup.tflite
+   │   └── bk_kws_commands.tflite
+   ├── tflite/
+   │   ├── palm_detection_builtin_256_integer_quant_vela.tflite
+   │   ├── yoloface_int8_vela.tflite
+   │   ├── hand_gesture_detection_vela.tflite
+   │   ├── face_detection_int8_vela.tflite
+   │   └── face_verify_int8_vela.tflite
+   ├── asr_wakeup_16k_mono_16bit_en.mp3
+   ├── asr_standby_16k_mono_16bit_en.mp3
+   └── ...其他提示音
+   ```
 
-#### 4.2.3 应用事件API
-```c
-/**
- * @brief 初始化应用事件系统
- * 
- * @return bk_err_t 操作结果
- */
-bk_err_t app_event_init(void);
-```
+   `kws_model/` 供命令词识别使用，`tflite/` 供手掌跟随、人脸检测、手势识别、小车跟随和方案示例使用。请使用与当前固件版本配套的模型文件并保持文件名不变。
+3. 推荐在设备 UI 中进入“设备设置 > U盘 > USB”后，通过 PC 复制资源。安全弹出磁盘，再切回“UART”并重启设备。
+4. 如需体验音乐播放，在 SD-NAND 中创建 `/sd0/music`（FatFS：`1:/music`），放入 MP3、AAC 或 WAV 文件。
+5. 进入“连接设置”完成 Wi-Fi/BLE 配网后，再使用需要联网的云端 Demo。
 
+KWS 模型、提示音文件名及目录要求详见[资源文件使用说明](./resources/kws_model_and_prompt_tone_user_mannual.md)。
 
-## 5 关于工程详细介绍以及指南请跳转如下链接
+## 5. UI 操作
 
-- `Armino SMP SDK 文档 <https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/index.html>`_
-- `声网 RTC 文档 <https://docs.agora.io/>`_
-- `声网DEMO工程具体详情请参考文档链接：<https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/projects/beken_genie/index.html>`_
+### 触屏
+
+- 欢迎页：点击屏幕进入主页。
+- 菜单页：点击条目进入；列表较长时可上下滑动。
+- 返回：从屏幕左边缘向右滑动。
+- AI 相机：点击屏幕可在拍照与恢复实时预览之间切换，右滑退出。
+
+### 实体按键
+
+- **S2 短按**：上一个条目/焦点；AI 相机实时预览时用于拍照。
+- **S5 短按**：下一个条目/焦点；AI 相机照片停留时恢复实时预览。
+- **S3 短按**：返回上一级；在全屏视觉 Demo 中用于退出。
+- **S4 短按**：确认或进入当前条目。
+- **S4 长按**：页面相关的长按确认操作；未实现该操作的页面会忽略。
+
+主页提供“连接设置”“Demo中心”和“设备设置”。“设备设置”中可调节音量、切换 Type-C 的 UART/USB 模式、切换中英文以及恢复出厂设置。
+
+## 6. 主要 Demo
+
+- **端侧 AI**：命令词识别、声源定位、手掌跟随、人脸检测、手势识别、小车跟随和摄像头方案示例。
+- **云端 AI**：AI 对话、视觉识别和 AI 相机。
+- **娱乐互动**：本地音乐播放、实时图传和蓝牙音乐。
+- **系统功能**：Wi-Fi/BLE 配网、音量设置、SD-NAND/U 盘访问和中英文界面切换。
+
+部分 Demo 依赖对应的摄像头、舵机、机械手、机器人底盘、网络服务或资源文件；未连接相关硬件时，该 Demo 可能无法完整运行。

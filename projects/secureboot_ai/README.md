@@ -1,157 +1,131 @@
-# Beken Genie AI Solution DEMO Development Guide
+# BK7259 Secure Boot AI Example Project
 
-* [中文](./README_CN.md)
+- [中文](./README_CN.md)
 
-## 1 Project Overview
+## 1. Introduction
 
-This project is a general-purpose AI device solution framework based on the BK7258 chip, providing complete end-to-cloud and cloud-to-large-model AI interaction capabilities. The project supports Agora RTC solution, integrating audio processing engine, network transfer module, event management system, and rich peripheral support. It is suitable for developing intelligent AI devices, voice assistants, smart speakers, and other application scenarios.
+`secureboot_ai` extends the robot AI application stack from [`beken_robot`](../beken_robot/) with BL1, BL2/MCUboot, TF-M, image signing, and Flash AES encryption. It demonstrates how a BK7259 device enters the robot AI application through a trusted boot chain.
 
-## 2 Features
+In addition to secure boot, the project provides the same LCD touch UI, BLE/Wi-Fi provisioning, edge AI, cloud AI, audio/video, and peripheral demos as `beken_robot`. The solution and Armino SMP SDK must use matching release versions.
 
-### 2.1 Real-time Audio/Video Communication
-- Supports bidirectional audio/video communication
-- Supports multiple audio/video streams
-- Supports adaptive bitrate control (BWE)
-- Supports key frame request mechanism
+## 2. Main Configuration
 
-### 2.2 Audio Processing
-- Supports multiple audio encoding formats:
-  - OPUS (recommended)
-  - PCM
-- Supports AEC (Acoustic Echo Cancellation)
-- Supports NS (Noise Suppression)
-- Supports KWS (Keyword Wake-up)
-- Supports audio capture and playback
-- Supports prompt tone playback
+### Security
 
-### 2.3 Video Processing (Optional)
-- Supports H264 encoding
-- Supports JPEG encoding
-- Supports video capture and transmission
-- Supports image recognition
+- **Trusted boot chain**: BootROM → BL1 → BL2/MCUboot → TF-M Secure → CP Non-Secure → AP Non-Secure.
+- **Image protection**: EC-P256 image signing and fixed-key Flash AES encryption are enabled.
+- **Isolation**: TF-M uses `profile_medium`, isolation level 2, and the Crypto service. Secure operations are exposed to Non-Secure applications through controlled interfaces.
+- **Flash layout**: an 8 MB flash device is used with the `XIP_FORCE_A` single-slot strategy. Secondary partitions are placeholders and do not provide a complete A/B update slot.
+- **Key configuration**: development signing keys are under `config/key/`. Secure boot, encryption, and version-counter settings are in `partitions/bk7259/security.csv` and `ota.csv`.
 
-### 2.4 Network Functions
-- Supports WiFi STA mode connection
-- Supports WiFi AP mode hotspot
-- Supports Bluetooth network configuration
-- Supports TCP/UDP protocols
-- Supports HTTP/HTTPS requests
+### Board
 
-### 2.5 AI Agent Integration
-- Supports integration with multiple AI Agent services
-- Supports voice conversation and image recognition
-- Supports Agent start, stop, and update
-- Supports starting Agent from BK server or custom server
-- Supports multiple large language models (OpenAI, Doubao, DeepSeek, etc.)
+- **Target chip**: BK7259; use the `bk7259` build target.
+- **Display and input**: 320×385 MIPI LCD, CST9217 touch panel, and S2-S5 physical buttons.
+- **SD-NAND**: the onboard SD-NAND uses **SDIO1** on GPIO14-GPIO19. Its device-side FatFS drive is `1:` and its VFS mount point is `/sd0`.
+- **Type-C port**: GPIO54 switches the port between the CH340 UART and BK7259 USB mass-storage mode. UART logs are temporarily unavailable in USB mode.
 
-### 2.6 Room Management
-- Supports joining/leaving RTC rooms
-- Supports user online/offline notifications
-- Supports Token permission management
-- Supports Token expiration warning and automatic refresh
+## 3. Build
 
-### 2.7 Peripheral Support
-- **Display**: Supports dual SPI LCD screens (GC9D01 160x160)
-- **Input**: Microphone, buttons, gyroscope, NFC
-- **Output**: Speaker, LED effects, vibration motor
-- **Storage**: SD NAND 128MB
-- **Power**: Lithium battery, charging management (ETA3422)
-- **Camera**: DVP camera (gc2145)
-
-## 3 Quick Start
-
-### 3.1 Compilation and Flashing
-
-Compilation process reference: `AI Solution <../../README_CN.md>`_
-
-Flashing process reference: For specific `flashing procedures <https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/en/v3.1.1/get-started/index.html>`_, please refer to `SMP <https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/en/v3.1.1/index.html>`_
-
-The compiled firmware bin file path: ``projects/beken_genie/build/bk7258/beken_genie/package/all-app.bin``
-
-**Compilation command example:**
+Install the Armino SMP build environment and prepare a `bk_avdk_smp` SDK whose release matches the solution. With the current directory layout, pass `SDK_DIR` explicitly on the command line:
 
 ```bash
-cd ~/armino/bk_solution_ai/projects/beken_genie
+cd ~/armino/bk_solution_ai/projects/secureboot_ai
+make clean SDK_DIR=~/armino/bk_avdk_smp
+make bk7259 SDK_DIR=~/armino/bk_avdk_smp
+```
+
+Docker build:
+
+```bash
 export SDK_DIR=~/armino/bk_avdk_smp
-make clean
-make bk7258
+./dbuild.sh make clean
+./dbuild.sh make bk7259
 ```
 
-## 4 API Reference
+The main outputs are generated under:
 
-This section provides API interface descriptions for core functions in the project.
-
-### 4.1 Agora RTC API
-
-If Agora RTC is enabled (`CONFIG_AGORA_RTC_EN=y`), the following APIs can be used:
-
-#### 4.1.1 bk_agora_start
-```c
-/**
- * @brief Start complete Agora RTC and Agent service
- * 
- * @param device_id Device ID string
- * 
- * @return int Operation result
- *         - BK_OK: Start successful
- *         - BK_FAIL: Start failed
- * 
- * @see bk_agora_stop()
- */
-int bk_agora_start(void *device_id);
+```text
+build/bk7259/secureboot_ai/package/
 ```
 
-#### 4.1.2 bk_agora_stop
-```c
-/**
- * @brief Stop complete Agora RTC and Agent service
- * 
- * @param device_id Device ID string
- * 
- * @return int Operation result
- *         - BK_OK: Stop successful
- *         - BK_FAIL: Stop failed
- * 
- * @see bk_agora_start()
- */
-int bk_agora_stop(void *device_id);
+- `all-app.bin`: complete flash image.
+- `bootloader.bin`: secure-boot bootloader package.
+- `ota.bin`: encrypted OTA package.
+- `otp_efuse_config.json`: generated OTP/eFuse configuration reference.
+
+During development, use BKFIL to flash `all-app.bin`. See the repository-level [English guide](../../README.md) for environment setup and flashing instructions.
+
+> **Security warning**: OTP/eFuse programming is normally irreversible. Signing private keys and symmetric keys stored in the repository are for development only and must not be used in production. Production requires controlled key generation, storage, and injection procedures.
+
+## 4. Preparation
+
+1. Build and flash `all-app.bin`, then connect the LCD, touch panel, camera, microphone, speaker, and any robot peripherals required by the demos.
+2. Copy the supplied resources to the SD-NAND root. Do not create an extra `resources` directory on the disk:
+
+   ```text
+   /sd0/
+   ├── kws_model/
+   │   ├── bk_kws_wakeup.tflite
+   │   └── bk_kws_commands.tflite
+   ├── tflite/
+   │   ├── palm_detection_builtin_256_integer_quant_vela.tflite
+   │   ├── yoloface_int8_vela.tflite
+   │   ├── hand_gesture_detection_vela.tflite
+   │   ├── face_detection_int8_vela.tflite
+   │   └── face_verify_int8_vela.tflite
+   ├── asr_wakeup_16k_mono_16bit_en.mp3
+   └── ...other prompt tones
+   ```
+
+3. The recommended method is to select **Settings > USB > USB**, then copy the files from a PC. Safely eject the disk, switch back to **UART**, and restart the device.
+4. To use the music demo, place MP3, AAC, or WAV files under `/sd0/music`.
+5. Complete Wi-Fi/BLE provisioning under **Connect** before using cloud demos that require network access.
+
+See the [resource file guide](./resources/kws_model_and_prompt_tone_user_mannual.md) for exact KWS model paths and prompt-tone file names.
+
+## 5. Boot Verification
+
+After a successful secure boot, the UART output should contain BL1, BL2/MCUboot, TF-M, and Non-Secure application logs. Check for:
+
+```text
+secureboot_ai: CP NS world reached (secure boot OK)
+LVGL ready on 320x385 MIPI (first page pending)
+LVGL started, page_1 loaded
 ```
 
-### 4.2 General APIs
+If boot stops during signature verification, manifest processing, Flash AES, or security-counter validation, verify that the flashed image matches the device OTP/eFuse configuration. Secure-boot and application logs may use different UART paths and should be checked separately.
 
-#### 4.2.1 Audio Engine API
-```c
-/**
- * @brief Initialize audio engine
- * 
- * @return bk_err_t Operation result
- */
-bk_err_t audio_engine_init(void);
-```
+## 6. UI Controls
 
-#### 4.2.2 Network Transfer API
-```c
-/**
- * @brief Initialize network transfer module
- * 
- * @return bk_err_t Operation result
- */
-bk_err_t ntwk_trans_init(void);
-```
+### Touchscreen
 
-#### 4.2.3 Application Event API
-```c
-/**
- * @brief Initialize application event system
- * 
- * @return bk_err_t Operation result
- */
-bk_err_t app_event_init(void);
-```
+- Tap the welcome screen to open the home screen. Tap menu items to enter; swipe vertically to scroll long lists.
+- Swipe right from the left edge to go back.
+- In AI Camera, tap to switch between taking a photo and resuming live preview; swipe right to exit.
 
+### Physical Buttons
 
-## 5 For detailed project introduction and guide, please refer to the following links
+- **S2 short press**: previous item/focus; takes a photo during AI Camera live preview.
+- **S5 short press**: next item/focus; resumes live preview when an AI Camera photo is displayed.
+- **S3 short press**: go back; exits full-screen vision demos.
+- **S4 short press**: confirm or open the selected item.
+- **S4 long press**: page-specific long-confirm action.
 
-- `Armino SMP SDK Documentation <https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/en/v3.1.1/index.html>`_
-- `Agora RTC Documentation <https://docs.agora.io/>`_
-- `For specific details of Agora DEMO project, please refer to: <https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/beken_genie/index.html>`_
+The home screen contains **Connect**, **Demo Center**, and **Settings**. Settings provides volume control, UART/USB switching, UI language selection, and factory reset.
+
+## 7. Main Demos
+
+- **Edge AI**: keyword recognition, sound localization, palm following, face detection, hand-gesture recognition, car following, and a camera solution example.
+- **Cloud AI**: AI chat, vision recognition, and AI Camera.
+- **Fun**: local music playback, live video streaming, and Bluetooth music.
+- **System features**: Wi-Fi/BLE provisioning, volume control, SD-NAND/USB mass storage, and Chinese/English UI switching.
+
+Some demos require the corresponding hardware, network service, or model resources and may not work fully until those prerequisites are available.
+
+## 8. Secure Development Notes
+
+- After changing a signing key, Flash AES key, application version, or security counter, regenerate and flash a matching complete image.
+- Increase the security counter only according to the product update policy to avoid rejecting existing images or mismatched OTA packages.
+- TF-M Persistent Storage, Firmware Update, and Initial Attestation are disabled in the current default configuration.
+- Before production, replace all development keys and review the Root of Trust, OTP/eFuse injection process, and rollback policy.
