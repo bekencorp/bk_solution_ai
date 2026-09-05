@@ -1,20 +1,10 @@
 参考工程
-=====================================
+===========================
 
 :link_to_translation:`en:[English]`
 
-本文档介绍 BK7259 机器人方案的参考工程。
-
-工程列表
----------------------------------
-
-- **``beken_robot``**：使用 **声网 Agora RTC** 接入云端 AI Agent，覆盖语音对话、视觉问答、声源定位、配网、UI、按键、音频、视频、传感器等机器人主流功能。
-- **``secureboot_ai``**：在机器人 AI 应用栈上集成 BL1、BL2/MCUboot、TF-M、镜像签名和 Flash AES 的安全启动参考工程。
-- **``baf_example``**：在 Robot V1（jd9855 320×385）上演示 BAF 动画播放，支持 RAW/LVGL 两种后端，以及固件内置与 TF 卡 ``.baf`` 文件播放。
-
 .. toctree::
     :maxdepth: 1
+    :glob:
 
-    BK7259 机器人工程 <beken_robot/index>
-    BK7259 Secure Boot AI 工程 <secureboot_ai/index>
-    BK7259 BAF 动画播放示例 <baf_example/index>
+    */index
