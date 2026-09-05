@@ -686,6 +686,12 @@ static void archive_row_click_cb(lv_event_t *e)
 static void archive_return_click_cb(lv_event_t *e)
 {
     (void)e;
+    if (!s_archive_active) {
+        if (s_archive_status_label != NULL && lv_obj_is_valid(s_archive_status_label)) {
+            set_status_label_text(s_archive_status_label, "操作中");
+        }
+        return;
+    }
     if (s_archive_busy) {
         if (s_archive_status_label != NULL && lv_obj_is_valid(s_archive_status_label)) {
             set_status_label_text(s_archive_status_label, "操作中");
@@ -700,10 +706,15 @@ static void archive_return_click_cb(lv_event_t *e)
     (void)page_edge_ai_face_recognition_enter();
     yoloface_tracking_set_return_to_edge_ai(true);
     yoloface_tracking_set_lvgl_camera_blend(true);
-    if (yoloface_tracking_start() != 0 &&
-        s_face_recognition_status_label != NULL &&
+    if (s_face_recognition_status_label != NULL &&
         lv_obj_is_valid(s_face_recognition_status_label)) {
         set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
+    }
+    if (yoloface_tracking_start() != 0) {
+        if (s_face_recognition_status_label != NULL &&
+            lv_obj_is_valid(s_face_recognition_status_label)) {
+            set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
+        }
     }
 }
 
@@ -993,6 +1004,11 @@ static void face_recognition_on_screen_prev(bk_lv_ui_t *ui)
     }
 
     if (yoloface_detection_is_active()) {
+        if (!yoloface_face_recognition_is_ready() &&
+            s_face_recognition_status_label != NULL &&
+            lv_obj_is_valid(s_face_recognition_status_label)) {
+            set_status_label_text(s_face_recognition_status_label, "操作中,  请稍后");
+        }
         (void)yoloface_detection_exit_to_menu();
     } else {
         (void)page_edge_ai_enter();
