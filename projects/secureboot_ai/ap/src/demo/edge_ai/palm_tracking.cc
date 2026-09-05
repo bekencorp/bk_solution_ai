@@ -1,7 +1,6 @@
 // Copyright 2020-2021 Beken
-// Palm-tracking overlay demo: MIPI camera + GPU display path driven by the
-// PalmDetectionModel NN pipeline, with the on-board pan/tilt servos slaved
-// to the largest detected palm.
+// Palm-tracking overlay demo: MIPI camera + GPU display path with the on-board
+// pan/tilt servos slaved to the largest accepted box.
 //
 // Note on the "no LVGL in src/demo/" rule: palm tracking is an overlay
 // demo that takes the framebuffer away from LVGL, so the lifecycle
@@ -30,7 +29,7 @@ extern "C" {
 
 #include "AvdkVideoReatorOSD.h"
 #include "AvdkDetectionModel.h"
-#include "PalmDetectionModel.h"
+#include "HandGestureDetectionModel.h"
 #include "box.h"
 #include "bk_aimi_servo.h"
 #include "bk_aimi_palm_tracker.h"
@@ -50,11 +49,17 @@ int page_edge_ai_enter(void);
 #endif
 
 static AvdkVideoReatorOSD *video_reator = NULL;
-static PalmDetectionModel *model = NULL;
+static HandGestureDetectionModel *model = NULL;
 
 #ifndef PALM_TRACKING_MODEL_SD_PATH
-#define PALM_TRACKING_MODEL_SD_PATH "1:/tflite/palm_detection_builtin_256_integer_quant_vela.tflite"
+#define PALM_TRACKING_MODEL_SD_PATH "1:/tflite/hand_gesture_detection_vela.tflite"
 #endif
+
+#define PALM_TRACKING_REQUIRED_CLASS_ID    3
+#define PALM_TRACKING_MAX_PENDING_BOXES    32
+#define PALM_TRACKING_REF_INPUT_SIZE       256.0f
+#define PALM_TRACKING_MIN_BOX_SIZE_PIXELS  25.0f
+#define PALM_TRACKING_NMS_IOU_THRESHOLD    0.50f
 
 /* Hardware binding for the palm-tracking servos on this board.
  * The bk_servo component is HW-agnostic: PWM channel and GPIO pin are
@@ -129,7 +134,125 @@ static void palm_overlay_back(void *arg)
 }
 #endif
 
-static void detection_box_cb(Box *boxes, int count)
+static Box s_pending_boxes[PALM_TRACKING_MAX_PENDING_BOXES];
+static Box s_tracking_boxes[PALM_TRACKING_MAX_PENDING_BOXES];
+static int s_pending_box_count = 0;
+
+static float palm_tracking_box_iou(const Box *a, const Box *b)
+{
+    const float ax2 = a->x + a->w;
+    const float ay2 = a->y + a->h;
+    const float bx2 = b->x + b->w;
+    const float by2 = b->y + b->h;
+
+    const float ix1 = (a->x > b->x) ? a->x : b->x;
+    const float iy1 = (a->y > b->y) ? a->y : b->y;
+    const float ix2 = (ax2 < bx2) ? ax2 : bx2;
+    const float iy2 = (ay2 < by2) ? ay2 : by2;
+    const float iw = ix2 - ix1;
+    const float ih = iy2 - iy1;
+    if (iw <= 0.0f || ih <= 0.0f) {
+        return 0.0f;
+    }
+
+    const float inter = iw * ih;
+    const float uni = a->w * a->h + b->w * b->h - inter;
+    return (uni > 0.0f) ? (inter / uni) : 0.0f;
+}
+
+static int palm_tracking_nms_in_place(Box *boxes, int count, float iou_thresh)
+{
+    for (int i = 1; i < count; i++) {
+        Box key = boxes[i];
+        int j = i - 1;
+        while (j >= 0 && boxes[j].score < key.score) {
+            boxes[j + 1] = boxes[j];
+            j--;
+        }
+        boxes[j + 1] = key;
+    }
+
+    bool keep[PALM_TRACKING_MAX_PENDING_BOXES];
+    for (int i = 0; i < count; i++) {
+        keep[i] = true;
+    }
+    for (int i = 0; i < count; i++) {
+        if (!keep[i]) {
+            continue;
+        }
+        for (int j = i + 1; j < count; j++) {
+            if (keep[j] && palm_tracking_box_iou(&boxes[i], &boxes[j]) > iou_thresh) {
+                keep[j] = false;
+            }
+        }
+    }
+
+    int n = 0;
+    for (int i = 0; i < count; i++) {
+        if (keep[i]) {
+            if (n != i) {
+                boxes[n] = boxes[i];
+            }
+            n++;
+        }
+    }
+    return n;
+}
+
+static int palm_tracking_prepare_boxes(Box *dst,
+                                       int dst_cap,
+                                       const Box *src,
+                                       int src_count,
+                                       int src_w,
+                                       int src_h)
+{
+    if (dst == NULL || src == NULL || dst_cap <= 0 || src_count <= 0 ||
+        src_w <= 0 || src_h <= 0) {
+        return 0;
+    }
+
+    const float min_src = (src_w < src_h) ? (float)src_w : (float)src_h;
+    const float min_box_size = PALM_TRACKING_MIN_BOX_SIZE_PIXELS *
+                               (min_src / PALM_TRACKING_REF_INPUT_SIZE);
+    int out_count = 0;
+
+    for (int i = 0; i < src_count && out_count < dst_cap; i++) {
+        if (src[i].w < min_box_size || src[i].h < min_box_size) {
+            continue;
+        }
+
+        float x1 = src[i].x;
+        float y1 = src[i].y;
+        float x2 = src[i].x + src[i].w;
+        float y2 = src[i].y + src[i].h;
+
+        if (x1 < 0.0f) x1 = 0.0f;
+        if (y1 < 0.0f) y1 = 0.0f;
+        if (x2 > (float)src_w) x2 = (float)src_w;
+        if (y2 > (float)src_h) y2 = (float)src_h;
+
+        const float w = x2 - x1;
+        const float h = y2 - y1;
+        if (w <= 0.0f || h <= 0.0f) {
+            continue;
+        }
+
+        dst[out_count].x = x1;
+        dst[out_count].y = y1;
+        dst[out_count].w = w;
+        dst[out_count].h = h;
+        dst[out_count].score = src[i].score;
+        out_count++;
+    }
+
+    if (out_count > 1) {
+        out_count = palm_tracking_nms_in_place(dst, out_count,
+                                               PALM_TRACKING_NMS_IOU_THRESHOLD);
+    }
+    return out_count;
+}
+
+static void palm_tracking_process_boxes(Box *boxes, int count)
 {
     if (boxes == NULL || count <= 0) {
         box_detection_path_clear();
@@ -162,14 +285,12 @@ static void detection_box_cb(Box *boxes, int count)
 
     /* Draw ALL detected palms. The user can still see secondary palms on the
      * OSD even though the servo only follows the largest one.
-     * src = model input size (256x256), dst = display canvas size (1088x1088). */
+     * src = model input size, dst = display canvas size. */
     box_detection_path_build(boxes, count, count, 0, model->getWidth(), model->getHeight(), 400, 320);
 
-    /* Drive both servos from the chosen box's center. Each axis runs the
-     * same stateless tracker step with its own cfg, then commits the new
-     * angle (if any) via the servo PWM API. Keeping the math out of the
-     * servo driver lets us reuse the driver for non-tracking motion and
-     * test the tracker logic standalone. */
+    /* Drive both servos from the chosen box's center. The tracker keeps the
+     * original per-frame delta logic, but uses smaller gain/max_step so each
+     * correction is gentler. */
     float palm_cx = boxes[target].x + boxes[target].w * 0.5f;
     float palm_cy = boxes[target].y + boxes[target].h * 0.5f;
     float img_w   = (float)model->getWidth();
@@ -188,6 +309,48 @@ static void detection_box_cb(Box *boxes, int count)
                                   &next_v, "V")) {
         bk_aimi_servo_set_angle(s_servo_v, next_v);
     }
+}
+
+static void detection_box_cb(Box *boxes, int count)
+{
+    if (boxes == NULL || count <= 0) {
+        s_pending_box_count = 0;
+        box_detection_path_clear();
+        return;
+    }
+
+    int copy_count = count;
+    if (copy_count > PALM_TRACKING_MAX_PENDING_BOXES) {
+        copy_count = PALM_TRACKING_MAX_PENDING_BOXES;
+    }
+
+    for (int i = 0; i < copy_count; i++) {
+        s_pending_boxes[i] = boxes[i];
+    }
+    s_pending_box_count = copy_count;
+}
+
+static void hand_gesture_result_cb(int class_id, const char *class_name,
+                                   float score, int count)
+{
+    (void)class_name;
+    (void)score;
+    (void)count;
+
+    if (class_id != PALM_TRACKING_REQUIRED_CLASS_ID) {
+        s_pending_box_count = 0;
+        box_detection_path_clear();
+        return;
+    }
+
+    int tracking_count = palm_tracking_prepare_boxes(s_tracking_boxes,
+                                                     PALM_TRACKING_MAX_PENDING_BOXES,
+                                                     s_pending_boxes,
+                                                     s_pending_box_count,
+                                                     model->getWidth(),
+                                                     model->getHeight());
+    palm_tracking_process_boxes(s_tracking_boxes, tracking_count);
+    s_pending_box_count = 0;
 }
 
 void plam_detection_config(void)
@@ -310,13 +473,14 @@ static void palm_detection_start_task(void *arg)
     palm_tracker_axis_cfg_init(&s_tracker_cfg_h, s_servo_h, +1);
     palm_tracker_axis_cfg_init(&s_tracker_cfg_v, s_servo_v, +1);
 
-    model = new PalmDetectionModel();
+    model = new HandGestureDetectionModel();
     if (model == NULL) {
         bk_printf("palm_detection_start_task: model alloc failed\n");
         ret = BK_FAIL;
         goto fail;
     }
     model->setBoxDetectionCallback(detection_box_cb);
+    model->setGestureResultCallback(hand_gesture_result_cb);
     model->setModelFilePath(PALM_TRACKING_MODEL_SD_PATH);
 
     video_reator = new AvdkVideoReatorOSD(model);
