@@ -1,5 +1,4 @@
 {
     "bootloader.bin": ["bl1_control", "boot_flag", "primary_manifest", "bl2"],
-    "all-app.bin": ["partition", "primary_all", "boot_param"],
-    "ota.bin": ["primary_all"]
+    "all-app.bin": ["partition", "primary_all", "ota_control"]
 }

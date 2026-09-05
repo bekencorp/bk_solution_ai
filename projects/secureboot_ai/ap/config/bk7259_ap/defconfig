@@ -244,7 +244,7 @@ CONFIG_FREERTOS_SMP=y
 CONFIG_SPE=0
 CONFIG_SRAM_DIRECT_ADDR=y
 CONFIG_SLAVE_HEART_BEAT=n
-# CONFIG_SUPPORT_WWDT is not set
+CONFIG_SUPPORT_WWDT=y
 # CONFIG_SYSTICK_32K is not set
 
 # Keep NS AP away from the PL310 control window. The AP Secure Shim performs
@@ -255,7 +255,11 @@ CONFIG_GENERAL_DMA=y
 # CONFIG_SPI_DMA is not set
 
 # This 8 MB variant is single-slot secure boot, not DIRECT_XIP A/B OTA.
+# No ota/ota_control partitions: 8MB cannot hold AI AP/CP plus compress.bin.
 # CONFIG_SECURE_OTA_XIP is not set
+# CONFIG_SECURE_OTA_OVERWRITE is not set
+# CONFIG_OTA_FUNCTION is not set
+# CONFIG_OTA_HTTP is not set
 
 #pm
 CONFIG_FREERTOS_USE_TICKLESS_IDLE=2

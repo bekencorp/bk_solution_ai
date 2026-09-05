@@ -14,10 +14,9 @@ CONFIG_SLAVE_HEART_BEAT=n
 
 CONFIG_FREERTOS_ALLOW_OS_API_IN_IRQ_DISABLED=y
 CONFIG_SPINLOCK=y
-CONFIG_SUPPORT_WWDT=n
+CONFIG_SUPPORT_WWDT=y
 CONFIG_SECURITY_FIRMWARE=y
-# flash controller MMIO (0x54030000) is secure-only; NS easyflash direct
-# access faults. Disable easyflash until NS flash goes through a secure gateway.
+
 CONFIG_EASY_FLASH=n
 
 CONFIG_SPE=0
@@ -40,9 +39,9 @@ CONFIG_TFM_BL2_LOG_LEVEL="INFO"
 # --- MCUboot upgrade strategy ---
 # Keep a small secondary placeholder in the partition table, but BL2 must only
 # read, validate and boot the large primary slot.
-CONFIG_BL2_UPGRADE_STRATEGY="DIRECT_XIP"
-CONFIG_XIP_NO_VERSION=y
-CONFIG_XIP_FORCE_SLOT_A=y
+CONFIG_BL2_UPGRADE_STRATEGY="OVERWRITE_ONLY"
+# CONFIG_XIP_NO_VERSION is not set
+# CONFIG_XIP_FORCE_SLOT_A is not set
 
 # --- SPE RAM / heap (CP SPE = 0x14000 = 80KB) ---
 CONFIG_CPU0_SPE_RAM_SIZE=0x14000
