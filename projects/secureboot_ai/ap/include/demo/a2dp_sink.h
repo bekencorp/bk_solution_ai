@@ -23,22 +23,24 @@ uint8_t a2dp_sink_demo_is_active(void);
 /** Non-zero when an A2DP source (phone) is currently connected. */
 uint8_t a2dp_sink_demo_is_connected(void);
 
-/** Non-zero when playback state is PLAYING (UI + AVRCP command choice). */
-uint8_t a2dp_sink_demo_is_playing(void);
-
 void a2dp_sink_demo_begin_teardown(void);
 
 /** Queue AVRCP transport on the a2dp_sink worker (safe from LVGL / key task). */
-void a2dp_sink_demo_play_pause(void);
+void a2dp_sink_demo_play(void);
+void a2dp_sink_demo_pause(void);
 void a2dp_sink_demo_next(void);
 void a2dp_sink_demo_prev(void);
 void a2dp_sink_demo_vol_up(void);
 void a2dp_sink_demo_vol_down(void);
 
-/** Optional playback notifications for the UI / bt_rhythm (set from page). */
+/** AVRCP playback notifications for UI state. */
 typedef void (*a2dp_sink_playback_fn_t)(void);
 void a2dp_sink_demo_set_playback_listener(a2dp_sink_playback_fn_t on_start,
                                           a2dp_sink_playback_fn_t on_stop);
+
+/** A2DP stream notifications for audio-driven rhythm state. */
+void a2dp_sink_demo_set_stream_listener(a2dp_sink_playback_fn_t on_start,
+                                        a2dp_sink_playback_fn_t on_stop);
 
 int32_t a2dp_sink_demo_try_disconnect_current(void);
 

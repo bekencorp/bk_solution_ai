@@ -781,11 +781,16 @@ void bt_rhythm_deinit(void)
         return;
     }
     s_enabled = false;
+    s_hand_output = false;
     s_task_run = false;
     /* Let the task observe s_task_run and self-delete. */
     rtos_delay_milliseconds(BT_RHYTHM_TICK_MS * 2);
 
     if (s_servo) {
+        /* The task may have stopped mid-dance, so explicitly park the hand
+         * before releasing its PWM channels. */
+        pose_neutral();
+        rtos_delay_milliseconds(BT_RHYTHM_MOVE_MS);
         bk_hiwonder_hand_servo_deinit(s_servo);
         s_servo = NULL;
     }
