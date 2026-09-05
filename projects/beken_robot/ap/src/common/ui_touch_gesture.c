@@ -88,10 +88,21 @@ void ui_touch_tap_cancel(lv_event_t *e, ui_touch_tap_state_t *state)
     ui_touch_tap_reset(state);
 }
 
-static void nav_back_cb(void *user_data)
+static void nav_back_async(void *user_data)
 {
     (void)user_data;
     ui_nav_dispatch_event_from_lvgl(UI_NAV_EVENT_SCREEN_PREV);
+}
+
+static void nav_back_cb(void *user_data)
+{
+    (void)user_data;
+    /* The gesture cb runs inside lv_event_send() on an object of the page
+     * tree; switching page here would delete that tree (and the event list
+     * being iterated) before the send returns. Defer like bt_music does. */
+    if (lv_async_call(nav_back_async, NULL) != LV_RESULT_OK) {
+        ui_nav_dispatch_event_from_lvgl(UI_NAV_EVENT_SCREEN_PREV);
+    }
 }
 
 static void edge_press_cb(lv_event_t *e)
