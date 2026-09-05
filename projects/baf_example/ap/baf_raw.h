@@ -9,8 +9,8 @@ extern "C" {
 #endif
 
 /* Start the raw (no-LVGL) BAF backend: bring up the DPU panel and the GPU, then
- * spawn a render thread that decodes hello_bk_baf_source, GPU-composes each
- * frame into a linear ARGB8888 framebuffer and flushes it straight to the panel.
+ * spawn a render thread that decodes the scene's BAF v1 container layers, GPU-composes
+ * each frame into a linear ARGB8888 framebuffer and flushes it straight to the panel.
  */
 avdk_err_t baf_raw_start(void);
 

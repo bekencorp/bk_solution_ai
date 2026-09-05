@@ -1,9 +1,6 @@
 #include "bk_private/bk_init.h"
-#include <components/system.h>
 #include <os/os.h>
-#include <components/shell_task.h>
 #include "cli.h"
-#include "components/media_types.h"
 #if CONFIG_LVGL
 #include "lvgl.h"
 #include "lv_vendor.h"
@@ -18,7 +15,6 @@
 #include <components/bk_display.h>          /* umbrella: bus + panel + display ctlr */
 #include <driver/gpio.h>
 #include "gpio_driver.h"
-#include <avdk_check.h>
 #include <avdk_error.h>
 #include <lcd/lcd_mipi_jd9855_320x385.h>
 
@@ -26,10 +22,7 @@
 #define TAG "baf_example"
 
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
-#define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
-#define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
-#define LOGV(...) BK_LOGV(TAG, ##__VA_ARGS__)
 
 /* jd9855 MIPI DSI panel, 320x385 (portrait), same board bring-up as
  * baf_display_example (Robot V1): panel reset GPIO_5, backlight GPIO_7 and the

@@ -1,8 +1,6 @@
 #ifndef BAF_PAGE_H
 #define BAF_PAGE_H
 
-#include <stdbool.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif

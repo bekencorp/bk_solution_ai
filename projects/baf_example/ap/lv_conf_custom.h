@@ -14,4 +14,13 @@
 #undef LV_USE_BAF
 #define LV_USE_BAF 1
 
+/* lv_fs FATFS driver so lv_baf_set_src_file("S:/baf/xxx.baf") can read the TF
+ * card. Drive letter 'S' maps to the FATFS SD volume "1:" via LV_FS_FATFS_PATH. */
+#undef LV_USE_FS_FATFS
+#define LV_USE_FS_FATFS 1
+#undef LV_FS_FATFS_LETTER
+#define LV_FS_FATFS_LETTER 'S'
+#undef LV_FS_FATFS_PATH
+#define LV_FS_FATFS_PATH "1:"
+
 #endif /* PROJECT_LV_CONF_CUSTOM_H */

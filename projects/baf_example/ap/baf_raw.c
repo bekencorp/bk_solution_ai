@@ -69,22 +69,33 @@
 
 /* BAF_MAX_LAYERS is declared in baf_raw.h (shared with the CLI). */
 
-/* Compiled-in assets. */
-extern const bk_baf_source_t hello_bk_baf_source;                  /* foreground avatar */
-extern const bk_baf_source_t doubao_background_320x384_baf_source; /* background */
-extern const bk_baf_source_t curtain_baf_source;                   /* top curtain overlay */
+/* Compiled-in BAF v1 containers as C byte arrays (identical bytes to the .baf
+ * files in resources/). Fed straight to bk_baf_open(cfg.data) -- bk_baf parses
+ * each container internally, so the built-in scenes use the exact same container
+ * path as SD-card files; the project never parses. */
+extern const unsigned char hello_baf[];      extern const unsigned int hello_baf_size;
+extern const unsigned char background_baf[]; extern const unsigned int background_baf_size;
+extern const unsigned char curtain_baf[];    extern const unsigned int curtain_baf_size;
+
+/* A scene layer = raw container bytes + byte length (the length lives in another
+ * TU as `extern const unsigned int`, so we point at it). */
+typedef struct {
+    const unsigned char *buf;
+    const unsigned int  *size;
+} baf_asset_t;
 
 /* ---- Scenes: preset layer stacks (back -> front) ----
  *   1 = avatar only, 2 = background + avatar (default), 3 = + curtain on top. */
-static const bk_baf_source_t *const k_scene1[] = { &hello_bk_baf_source };
-static const bk_baf_source_t *const k_scene2[] = {
-    &doubao_background_320x384_baf_source, &hello_bk_baf_source,
+static const baf_asset_t k_scene1[] = { { hello_baf, &hello_baf_size } };
+static const baf_asset_t k_scene2[] = {
+    { background_baf, &background_baf_size }, { hello_baf, &hello_baf_size },
 };
-static const bk_baf_source_t *const k_scene3[] = {
-    &doubao_background_320x384_baf_source, &hello_bk_baf_source, &curtain_baf_source,
+static const baf_asset_t k_scene3[] = {
+    { background_baf, &background_baf_size }, { hello_baf, &hello_baf_size },
+    { curtain_baf, &curtain_baf_size },
 };
 
-static const bk_baf_source_t *const *scene_sources(int scene, int *count)
+static const baf_asset_t *scene_sources(int scene, int *count)
 {
     switch (scene) {
     case 1: *count = 1; return k_scene1;
@@ -184,14 +195,15 @@ static avdk_err_t baf_raw_fb_free_cb(void *frame)
 
 /* ---- Layer stack lifecycle ---- */
 static bk_baf_decoder_t   *s_dec[BAF_MAX_LAYERS];       /* open decoders, back->front */
-static const bk_baf_source_t *s_file_src[BAF_MAX_LAYERS]; /* loaded SD sources to free */
+static uint8_t            *s_file_buf[BAF_MAX_LAYERS];  /* CUSTOM: SD file buffers to psram_free */
 static int                 s_nlayers;
 
 static void baf_raw_teardown_stack(void)
 {
     for (int i = 0; i < s_nlayers; i++) {
-        if (s_dec[i] != NULL) { bk_baf_close(s_dec[i]); s_dec[i] = NULL; }
-        if (s_file_src[i] != NULL) { baf_file_unload(s_file_src[i]); s_file_src[i] = NULL; }
+        if (s_dec[i] != NULL) { bk_baf_close(s_dec[i]); s_dec[i] = NULL; }  /* frees the parsed view */
+        /* Free the SD buffer only AFTER bk_baf_close() (the decoder aliased it). */
+        if (s_file_buf[i] != NULL) { psram_free(s_file_buf[i]); s_file_buf[i] = NULL; }
     }
     s_nlayers = 0;
     s_decoder = NULL;
@@ -207,33 +219,36 @@ static int baf_raw_build_stack(void)
 
     if (s_mode == BAF_MODE_SCENE) {
         int count = 0;
-        const bk_baf_source_t *const *preset = scene_sources(s_scene, &count);
+        const baf_asset_t *preset = scene_sources(s_scene, &count);
         if (count > BAF_MAX_LAYERS) count = BAF_MAX_LAYERS;
         for (int i = 0; i < count; i++) {
-            bk_baf_config_t cfg = { .source = preset[i], .loop_count = 0 };
+            /* Compiled-in container bytes: bk_baf parses & owns the view. */
+            bk_baf_config_t cfg = { .data = preset[i].buf, .data_len = *preset[i].size, .loop_count = 0 };
             bk_baf_decoder_t *d = bk_baf_open(&cfg);
             if (d == NULL) { LOGE("layer %d open failed\n", i); continue; }
             s_dec[n] = d;
-            s_file_src[n] = NULL;   /* preset source, nothing to unload */
+            s_file_buf[n] = NULL;   /* flash bytes, nothing to free */
             n++;
         }
     } else {   /* BAF_MODE_CUSTOM: SD-card files only */
         for (int i = 0; i < BAF_MAX_LAYERS; i++) {
             if (s_custom_path[i][0] == '\0') continue;   /* empty slot */
-            const bk_baf_source_t *loaded = baf_file_load(s_custom_path[i]);
-            if (loaded == NULL) {
+            uint32_t len = 0;
+            uint8_t *buf = baf_file_read(s_custom_path[i], &len);
+            if (buf == NULL) {
                 LOGW("layer %d: load '%s' failed, skipped\n", i, s_custom_path[i]);
                 continue;
             }
-            bk_baf_config_t cfg = { .source = loaded, .loop_count = 0 };
+            /* Raw container bytes: bk_baf parses & owns the view (aliases buf). */
+            bk_baf_config_t cfg = { .data = buf, .data_len = len, .loop_count = 0 };
             bk_baf_decoder_t *d = bk_baf_open(&cfg);
             if (d == NULL) {
                 LOGE("layer %d open failed\n", i);
-                baf_file_unload(loaded);
+                psram_free(buf);
                 continue;
             }
             s_dec[n] = d;
-            s_file_src[n] = loaded;   /* freed on teardown */
+            s_file_buf[n] = buf;   /* freed on teardown after bk_baf_close */
             n++;
         }
     }
