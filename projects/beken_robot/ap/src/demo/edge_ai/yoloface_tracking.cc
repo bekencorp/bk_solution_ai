@@ -108,6 +108,7 @@ static FaceRecognitionModel *s_face_recognition_model = NULL;
 #define YOLOFACE_ENROLL_SAVE_STOP_WAIT_MS  5000
 #define YOLOFACE_ACTIVE_REQUEST_TIMEOUT_MS 2000
 #define YOLOFACE_FACE_STATUS_VALID_MS      1000
+#define YOLOFACE_REQUEST_AFTER_READY_DELAY_MS 300
 
 typedef enum {
     YOLOFACE_FACE_MSG_ENROLL_SAVE = 0,
@@ -134,6 +135,7 @@ static uint32_t s_yoloface_enroll_sample_index = 0;
 static uint32_t s_yoloface_active_request_ms = 0;
 static volatile int s_yoloface_latest_face_count = -1;
 static volatile uint32_t s_yoloface_latest_face_ms = 0;
+static volatile uint32_t s_yoloface_face_recognition_ready_ms = 0;
 static uint32_t s_yoloface_verify_candidate_profile = 0;
 static uint32_t s_yoloface_verify_pass_streak = 0;
 static beken_queue_t s_yoloface_enroll_save_queue = NULL;
@@ -226,6 +228,7 @@ static void yoloface_invalidate_active_screen(void)
 static void yoloface_face_recognition_set_ready(bool ready)
 {
     s_yoloface_face_recognition_ready = ready;
+    s_yoloface_face_recognition_ready_ms = ready ? (uint32_t)rtos_get_time() : 0;
 #if CONFIG_LVGL
     page_edge_ai_face_recognition_set_ready(ready);
 #else
@@ -386,6 +389,15 @@ static bool yoloface_face_recognition_recent_no_face(void)
     return s_yoloface_latest_face_count == 0 &&
            (uint32_t)(now - s_yoloface_latest_face_ms) <=
            YOLOFACE_FACE_STATUS_VALID_MS;
+}
+
+static bool yoloface_face_recognition_request_ready_stable(void)
+{
+    uint32_t ready_ms = s_yoloface_face_recognition_ready_ms;
+
+    return ready_ms != 0 &&
+           (uint32_t)((uint32_t)rtos_get_time() - ready_ms) >=
+           YOLOFACE_REQUEST_AFTER_READY_DELAY_MS;
 }
 
 static void yoloface_enroll_session_reset(void)
@@ -2230,6 +2242,9 @@ extern "C" int yoloface_face_recognition_enroll_request(void)
     if (yoloface_face_recognition_is_busy()) {
         return YOLOFACE_FACE_RECOGNITION_ERR_BUSY;
     }
+    if (!yoloface_face_recognition_request_ready_stable()) {
+        return YOLOFACE_FACE_RECOGNITION_ERR_BUSY;
+    }
     if (yoloface_face_recognition_recent_no_face()) {
         if (s_yoloface_lvgl_camera_blend) {
             (void)bk_camera_lvgl_blend_set_boxes(NULL, 0);
@@ -2271,6 +2286,9 @@ extern "C" int yoloface_face_recognition_verify_request(void)
         return -1;
     }
     if (yoloface_face_recognition_is_busy()) {
+        return YOLOFACE_FACE_RECOGNITION_ERR_BUSY;
+    }
+    if (!yoloface_face_recognition_request_ready_stable()) {
         return YOLOFACE_FACE_RECOGNITION_ERR_BUSY;
     }
     if (yoloface_face_recognition_recent_no_face()) {

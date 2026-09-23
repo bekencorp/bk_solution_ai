@@ -178,6 +178,8 @@ int AvdkVideoReatorOSD::init(bool init_model)
 
 int AvdkVideoReatorOSD::start()
 {
+    worker_stop_req = 0;
+
     int ret = rtos_create_hsram_thread(&thread,
                                         BEKEN_DEFAULT_WORKER_PRIORITY,
                                         "worker_thread",
@@ -222,6 +224,57 @@ int AvdkVideoReatorOSD::stop()
     return BK_OK;
 }
 
+/* Frame-mode MP can report open OK then stall; hot-opening SP on a dead MP
+ * burns ~24s in SP-only arm_probe and still fails. Probe MP sustain first, and
+ * on any failure do a full turn_off + settle reopen (same recovery as exit/reenter). */
+#define AVDK_OSD_CAM_FULL_REOPEN_RETRY   3
+#define AVDK_OSD_CAM_SETTLE_MS           30
+#define AVDK_OSD_CAM_MP_PROBE_FRAMES     1
+#define AVDK_OSD_CAM_MP_PROBE_TMO_MS     1000
+
+static int avdk_osd_mp_probe_sustain(const camera_board_config_t *board_config)
+{
+    uint32_t fsize;
+    uint8_t *buf;
+    int got = 0;
+
+    if (board_config == NULL || board_config->isp.mp_width == 0 ||
+        board_config->isp.mp_height == 0) {
+        return BK_FAIL;
+    }
+
+    fsize = bk_image_size_get(board_config->isp.mp_width,
+                              board_config->isp.mp_height,
+                              (bk_pixel_format_t)board_config->isp.mp_format);
+    if (fsize == 0U) {
+        return BK_FAIL;
+    }
+
+    buf = (uint8_t *)bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED, fsize);
+    if (buf == NULL) {
+        LOGE("OpenISPCamera: MP probe malloc %u failed\n", (unsigned)fsize);
+        return BK_FAIL;
+    }
+
+    for (; got < AVDK_OSD_CAM_MP_PROBE_FRAMES; got++) {
+        if (app_isp_camera_channel_read(APP_ISP_MP_CHN_ID, buf, fsize,
+                                        AVDK_OSD_CAM_MP_PROBE_TMO_MS) != AVDK_ERR_OK) {
+            break;
+        }
+    }
+
+    bk_frame_buffer_free(buf);
+    return (got >= AVDK_OSD_CAM_MP_PROBE_FRAMES) ? BK_OK : BK_FAIL;
+}
+
+static void avdk_osd_camera_full_reopen_recover(void)
+{
+    if (app_isp_camera_state_get()) {
+        (void)app_isp_camera_turn_off();
+    }
+    rtos_delay_milliseconds(AVDK_OSD_CAM_SETTLE_MS);
+}
+
 int AvdkVideoReatorOSD::OpenISPCamera()
 {
     LOGI("AvdkVideoReatorOSD::OpenISPCamera\n");
@@ -236,20 +289,42 @@ int AvdkVideoReatorOSD::OpenISPCamera()
     board_config->isp.sp_height = detection_model->getHeight();
     board_config->isp.sp_format = detection_model->getFormat();
 
-    int ret = app_isp_mipi_camera_turn_on(board_config);
-    if (ret != BK_OK) {
-        LOGE("%s, app_isp_mipi_camera_turn_on failed, ret=%d\n", __func__, ret);
-        return ret;
+    for (int att = 1; att <= AVDK_OSD_CAM_FULL_REOPEN_RETRY; att++) {
+        int ret = app_isp_mipi_camera_turn_on(board_config);
+        if (ret != BK_OK) {
+            LOGE("%s, app_isp_mipi_camera_turn_on failed att=%d ret=%d\n",
+                 __func__, att, ret);
+            avdk_osd_camera_full_reopen_recover();
+            continue;
+        }
+
+        /* Non-flexa MP (face-recognition LVGL blend): confirm live frames
+         * before hot-opening SP. Flexa MP has no frame reader path here. */
+        if (!board_config->isp.mp_flexa) {
+            ret = avdk_osd_mp_probe_sustain(board_config);
+            if (ret != BK_OK) {
+                LOGE("%s, MP probe failed att=%d, full reopen\n", __func__, att);
+                avdk_osd_camera_full_reopen_recover();
+                continue;
+            }
+        }
+
+        ret = app_isp_camera_sp_channel_turn_on(board_config);
+        if (ret == BK_OK) {
+            if (att > 1) {
+                LOGW("%s, camera open ok after full reopen att=%d\n", __func__, att);
+            }
+            return BK_OK;
+        }
+
+        LOGE("%s, app_isp_camera_sp_channel_turn_on failed att=%d ret=%d, full reopen\n",
+             __func__, att, ret);
+        avdk_osd_camera_full_reopen_recover();
     }
 
-    ret = app_isp_camera_sp_channel_turn_on(board_config);
-    if (ret != BK_OK) {
-        LOGE("%s, app_isp_camera_sp_channel_turn_on failed, ret=%d\n", __func__, ret);
-        (void)app_isp_camera_turn_off();
-        return ret;
-    }
-
-    return BK_OK;
+    LOGE("%s, camera open failed after %d full reopen attempts\n",
+         __func__, AVDK_OSD_CAM_FULL_REOPEN_RETRY);
+    return BK_FAIL;
 }
 
 #if (CONFIG_PSRAM_WRITE_THROUGH)
