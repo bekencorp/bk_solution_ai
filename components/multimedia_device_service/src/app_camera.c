@@ -479,7 +479,7 @@ static int app_isp_mipi_camera_mp_turn_on(const camera_board_config_t *config, b
     return AVDK_ERR_OK;
 
 err:
-    return AVDK_ERR_GENERIC;
+    return (ret != BK_OK) ? ret : AVDK_ERR_GENERIC;
 }
 
 int app_isp_mipi_camera_turn_on(const camera_board_config_t *config)
@@ -505,21 +505,26 @@ int app_isp_mipi_camera_turn_on(const camera_board_config_t *config)
     ret = app_isp_mipi_sensor_turn_on(config, &isp_ctlr_config);
     if (ret != AVDK_ERR_OK)
     {
-        LOGE("%s error[%d]: app_isp_mipi_sensor_turn_on failed\n", __func__, __LINE__);
         goto resume_tp;
     }
 
     ret = app_isp_mipi_camera_mp_turn_on(config, &isp_ctlr_config);
     if (ret != AVDK_ERR_OK)
     {
-        LOGE("%s error[%d]: app_isp_mipi_camera_mp_turn_on failed\n", __func__, __LINE__);
-        goto resume_tp;
+        goto fail;
     }
 
 resume_tp:
 #if CONFIG_TP
     app_camera_tp_resume(tp_suspended);
 #endif
+    return ret;
+
+fail:
+#if CONFIG_TP
+    app_camera_tp_resume(tp_suspended);
+#endif
+    (void)app_isp_camera_turn_off();
     return ret;
 
 err:
