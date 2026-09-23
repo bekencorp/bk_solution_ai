@@ -904,6 +904,15 @@ static void app_event_thread(beken_thread_arg_t data)
                     s_prompt_tone_replacing = false;
                     s_prompt_tone_status = 0;
                     if (s_prompt_tone_owns_audio_engine && audio_engine_is_running()) {
+#if (CONFIG_ASR_SERVICE)
+                        /* page8/page5 may have started ASR on the engine that
+                         * prompt tone originally owned. Do not tear it down. */
+                        if (audio_engine_asr_is_started()) {
+                            s_prompt_tone_owns_audio_engine = false;
+                            LOGI("[prompt_tone] finish: keep audio engine (asr active)\n");
+                            break;
+                        }
+#endif
                         s_prompt_tone_owns_audio_engine = false;
                         (void)audio_engine_stop();
                     }

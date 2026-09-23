@@ -153,6 +153,14 @@ int audio_engine_write_data(const uint8_t *data, uint32_t size, uint32_t timeout
 int audio_engine_asr_start(void);
 
 /**
+ * @brief Whether the on-demand ASR pipeline is currently started.
+ *
+ * Used by prompt-tone finish handling to avoid tearing down a shared
+ * audio_engine that a demo (e.g. page8 command KWS) is still using.
+ */
+bool audio_engine_asr_is_started(void);
+
+/**
  * @brief Stop ASR pipeline on demand.
  *
  * @return int

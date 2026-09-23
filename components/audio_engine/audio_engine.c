@@ -2118,6 +2118,11 @@ int audio_engine_asr_start(void)
     return ae_worker_run(audio_engine_asr_start_inner);
 }
 
+bool audio_engine_asr_is_started(void)
+{
+    return g_audio_engine.asr_started;
+}
+
 int audio_engine_asr_stop(void)
 {
     if (ae_in_worker()) {
