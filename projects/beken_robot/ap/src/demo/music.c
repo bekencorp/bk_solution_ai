@@ -703,21 +703,26 @@ static int pipeline_build(const char *vfs_path)
         goto fail;
     }
 
-    /* Plan the speaker frame_size first; the WAV decoder must produce
-     * at least one full speaker frame per process call, otherwise the
-     * speaker's per-DMA-tick audio_element_input(frame_size, 0) reads
-     * partial bytes and falls into the FILL_SILENCE path. The 1/50 s
-     * window mirrors the speaker config below. */
-    uint32_t wav_pcm_rate = (s_dec_type == AUDIO_DEC_TYPE_WAV && s_wav_hdr.valid)
-                                ? s_wav_hdr.sample_rate
-                                : PIPE_INIT_RATE;
-    uint32_t wav_pcm_ch   = (s_dec_type == AUDIO_DEC_TYPE_WAV && s_wav_hdr.valid)
-                                ? (s_wav_hdr.channels ? s_wav_hdr.channels : 1)
-                                : PIPE_INIT_CH;
-    uint32_t wav_pcm_bits = (s_dec_type == AUDIO_DEC_TYPE_WAV && s_wav_hdr.valid)
-                                ? (s_wav_hdr.bits ? s_wav_hdr.bits : 16)
-                                : PIPE_INIT_BITS;
-    uint32_t spk_frame_size = wav_pcm_rate * wav_pcm_ch * (wav_pcm_bits / 8u) / 50u;
+    /* Plan speaker frame_size first (BK7259SW-3246). onboard_speaker uses
+     * non-blocking audio_element_input(frame_size, 0) per DMA tick; if the
+     * upstream decoder cannot deliver a full frame, PCM path falls into
+     * FILL_SILENCE and audible glitches. SDK default frame_size=320 is ~20ms
+     * only at 8k mono — at 44.1k/48k stereo it is ~1.8ms and underruns easily.
+     * Size to 1/50 s (20ms) for all codecs; WAV/AAC prefer sniffed format. */
+    uint32_t pcm_rate = PIPE_INIT_RATE;
+    uint32_t pcm_ch   = PIPE_INIT_CH;
+    uint32_t pcm_bits = PIPE_INIT_BITS;
+    if (s_dec_type == AUDIO_DEC_TYPE_WAV && s_wav_hdr.valid) {
+        pcm_rate = s_wav_hdr.sample_rate;
+        pcm_ch   = s_wav_hdr.channels ? s_wav_hdr.channels : 1;
+        pcm_bits = s_wav_hdr.bits ? s_wav_hdr.bits : 16;
+    } else if (s_dec_type == AUDIO_DEC_TYPE_AAC && s_aac_sr > 0) {
+        pcm_rate = s_aac_sr;
+    }
+    if (pcm_ch > 2) {
+        pcm_ch = 2;
+    }
+    uint32_t spk_frame_size = pcm_rate * pcm_ch * (pcm_bits / 8u) / 50u;
     if (spk_frame_size == 0) {
         spk_frame_size = 320;
     }
@@ -728,6 +733,12 @@ static int pipeline_build(const char *vfs_path)
     switch (s_dec_type) {
     case AUDIO_DEC_TYPE_MP3: {
         mp3_decoder_cfg_t mp3_cfg = DEFAULT_MP3_DECODER_CONFIG();
+        /* Default out_block (~4608) already covers one 20ms stereo frame at
+         * 44.1k/48k; keep two blocks so the decoder→speaker ring absorbs
+         * SD/decode jitter without starving the larger DMA period. */
+        if (mp3_cfg.out_block_num < 2) {
+            mp3_cfg.out_block_num = 2;
+        }
         s_decoder = mp3_decoder_init(&mp3_cfg);
         dec_tag = "mp3_dec";
         break;
@@ -754,6 +765,9 @@ static int pipeline_build(const char *vfs_path)
     }
     case AUDIO_DEC_TYPE_AAC: {
         aac_decoder_cfg_t aac_cfg = DEFAULT_AAC_DECODER_CONFIG();
+        if (aac_cfg.out_block_num < 2) {
+            aac_cfg.out_block_num = 2;
+        }
         s_decoder = aac_decoder_init(&aac_cfg);
         dec_tag = "aac_dec";
         break;
@@ -772,22 +786,12 @@ static int pipeline_build(const char *vfs_path)
      * to 8k/16k/48k by aud_dac_driver. Narrow the bitmap to A2DP only. */
     spk_cfg.dac_source_bitmap = ONBOARD_SPEAKER_STREAM_DAC_SOURCE_A2DP_BIT;
     spk_cfg.main_dac_source   = AUD_DAC_SOURCE_A2DP;
-    spk_cfg.sample_rate[AUD_DAC_SOURCE_A2DP] = PIPE_INIT_RATE;
-    spk_cfg.frame_size[AUD_DAC_SOURCE_A2DP]  = 320;
-    spk_cfg.chl_num = PIPE_INIT_CH;
-    spk_cfg.bits    = PIPE_INIT_BITS;
-    if (s_dec_type == AUDIO_DEC_TYPE_WAV && s_wav_hdr.valid) {
-        spk_cfg.sample_rate[AUD_DAC_SOURCE_A2DP] = s_wav_hdr.sample_rate;
-        spk_cfg.chl_num = (uint8_t)(s_wav_hdr.channels ? s_wav_hdr.channels : 1);
-        if (spk_cfg.chl_num > 2) {
-            spk_cfg.chl_num = 2;
-        }
-        spk_cfg.bits = (uint8_t)(s_wav_hdr.bits ? s_wav_hdr.bits : 16);
-        spk_cfg.frame_size[AUD_DAC_SOURCE_A2DP] = spk_frame_size;
-        LOGI("wav spk init: rate=%u ch=%u bits=%u frame=%u\n",
-             spk_cfg.sample_rate[AUD_DAC_SOURCE_A2DP],
-             spk_cfg.chl_num, spk_cfg.bits, spk_frame_size);
-    }
+    spk_cfg.sample_rate[AUD_DAC_SOURCE_A2DP] = pcm_rate;
+    spk_cfg.frame_size[AUD_DAC_SOURCE_A2DP]  = spk_frame_size;
+    spk_cfg.chl_num = (uint8_t)pcm_ch;
+    spk_cfg.bits    = (uint8_t)pcm_bits;
+    LOGI("spk init: type=%d rate=%u ch=%u bits=%u frame=%u\n",
+         (int)s_dec_type, pcm_rate, pcm_ch, pcm_bits, spk_frame_size);
     /* Inherit the user-selected Page 10 volume so each music start does
      * NOT reset the DAC dig_gain to the SDK default (-7 dB). */
     spk_cfg.dig_gain = audio_engine_volume_get_gain_db();
