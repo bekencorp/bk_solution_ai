@@ -18,6 +18,7 @@ BK7259 机器人方案是博通集成电路（上海）股份有限公司基于 
 
    V1 评估板的环境搭建、源码下载、编译、烧录、运行与调试，请参阅 :doc:`../get-started/index`；
    ``beken_robot`` 工程的目录结构、Kconfig、按键映射、LVGL 页面与调试 CLI，请参阅 :doc:`../projects/beken_robot/index`。
+   ``secureboot_ai`` 编译时引用 ``beken_robot`` 的应用源码，只保留安全启动差异；维护规则见仓库 ``projects/CODE_SHARE_GUIDE_CN.md``。
 
 设计理念
 ---------------------------------
@@ -73,7 +74,7 @@ BK7259 机器人方案采用"端-云-模型"三层架构：
 
 #. **开发与定位**：本方案是在 BK AVDK SMP 之上实现的场景化解决方案，聚焦机器人 UI、AI Agent 接入、外设组合等；芯片、RTOS、驱动、网络协议栈由 BK AVDK SMP 提供。
 #. **构建与编译**：本方案不包含独立构建系统。固件编译、工具链、Kconfig 与工程生成依赖 BK AVDK SMP；通过 ``SDK_DIR`` 环境变量或 ``make bk7259 SDK_DIR=...`` 指向 SMP 工程根目录。
-#. **代码边界**：本仓库（``bk_solution_ai``）主要提供方案与业务代码（``components/``、``projects/beken_robot/``，仓库根目录直接挂载，**无外层 solution/ 包装**）；硬件驱动、RTOS、内存管理、Wi-Fi/BLE 协议栈在 SMP 中。
+#. **代码边界**：本仓库（``bk_solution_ai``）主要提供方案与业务代码（``components/``、``projects/beken_robot/``、``projects/secureboot_ai/``，仓库根目录直接挂载，**无外层 solution/ 包装**）。日常应用代码维护在 ``beken_robot``；``secureboot_ai`` 引用该底座并保留分区、密钥与 TF-M 等安全差异。硬件驱动、RTOS、内存管理、Wi-Fi/BLE 协议栈在 SMP 中。
 
 Armino SMP 在 BK7259 上采用 AP（应用处理器） + CP（通信处理器）划分：
 

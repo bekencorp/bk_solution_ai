@@ -18,6 +18,7 @@ The BK7259 Robot Solution is a reference design from Beken built on the BK7259 S
 
    For environment setup, source download, build, flash, run and debug on the V1 board, see :doc:`../get-started/index`.
    For the ``beken_robot`` project layout, Kconfig, key map, LVGL pages and debug CLIs, see :doc:`../projects/beken_robot/index`.
+   ``secureboot_ai`` compiles application sources from ``beken_robot`` and keeps only the secure-boot differences; see ``projects/CODE_SHARE_GUIDE.md``.
 
 Design Philosophy
 ---------------------------------
@@ -73,7 +74,7 @@ The BK7259 Robot Solution and the underlying BK AVDK SMP (Armino SMP SDK v4.0.x)
 
 #. **Scope**: this repo is a scenario-specific solution focused on robot UI, AI agent integration and peripheral composition; SoC, RTOS, drivers and network stacks all live in BK AVDK SMP.
 #. **Build**: this repo does not ship its own build system. Toolchain, Kconfig and project generation are provided by BK AVDK SMP; point at it via ``SDK_DIR`` (or ``make bk7259 SDK_DIR=...``).
-#. **Code boundary**: this repo (``bk_solution_ai``) provides solution and business code (``components/``, ``projects/beken_robot/``, mounted directly at the repo root with **no extra "solution/" wrapper**); HW drivers, RTOS, memory management and Wi-Fi/BLE stacks live in SMP.
+#. **Code boundary**: this repo (``bk_solution_ai``) provides solution and business code (``components/``, ``projects/beken_robot/``, ``projects/secureboot_ai/``, mounted directly at the repo root with **no extra "solution/" wrapper**). Daily application code lives in ``beken_robot``; ``secureboot_ai`` references that base and keeps partitions, keys, and TF-M as flavor differences. HW drivers, RTOS, memory management and Wi-Fi/BLE stacks live in SMP.
 
 On BK7259, Armino SMP follows an AP (application processor) + CP (communication processor) split:
 
