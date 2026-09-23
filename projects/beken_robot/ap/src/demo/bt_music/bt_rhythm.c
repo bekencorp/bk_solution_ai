@@ -134,6 +134,9 @@ static const float s_vocal_w[FBANDS] = {
 /* ---- Control loop ---- */
 #define BT_RHYTHM_TICK_MS      25U    /* fine tick -> fluid motion */
 #define BT_RHYTHM_MOVE_MS      40U    /* let hiwonder's 20ms timer smooth each step */
+#define HAND_DEFAULT_PULSE_US  1500U
+#define HAND_RESET_MOVE_MS      100U
+#define HAND_RESET_SETTLE_MS     40U
 #define SMOOTH_ALPHA         0.45f    /* per-tick low-pass toward target (0..1):
                                        * snappier so beats/drops aren't smeared */
 #define BT_RHYTHM_TASK_PRIO     4
@@ -513,6 +516,16 @@ static void pose_neutral(void)
     commit_pose();
 }
 
+static void pose_default(void)
+{
+    for (uint8_t i = 0; i < BT_RHYTHM_SERVO_COUNT; i++) {
+        s_cur[i] = (float)HAND_DEFAULT_PULSE_US;
+        bk_hiwonder_hand_servo_set_pulse_and_time(s_servo, i + 1U,
+                                                  HAND_DEFAULT_PULSE_US,
+                                                  HAND_RESET_MOVE_MS);
+    }
+}
+
 static void bt_rhythm_task(void *arg)
 {
     (void)arg;
@@ -529,7 +542,7 @@ static void bt_rhythm_task(void *arg)
     float pop = 0.0f;          /* SMOOTHED pop -> fast up, slow down (no twitch)*/
     float hf_env = 0.0f;       /* smoothed treble response, avoids HF twitch    */
     float mid_slow = 0.0f;     /* adaptive mid baseline, for vocal detection    */
-    bool  parked = false;
+    bool  parked = true;       /* init already parks the hand at driver default */
     bool  hand_parked = false; /* physical hand parked due to the claw gate      */
     float target[BT_RHYTHM_SERVO_COUNT];
 
@@ -756,8 +769,9 @@ int bt_rhythm_init(void)
     for (uint8_t i = 0; i < BT_RHYTHM_POSE_COUNT; i++) {
         s_pose_level[i] = 0;
     }
-
-    pose_neutral();
+    for (uint8_t i = 0; i < BT_RHYTHM_SERVO_COUNT; i++) {
+        s_cur[i] = (float)HAND_DEFAULT_PULSE_US;
+    }
 
     s_task_run = true;
     bk_err_t ret = rtos_create_thread(&s_task, BT_RHYTHM_TASK_PRIO, "bt_rhythm",
@@ -787,10 +801,8 @@ void bt_rhythm_deinit(void)
     rtos_delay_milliseconds(BT_RHYTHM_TICK_MS * 2);
 
     if (s_servo) {
-        /* The task may have stopped mid-dance, so explicitly park the hand
-         * before releasing its PWM channels. */
-        pose_neutral();
-        rtos_delay_milliseconds(BT_RHYTHM_MOVE_MS);
+        pose_default();
+        rtos_delay_milliseconds(HAND_RESET_MOVE_MS + HAND_RESET_SETTLE_MS);
         bk_hiwonder_hand_servo_deinit(s_servo);
         s_servo = NULL;
     }

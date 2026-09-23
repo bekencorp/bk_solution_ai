@@ -98,6 +98,11 @@ int bt_music_start(void)
     }
 #endif
 
+    /* Park the hand on page entry instead of waiting for A2DP streaming. */
+    if (bt_rhythm_init() != 0) {
+        LOGW("hand servo init failed\n");
+    }
+
     return 0;
 }
 
