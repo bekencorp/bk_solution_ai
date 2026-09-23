@@ -2,7 +2,7 @@
 
 本文说明如何将 `beken_robot` 端侧 AI Demo 使用的 **TFLite / Vela 模型** 部署到设备存储，供 `components/avdk_nn_module` 在运行时加载。
 
-> 适用工程：`ai_solution/projects/beken_robot`
+> 适用工程：`projects/beken_robot`（应用底座）以及引用其应用源码的 `projects/secureboot_ai`
 > 适用组件：`ai_solution/components/avdk_nn_module`
 > 存储介质：板载 SD-NAND（FatFS 盘符一般为 `1:`，VFS 挂载点为 `/sd0`）
 > 说明范围：本文只覆盖端侧视觉 AI 模型；KWS 模型与提示音请参考 `kws_model_and_prompt_tone_user_mannual.md`

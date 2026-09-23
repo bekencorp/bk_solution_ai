@@ -2,7 +2,7 @@
 
 本文说明如何将本目录（`resources`）中的 **KWS 模型** 与 **提示音** 部署到设备存储，供 `beken_robot` 方案运行时加载。
 
-> 适用工程：`ai_solution/projects/beken_robot`  
+> 适用工程：`projects/beken_robot`（应用底座）以及引用其应用源码的 `projects/secureboot_ai`  
 > 存储介质：板载 SD-NAND（FatFS 盘符一般为 `1:`，VFS 挂载点为 `/sd0`）
 
 ---

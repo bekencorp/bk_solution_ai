@@ -6,7 +6,11 @@
 
 `secureboot_ai` 基于 [`beken_robot`](../beken_robot/) 的机器人 AI 应用能力，增加了 BL1、BL2/MCUboot、TF-M、镜像签名和 Flash AES 加密，用于演示 BK7259 从可信启动链进入机器人 AI 应用。
 
-除安全启动功能外，本工程与 `beken_robot` 一样提供 LCD 触控界面、BLE/Wi-Fi 配网、端侧 AI、云端 AI、音视频和外设控制 Demo。方案代码与 Armino SMP SDK 应使用相同的发布版本。
+应用源码以 [`beken_robot`](../beken_robot/) 为底座：本工程 `ap/CMakeLists.txt` 把 `APP_ROOT` 指到 `../../beken_robot/ap`，通过 `ap_sources.cmake` 编译同一份 Demo / UI。本工程自己只保留安全启动差异（分区 / 密钥 / TF-M / `cp_main`）和极少量 overlay（当前仅 `ap/src/common/board_usb_switch.c`）。
+
+日常请在 `beken_robot` 改 Demo / UI，**不要**在本工程 `ap/src` 再放一份同名文件。完整规则见下文「代码复用与维护」和 [代码复用说明](../CODE_SHARE_GUIDE_CN.md)。
+
+除安全启动功能外，烧录本工程后与 `beken_robot` 一样提供 LCD 触控界面、BLE/Wi-Fi 配网、端侧 AI、云端 AI、音视频和外设控制 Demo。方案代码与 Armino SMP SDK 应使用相同的发布版本。
 
 ## 2. 主要配置
 
@@ -128,3 +132,21 @@ LVGL started, page_1 loaded
 - 安全计数器只能按产品升级策略递增，避免设备拒绝旧版本或不匹配的 OTA 包。
 - 当前配置未默认启用 TF-M Persistent Storage、Firmware Update 和 Initial Attestation。
 - 量产前必须完成开发密钥替换、Root of Trust 配置、OTP/eFuse 注入方案及回滚策略评审。
+
+## 9. 代码复用与维护
+
+本工程不再保存一份独立的 Demo / UI 源码树。
+
+| 要改的内容 | 改哪里 |
+|---|---|
+| 已有 Demo / UI / 外设 `.c` `.h` | [`beken_robot/ap/`](../beken_robot/ap/) |
+| 增删/改名编译单元 | `beken_robot/ap/ap_sources.cmake` 的 `_robot_app_rel_srcs` |
+| keepalive / vnd_cal | [`beken_robot/cp/`](../beken_robot/cp/) |
+| 分区、密钥、gpio、defconfig、`cp_main.c` | 本工程自己的目录，不要和底座对齐 |
+| USB 切换（NS 二次初始化） | 本工程 `ap/src/common/board_usb_switch.c`（唯一 overlay） |
+
+`cp/vnd_cal.h` 是指向底座的跳转头，SDK `bk_init` 从本工程 `cp/` include，**不能删**。
+
+不要在 `ap/src` 新增与底座同名的文件，除非 NS / secure boot **必须**行为不同，并且已经评审。漏同步的功能补丁应合回 `beken_robot`，而不是做成 overlay。
+
+`resources/` 仍是本工程一份，改提示音或 KWS 模型时请同时更新 `beken_robot/resources/`。完整规则见 [代码复用说明](../CODE_SHARE_GUIDE_CN.md)。

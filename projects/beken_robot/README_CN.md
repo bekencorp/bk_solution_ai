@@ -6,6 +6,8 @@
 
 `beken_robot` 是面向 BK7259 机器人开发套件的综合示例工程，提供 LCD 触控界面、网络连接、本地 AI、云端 AI、音视频和外设控制等可直接体验的 Demo。本文只介绍开始使用该工程所需的步骤；方案代码与 Armino SMP SDK 应使用相同的发布版本。
 
+本工程是应用底座。安全工程 [`secureboot_ai`](../secureboot_ai/) 编译时通过 `ap/ap_sources.cmake` 直接引用本目录的 Demo / UI 源码，只覆盖必须不同的文件（当前仅 USB 切换）。日常请在本工程改功能，不要再复制一份到安全工程。详见下文「与 secureboot_ai 的关系」和 [代码复用说明](../CODE_SHARE_GUIDE_CN.md)。
+
 ## 2. 主要配置
 
 - **目标芯片**：BK7259，编译目标为 `bk7259`。
@@ -102,3 +104,17 @@ KWS 模型、提示音文件名及目录要求详见[资源文件使用说明](.
 - **系统功能**：Wi-Fi/BLE 配网、音量设置、SD-NAND/U 盘访问和中英文界面切换。
 
 部分 Demo 依赖对应的摄像头、舵机、机械手、机器人底盘、网络服务或资源文件；未连接相关硬件时，该 Demo 可能无法完整运行。
+
+## 7. 与 secureboot_ai 的关系
+
+`secureboot_ai` 不是第二份机器人应用，而是同一套应用加上安全启动链（BL1 / BL2 / TF-M / 签名 / Flash AES）。
+
+**改已有 `.c` / `.h`：** 只改本工程 `ap/`、`cp/`。安全镜像下次编译会用到同一文件。不要往 `secureboot_ai/ap/src` 再放同名文件，那会变成意外 overlay，两边再次分叉。
+
+**新增 / 删除 / 重命名编译单元：** 把文件放在本工程 `ap/` 下，并更新 `ap/ap_sources.cmake` 里的 `_robot_app_rel_srcs`。只改已有文件内容时不必动这个 cmake。
+
+**不要对齐的文件：** 安全工程的分区表、密钥、`security.csv`、`usr_gpio`、`cp_main.c`、defconfig 是它自己的身份，不要为了“复用”去和本工程合并。
+
+**唯一允许的应用 overlay：** `secureboot_ai/ap/src/common/board_usb_switch.c`（NS + secure boot 下 USB 二次初始化路径不同）。不要把漏同步的功能补丁做成 overlay。
+
+`resources/` 和 `ap/lv_conf_custom.h` 仍是各工程一份；改资源或 LVGL 工程级开关时两边都要看。完整规则见 [代码复用说明](../CODE_SHARE_GUIDE_CN.md)。

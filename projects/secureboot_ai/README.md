@@ -6,7 +6,11 @@
 
 `secureboot_ai` extends the robot AI application stack from [`beken_robot`](../beken_robot/) with BL1, BL2/MCUboot, TF-M, image signing, and Flash AES encryption. It demonstrates how a BK7259 device enters the robot AI application through a trusted boot chain.
 
-In addition to secure boot, the project provides the same LCD touch UI, BLE/Wi-Fi provisioning, edge AI, cloud AI, audio/video, and peripheral demos as `beken_robot`. The solution and Armino SMP SDK must use matching release versions.
+Application sources live in [`beken_robot`](../beken_robot/): this project's `ap/CMakeLists.txt` sets `APP_ROOT` to `../../beken_robot/ap` and compiles the same Demo / UI tree through `ap_sources.cmake`. This project keeps only the secure-boot flavor (partitions / keys / TF-M / `cp_main`) and a small overlay (currently `ap/src/common/board_usb_switch.c` only).
+
+Edit demos and UI in `beken_robot`. **Do not** place a second copy under this project's `ap/src`. See “Application source sharing” below and the [sharing guide](../CODE_SHARE_GUIDE.md).
+
+In addition to secure boot, a flashed image from this project provides the same LCD touch UI, BLE/Wi-Fi provisioning, edge AI, cloud AI, audio/video, and peripheral demos as `beken_robot`. The solution and Armino SMP SDK must use matching release versions.
 
 ## 2. Main Configuration
 
@@ -128,3 +132,21 @@ Some demos require the corresponding hardware, network service, or model resourc
 - Increase the security counter only according to the product update policy to avoid rejecting existing images or mismatched OTA packages.
 - TF-M Persistent Storage, Firmware Update, and Initial Attestation are disabled in the current default configuration.
 - Before production, replace all development keys and review the Root of Trust, OTP/eFuse injection process, and rollback policy.
+
+## 9. Application source sharing
+
+This project no longer keeps a separate Demo / UI source tree.
+
+| What you are changing | Where to edit |
+|---|---|
+| Existing Demo / UI / peripheral `.c` `.h` | [`beken_robot/ap/`](../beken_robot/ap/) |
+| Add / remove / rename a compilation unit | `_robot_app_rel_srcs` in `beken_robot/ap/ap_sources.cmake` |
+| keepalive / vnd_cal | [`beken_robot/cp/`](../beken_robot/cp/) |
+| Partitions, keys, gpio, defconfig, `cp_main.c` | This project; do not align with the base |
+| USB mux (NS second-init path) | This project's `ap/src/common/board_usb_switch.c` (only overlay) |
+
+`cp/vnd_cal.h` is a jump header to the base. SDK `bk_init` includes it from this project's `cp/` directory; **do not delete it**.
+
+Do not add a same-named file under `ap/src` unless NS / secure boot **must** behave differently and the overlay is reviewed. Forgotten feature patches belong in `beken_robot`, not as overlays.
+
+`resources/` is still a per-project copy. Update `beken_robot/resources/` as well when changing prompt tones or KWS models. Full rules: [sharing guide](../CODE_SHARE_GUIDE.md).

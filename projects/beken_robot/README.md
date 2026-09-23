@@ -6,6 +6,8 @@
 
 `beken_robot` is an integrated example project for the BK7259 robot development kit. It provides ready-to-use demos for the LCD touch UI, network connectivity, on-device AI, cloud AI, audio/video, and peripheral control. This guide covers only the steps needed to start using the project. The solution and Armino SMP SDK must use matching release versions.
 
+This project is the application base. [`secureboot_ai`](../secureboot_ai/) compiles Demo / UI sources from this tree through `ap/ap_sources.cmake`, and overlays only files that must differ (currently USB switching). Edit features here; do not copy them into the secure project. See “Relationship with secureboot_ai” below and the [sharing guide](../CODE_SHARE_GUIDE.md).
+
 ## 2. Main Configuration
 
 - **Target chip**: BK7259; use the `bk7259` build target.
@@ -102,3 +104,17 @@ The home screen contains **Connect**, **Demo Center**, and **Settings**. Setting
 - **System features**: Wi-Fi/BLE provisioning, volume control, SD-NAND/USB mass storage, and Chinese/English UI switching.
 
 Some demos require the corresponding camera, servos, robot hand, robot chassis, network service, or resource files. They may not work fully when the required hardware is not connected.
+
+## 7. Relationship with secureboot_ai
+
+`secureboot_ai` is not a second robot application. It is the same application plus the trusted boot chain (BL1 / BL2 / TF-M / signing / Flash AES).
+
+**Existing `.c` / `.h` files:** edit `ap/` and `cp/` in this project. The next secure-image build uses the same files. Do not place a same-named file under `secureboot_ai/ap/src`; that becomes an accidental overlay.
+
+**Add / remove / rename a compilation unit:** put the file under this project's `ap/` and update `_robot_app_rel_srcs` in `ap/ap_sources.cmake`. Changing the contents of an existing file does not require editing that cmake file.
+
+**Do not align:** partitions, keys, `security.csv`, `usr_gpio`, `cp_main.c`, and defconfig in the secure project are flavor identity. Do not merge them with this project for reuse.
+
+**Only allowed application overlay:** `secureboot_ai/ap/src/common/board_usb_switch.c` (USB second-init path differs under NS + secure boot). Do not overlay forgotten feature patches.
+
+`resources/` and `ap/lv_conf_custom.h` remain per-project copies. Update both sides when you change them. Full rules: [sharing guide](../CODE_SHARE_GUIDE.md).
