@@ -174,11 +174,20 @@ static volatile int        s_worker_rc;
 
 static void ae_worker_entry(beken_thread_arg_t arg)
 {
+    ae_op_fn_t fn = s_worker_fn;
+
     (void)arg;
-    s_worker_rc = (s_worker_fn != NULL) ? s_worker_fn() : -1;
+    if (fn == NULL) {
+        LOGE("ae_worker: fn is NULL\n");
+        s_worker_rc = -1;
+    } else {
+        s_worker_rc = fn();
+    }
+    /* Do not clear s_worker_fn / s_worker_thread here. The waiter is still
+     * holding s_worker_lock and will dispatch the next op as soon as this
+     * semaphore is given; writing those globals after the post races that
+     * write on dual-core (BK7259SW-3659). The caller clears them after wait. */
     rtos_set_semaphore(&s_worker_done_sem);
-    s_worker_fn = NULL;
-    s_worker_thread = NULL;
     rtos_delete_thread(NULL);
 }
 
@@ -237,6 +246,10 @@ static int ae_worker_run_locked(ae_op_fn_t fn)
         return fn();
     }
     rtos_get_semaphore(&s_worker_done_sem, BEKEN_NEVER_TIMEOUT);
+    /* Still holding s_worker_lock: the just-finished worker will not write
+     * these again, and the next create cannot start until we unlock. */
+    s_worker_fn = NULL;
+    s_worker_thread = NULL;
     return s_worker_rc;
 }
 
