@@ -134,8 +134,8 @@ For the detailed flashing process, see [Armino SMP Quick Start](https://docs.bek
 
 | Project | Main features | Details |
 | --- | --- | --- |
-| [beken_robot](../projects/beken_robot/) | LCD / LVGL display, local voice wake-up, sound source localization, AI voice and vision dialog, BLE provisioning, NPU vision recognition, multi-sensor and peripheral control, Wi-Fi video transmission, SD NAND storage, and more. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/projects/beken_robot/index.html) |
-| [secureboot_ai](../projects/secureboot_ai/) | Secure-boot reference integrating BL1, BL2/MCUboot, TF-M, image signing and Flash AES with the robot AI stack. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/projects/secureboot_ai/index.html) |
+| [beken_robot](../projects/beken_robot/) | Robot application base: LCD / LVGL, local voice wake-up, sound source localization, AI voice and vision dialog, BLE provisioning, NPU vision, peripherals, Wi-Fi video, SD NAND, and more. `secureboot_ai` compiles application sources from this project. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/projects/beken_robot/index.html) |
+| [secureboot_ai](../projects/secureboot_ai/) | Adds BL1, BL2/MCUboot, TF-M, image signing and Flash AES on top of the `beken_robot` application stack. Application sources are referenced from `beken_robot`; this project keeps the secure-boot differences. See the [sharing guide](../projects/CODE_SHARE_GUIDE.md). | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/projects/secureboot_ai/index.html) |
 | [baf_example](../projects/baf_example/) | BAF animation playback demo: RAW/LVGL backends, firmware-embedded and TF-card ``.baf`` multi-layer compositing. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/projects/baf_example/index.html) |
 
 ## Beken Resources
