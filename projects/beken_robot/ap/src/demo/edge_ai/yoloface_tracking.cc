@@ -1682,7 +1682,6 @@ static void yoloface_detection_start_task(void *arg)
 
     s_yoloface_latest_face_count = -1;
     s_yoloface_latest_face_ms = 0;
-    yoloface_face_recognition_reset_ready_state();
 
 #if CONFIG_LVGL
     if (!s_yoloface_lvgl_camera_blend) {
