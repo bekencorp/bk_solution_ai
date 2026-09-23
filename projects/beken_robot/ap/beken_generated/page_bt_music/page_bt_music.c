@@ -79,6 +79,16 @@
 #define BTM_IMM_BASE_Y       (BTM_IMM_BAR_TOP + BTM_IMM_BAR_H)
 #define BTM_IMM_CAP_H        3
 
+/* Top-right "pair" button: forces the sink back to connectable + discoverable
+ * so the phone can find it while a reconnect to an older phone is still
+ * retrying. Kept well inside the right edge, which the panel clips. */
+#define BTM_PAIR_W          52
+#define BTM_PAIR_H          24
+#define BTM_PAIR_X          (LOGICAL_SCREEN_WIDTH - BTM_PAIR_W - 30)
+#define BTM_PAIR_Y          13
+#define BTM_STATUS_TEXT_X   62
+#define BTM_STATUS_TEXT_W   (BTM_PAIR_X - BTM_STATUS_TEXT_X - 8)
+
 typedef enum {
     BTM_ACT_NONE = 0,
     BTM_ACT_VOL_DOWN,
@@ -87,6 +97,7 @@ typedef enum {
     BTM_ACT_NEXT,
     BTM_ACT_VOL_UP,
     BTM_ACT_ROBOT,
+    BTM_ACT_PAIR,
 } btm_action_t;
 
 /* Per-bar neon hue ramp: 5 fingers (low->high freq) then the base bar (warm). */
@@ -115,10 +126,10 @@ static int s_ui_linked  = -1;
 static int s_ui_dancing = -1;
 static int s_ui_playing = -1;
 
-#define BTM_KEY_ACTION_COUNT  6
+#define BTM_KEY_ACTION_COUNT  7
 static const btm_action_t s_transport_actions[BTM_KEY_ACTION_COUNT] = {
     BTM_ACT_VOL_DOWN, BTM_ACT_PREV, BTM_ACT_PLAY, BTM_ACT_NEXT, BTM_ACT_VOL_UP,
-    BTM_ACT_ROBOT,
+    BTM_ACT_ROBOT, BTM_ACT_PAIR,
 };
 static int s_key_focus_idx = 2; /* default: play/pause */
 static bool s_exit_pending;
@@ -338,6 +349,9 @@ static void get_button_area(btm_action_t action, int *x, int *y, int *w, int *h)
     case BTM_ACT_ROBOT:
         *x = 54; *y = 274; *w = 276; *h = 34;
         break;
+    case BTM_ACT_PAIR:
+        *x = BTM_PAIR_X; *y = BTM_PAIR_Y; *w = BTM_PAIR_W; *h = BTM_PAIR_H;
+        break;
     default:
         *x = *y = *w = *h = 0;
         break;
@@ -465,6 +479,25 @@ static void draw_robot_button(lv_layer_t *layer)
               dancing ? C_TITLE : C_LINK_OFF, LV_TEXT_ALIGN_CENTER);
 }
 
+static void draw_pair_button(lv_layer_t *layer)
+{
+    int x, y, w, h;
+    bool focused = (s_transport_actions[s_key_focus_idx] == BTM_ACT_PAIR);
+    int border_w = focused ? 2 : 1;
+    int radius;
+
+    get_button_area(BTM_ACT_PAIR, &x, &y, &w, &h);
+    radius = h / 2;
+
+    /* Outline only: the fill keeps the page background so the chip stays black
+     * instead of the lighter transport-button blue. */
+    draw_rect(layer, x, y, w, h, focused ? C_RING : C_BTN_BORDER, LV_OPA_COVER, radius);
+    draw_rect(layer, x + border_w, y + border_w, w - border_w * 2, h - border_w * 2,
+              C_BG_BOTTOM, LV_OPA_COVER, radius - border_w);
+    draw_text(layer, ui_tr(STR_BT_MUSIC_PAIR), x, y, w, h, BTM_TEXT_FONT,
+              C_BTN_FG, LV_TEXT_ALIGN_CENTER);
+}
+
 static void chrome_draw_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_DRAW_MAIN) {
@@ -478,8 +511,9 @@ static void chrome_draw_cb(lv_event_t *e)
     draw_text(layer, LV_SYMBOL_BLUETOOTH, 46, 18, 16, 18, LV_FONT_DEFAULT,
               linked ? C_TITLE : C_LINK_OFF, LV_TEXT_ALIGN_LEFT);
     draw_text(layer, ui_tr(linked ? STR_BT_MUSIC_CONNECTED : STR_BT_MUSIC_SEARCHING),
-              62, 18, LOGICAL_SCREEN_WIDTH - 88, 18, BTM_TEXT_FONT,
+              BTM_STATUS_TEXT_X, 18, BTM_STATUS_TEXT_W, 18, BTM_TEXT_FONT,
               linked ? C_TITLE : C_LINK_OFF, LV_TEXT_ALIGN_LEFT);
+    draw_pair_button(layer);
     draw_rect(layer, 16, 46, LOGICAL_SCREEN_WIDTH - 32, 1, C_DIVIDER, LV_OPA_COVER, 0);
 
     draw_transport_button(layer, BTM_ACT_VOL_DOWN);
@@ -540,6 +574,9 @@ static void dispatch_action(btm_action_t action)
         s_dance_user_enabled = !s_dance_user_enabled;
         apply_rhythm_state();
         refresh_hand();
+        break;
+    case BTM_ACT_PAIR:
+        a2dp_sink_demo_enter_pairing();
         break;
     default:
         break;

@@ -33,6 +33,9 @@ void a2dp_sink_demo_prev(void);
 void a2dp_sink_demo_vol_up(void);
 void a2dp_sink_demo_vol_down(void);
 
+/** Drop any pending reconnect and make the device connectable + discoverable. */
+void a2dp_sink_demo_enter_pairing(void);
+
 /** AVRCP playback notifications for UI state. */
 typedef void (*a2dp_sink_playback_fn_t)(void);
 void a2dp_sink_demo_set_playback_listener(a2dp_sink_playback_fn_t on_start,

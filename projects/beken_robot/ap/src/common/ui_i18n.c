@@ -67,6 +67,7 @@ static const char *const s_tr[STR_ID_COUNT][UI_LANG_COUNT] = {
     [STR_BT_MUSIC_CONNECTED]     = { "已连接",           "Connected" },
     [STR_BT_MUSIC_SEARCHING]     = { "连接中",           "Connecting" },
     [STR_BT_MUSIC_CONNECT_PHONE]= { "请先连接手机",     "Connect phone first" },
+    [STR_BT_MUSIC_PAIR]          = { "配对",             "Pair" },
     [STR_BT_MUSIC_LOW_MEM]       = { "内存占用较高，请退出其他功能后重试",
                                       "Memory busy now.\n"
                                       "Please exit other demos, then open Bluetooth Music again." },

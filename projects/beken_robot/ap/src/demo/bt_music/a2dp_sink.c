@@ -59,6 +59,7 @@ enum
     BT_AUDIO_A2DP_DISCONNECT_MSG,
     BT_AUDIO_A2DP_DATA_IND_MSG,
     BT_AUDIO_USER_START_MSG,
+    BT_AUDIO_USER_PAIRING_MSG,
     BT_AUDIO_VOLUME_UPDATE_MSG,
     BT_AUDIO_AVRCP_PLAY_STATUS_CHANGED_MSG,
     BT_AUDIO_AVRCP_PLAY,
@@ -368,6 +369,16 @@ static void a2dp_sink_gap_disconnect_wait(const uint8_t *peer)
     }
 }
 
+static void a2dp_sink_run_enter_pairing(void)
+{
+    /* bk_bt_enter_pairing_mode() only cancels the paging and waits for an ACL
+     * event, which never arrives once the retries already failed, so the sink
+     * would stay non-discoverable. Drop the retry state and open scan here. */
+    bt_stop_reconnect_timeout_check();
+    bt_manager_clear_reconnect_info();
+    bt_manager_set_mode(BT_MNG_MODE_PAIRING);
+}
+
 static void a2dp_sink_abort_link(void)
 {
     uint8_t peer[6];
@@ -527,6 +538,10 @@ static void a2dp_sink_demo_task(void *arg)
             {
                 rtos_set_semaphore(&s_audio_player_en_sema);
             }
+            break;
+
+        case BT_AUDIO_USER_PAIRING_MSG:
+            a2dp_sink_run_enter_pairing();
             break;
 
         case BT_AUDIO_VOLUME_UPDATE_MSG:
@@ -1021,6 +1036,16 @@ void a2dp_sink_demo_vol_up(void)
 void a2dp_sink_demo_vol_down(void)
 {
     a2dp_sink_post_avrcp(BT_AUDIO_AVRCP_VOL_DOWN);
+}
+
+void a2dp_sink_demo_enter_pairing(void)
+{
+    if (s_a2dp_sink_closing || !s_a2dp_sink_inited)
+    {
+        return;
+    }
+
+    (void)a2dp_sink_queue_push(BT_AUDIO_USER_PAIRING_MSG, NULL, 0, BEKEN_NO_WAIT);
 }
 
 int32_t a2dp_sink_demo_wait_player_end(void)
