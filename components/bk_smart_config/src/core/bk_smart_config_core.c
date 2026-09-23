@@ -742,7 +742,7 @@ void bk_sconf_ble_msg_handler(ble_prov_msg_t *msg)
             gpio_dev_unmap(GPIO_21);
             bk_gpio_disable_pull(GPIO_21);
             bk_gpio_enable_output(GPIO_21); 
-            bk_gpio_set_output_low(GPIO_21);
+            bk_gpio_set_output_high(GPIO_21);
             
             ret = bk_modem_init(UART_NIC_MODE, UART_IF);
             if (ret) {
