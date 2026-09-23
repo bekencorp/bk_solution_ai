@@ -22,7 +22,7 @@
 # SRAM/PSRAM regions use their Non-Secure aliases (0x38/0x74).
 # LOWPOWER (1K): retained SRAM for low-power fastboot wake/resume context.
 #Name,                   Type,     Offset,     Size
-CP_SPE_RAM,              SECURE, 0x28000000, 0x014000
+CP_SPE_RAM,              SECURE, 0x28000000, 0x012000
 AP_SPE_RAM,              SECURE, 0x28100000, 0x001000
 CP_RAM,                  SRAM, 0x28000000, 0x05EB00
 SWAP,                    SRAM,           , 0x001000
