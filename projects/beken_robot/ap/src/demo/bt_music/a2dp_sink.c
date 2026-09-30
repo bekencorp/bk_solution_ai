@@ -371,12 +371,8 @@ static void a2dp_sink_gap_disconnect_wait(const uint8_t *peer)
 
 static void a2dp_sink_run_enter_pairing(void)
 {
-    /* bk_bt_enter_pairing_mode() only cancels the paging and waits for an ACL
-     * event, which never arrives once the retries already failed, so the sink
-     * would stay non-discoverable. Drop the retry state and open scan here. */
-    bt_stop_reconnect_timeout_check();
-    bt_manager_clear_reconnect_info();
-    bt_manager_set_mode(BT_MNG_MODE_PAIRING);
+    /* Disconnect current link (if any) and open connectable+discoverable. */
+    bk_bt_enter_pairing_mode(1);
 }
 
 static void a2dp_sink_abort_link(void)
