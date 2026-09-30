@@ -23,6 +23,7 @@ extern "C" {
 #include "ff.h"
 }
 #include <stdbool.h>
+#include "board_pins.h"
 #include <stdio.h>
 #include "yoloface_detection.h"
 #include "demo/yoloface_tracking.h"
@@ -73,18 +74,18 @@ static FaceRecognitionModel *s_face_recognition_model = NULL;
  * GPU MP output. The NN input is the source coordinate space the boxes are
  * reported in, and the ISP secondary path is auto-sized to it by
  * AvdkVideoReatorOSD::OpenISPCamera(). */
-#define YOLOFACE_DISPLAY_W   400
-#define YOLOFACE_DISPLAY_H   320
-#define YOLOFACE_LVGL_CAMERA_W   256
-#define YOLOFACE_LVGL_CAMERA_H   256
-#define YOLOFACE_BLEND_BG_W       320
-#define YOLOFACE_BLEND_BG_H       388
+#define YOLOFACE_DISPLAY_W   640
+#define YOLOFACE_DISPLAY_H   480
+#define YOLOFACE_LVGL_CAMERA_W   384
+#define YOLOFACE_LVGL_CAMERA_H   384
+#define YOLOFACE_BLEND_BG_W       480
+#define YOLOFACE_BLEND_BG_H       640
 #define YOLOFACE_BLEND_BG_SIZE    (YOLOFACE_BLEND_BG_W * YOLOFACE_BLEND_BG_H)
-/* Face Recognition page preview logical top-left is panel(25,20)+border(2,2).
+/* Face Recognition page preview logical top-left is panel(24,24)+border(2,2).
  * LVGL flush is ROTATE_90, so physical_x=logical_y and
- * physical_y=LVGL_DISP_HEIGHT-logical_x-preview_width. */
-#define YOLOFACE_BLEND_FG_X       22
-#define YOLOFACE_BLEND_FG_Y       102
+ * physical_y=physical_panel_height-logical_x-preview_width. */
+#define YOLOFACE_BLEND_FG_X       26
+#define YOLOFACE_BLEND_FG_Y       230
 #define YOLOFACE_BLEND_BOX_MAX    8
 #define YOLOFACE_MP_READ_TIMEOUT_MS 1000
 #define YOLOFACE_MP_READER_TASK_PRIORITY BEKEN_DEFAULT_WORKER_PRIORITY
@@ -1617,12 +1618,12 @@ static void yoloface_detection_config(void)
     gpu_board_config_t gpu_board = {0};
 
     camera_board.mipi.enable = true;
-    camera_board.mipi.pin_scl = GPIO_70;
-    camera_board.mipi.pin_sda = GPIO_71;
-    camera_board.mipi.i2c_id = 1;
-    camera_board.mipi.pin_reset = GPIO_31;
-    camera_board.mipi.pin_pwdn = -1;
-    camera_board.mipi.pin_xclk = GPIO_59;
+    camera_board.mipi.pin_scl = BOARD_CAMERA_PIN_SCL;
+    camera_board.mipi.pin_sda = BOARD_CAMERA_PIN_SDA;
+    camera_board.mipi.i2c_id = BOARD_CAMERA_I2C_ID;
+    camera_board.mipi.pin_reset = BOARD_CAMERA_PIN_RESET;
+    camera_board.mipi.pin_pwdn = BOARD_CAMERA_PIN_PWDN;
+    camera_board.mipi.pin_xclk = BOARD_CAMERA_PIN_XCLK;
     camera_board.mipi.sensor_max_width = 1088;
     camera_board.mipi.sensor_max_height = 1088;
     camera_board.mipi.sensor_fps = 15;

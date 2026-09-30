@@ -108,7 +108,7 @@ static const char *const s_edge_items[UI_LANG_COUNT][7] = {
     { "Keyword ASR", "Sound Locate", "Palm Follow", "Face Detect", "Gesture", "Car Follow", "Face Recognition" },
 };
 static const char *const s_edge_descs[UI_LANG_COUNT][7] = {
-    { "语音控制", "方向定位", "摄像头跟随", "人脸检测", "手势识别", "小车跟随", "人脸识别" },
+    { "语音控制", "方向定位", "摄像头跟随", "人脸检测", "手势识别", "跟随控制", "人脸识别" },
     { "Voice", "Direction", "Camera", "Face", "Hand", "Car", "Face recognition" },
 };
 static const ui_theme_icon_kind_t s_edge_icons[] = {

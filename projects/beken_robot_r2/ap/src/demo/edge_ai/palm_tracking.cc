@@ -20,6 +20,7 @@ extern "C" {
 #include <driver/gpio.h>
 }
 #include <stdbool.h>
+#include "board_pins.h"
 #include "palm_detection.h"
 #include "demo/palm_tracking.h"
 
@@ -60,15 +61,17 @@ static HandGestureDetectionModel *model = NULL;
 #define PALM_TRACKING_REF_INPUT_SIZE       256.0f
 #define PALM_TRACKING_MIN_BOX_SIZE_PIXELS  25.0f
 #define PALM_TRACKING_NMS_IOU_THRESHOLD    0.50f
+#define PALM_TRACKING_DISPLAY_W             640
+#define PALM_TRACKING_DISPLAY_H             480
 
 /* Hardware binding for the palm-tracking servos on this board.
  * The bk_servo component is HW-agnostic: PWM channel and GPIO pin are
  * picked here at the application layer and passed in via config structs. */
 #define PALM_SERVO_PWM_CHAN_H   PWM_ID_0
-#define PALM_SERVO_GPIO_ID_H    GPIO_23//GPIO_69
+#define PALM_SERVO_GPIO_ID_H    GPIO_23
 
 #define PALM_SERVO_PWM_CHAN_V   PWM_ID_1
-#define PALM_SERVO_GPIO_ID_V    GPIO_22//GPIO_60
+#define PALM_SERVO_GPIO_ID_V    GPIO_22
 
 /* Per-axis mechanical safe range on this rig:
  *   - H (pan)  can sweep the full 0..180 (no obstruction).
@@ -286,7 +289,9 @@ static void palm_tracking_process_boxes(Box *boxes, int count)
     /* Draw ALL detected palms. The user can still see secondary palms on the
      * OSD even though the servo only follows the largest one.
      * src = model input size, dst = display canvas size. */
-    box_detection_path_build(boxes, count, count, 0, model->getWidth(), model->getHeight(), 400, 320);
+    box_detection_path_build(boxes, count, count, 0,
+                             model->getWidth(), model->getHeight(),
+                             PALM_TRACKING_DISPLAY_W, PALM_TRACKING_DISPLAY_H);
 
     /* Drive both servos from the chosen box's center. The tracker keeps the
      * original per-frame delta logic, but uses smaller gain/max_step so each
@@ -360,12 +365,12 @@ void plam_detection_config(void)
     gpu_board_config_t gpu_board = {0};
 
     camera_board.mipi.enable = true;
-    camera_board.mipi.pin_scl = GPIO_70;
-    camera_board.mipi.pin_sda = GPIO_71;
-    camera_board.mipi.i2c_id = 1;
-    camera_board.mipi.pin_reset = GPIO_31;
-    camera_board.mipi.pin_pwdn = -1;
-    camera_board.mipi.pin_xclk = GPIO_59;
+    camera_board.mipi.pin_scl = BOARD_CAMERA_PIN_SCL;
+    camera_board.mipi.pin_sda = BOARD_CAMERA_PIN_SDA;
+    camera_board.mipi.i2c_id = BOARD_CAMERA_I2C_ID;
+    camera_board.mipi.pin_reset = BOARD_CAMERA_PIN_RESET;
+    camera_board.mipi.pin_pwdn = BOARD_CAMERA_PIN_PWDN;
+    camera_board.mipi.pin_xclk = BOARD_CAMERA_PIN_XCLK;
     camera_board.mipi.sensor_max_width = 1088;
     camera_board.mipi.sensor_max_height = 1088;
     camera_board.mipi.sensor_fps = 15;
@@ -373,8 +378,8 @@ void plam_detection_config(void)
     camera_board.mipi.vflip = 0;
     camera_board.isp.mp_enable = true;
     camera_board.isp.mp_flexa = true;
-    camera_board.isp.mp_width = 400;
-    camera_board.isp.mp_height = 320;
+    camera_board.isp.mp_width = PALM_TRACKING_DISPLAY_W;
+    camera_board.isp.mp_height = PALM_TRACKING_DISPLAY_H;
     camera_board.isp.mp_format = BK_PIXEL_FORMAT_NV12;
     camera_board.isp.sp_enable = false;
     camera_board.isp.sp_flexa = false;
@@ -390,16 +395,16 @@ void plam_detection_config(void)
 
     gpu_board.flexa.enable = true;
     gpu_board.flexa.degree = 270;
-    gpu_board.flexa.src_width = 400;
-    gpu_board.flexa.src_height = 320;
-    gpu_board.flexa.dst_width = 400;
-    gpu_board.flexa.dst_height = 320;
+    gpu_board.flexa.src_width = PALM_TRACKING_DISPLAY_W;
+    gpu_board.flexa.src_height = PALM_TRACKING_DISPLAY_H;
+    gpu_board.flexa.dst_width = PALM_TRACKING_DISPLAY_W;
+    gpu_board.flexa.dst_height = PALM_TRACKING_DISPLAY_H;
     gpu_board.flexa.src_format = BK_PIXEL_FORMAT_NV12;
     gpu_board.flexa.dst_format = BK_PIXEL_FORMAT_ARGB8888;
     gpu_board.flexa.dst_compress = true;
     gpu_board.flexa.scale = false;
-    gpu_board.flexa.tess_width = 400 / 2;
-    gpu_board.flexa.tess_height = 320 / 2;
+    gpu_board.flexa.tess_width = PALM_TRACKING_DISPLAY_W / 2;
+    gpu_board.flexa.tess_height = PALM_TRACKING_DISPLAY_H / 2;
 
     /* Board config for Multimedia config */
     app_camera_board_config_set(&camera_board);

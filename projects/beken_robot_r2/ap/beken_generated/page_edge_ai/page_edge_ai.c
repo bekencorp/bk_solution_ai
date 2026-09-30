@@ -31,24 +31,23 @@
 
 #define FACE_REC_SCREEN_W           LOGICAL_SCREEN_WIDTH
 #define FACE_REC_SCREEN_H           LOGICAL_SCREEN_HEIGHT
-/* The face-recognition screen keeps the legacy 385x320 metrics: VIEW_W/H also
- * size the camera preview buffer, so re-scaling this screen has to happen
- * together with the camera pipeline once that path is re-validated. The
- * archive screen below is independent of the camera and is already scaled. */
-#define FACE_REC_CAMERA_VIEW_X      25
-#define FACE_REC_CAMERA_VIEW_Y      20
-#define FACE_REC_CAMERA_VIEW_W      256
-#define FACE_REC_CAMERA_VIEW_H      256
-#define FACE_REC_TEXT_H             20
+/* Fill the 640x480 logical canvas with a square camera preview and a full-height
+ * action column. Keep VIEW_W/H in sync with the ISP MP/blend dimensions in
+ * yoloface_tracking.cc. */
+#define FACE_REC_CAMERA_VIEW_X      24
+#define FACE_REC_CAMERA_VIEW_Y      24
+#define FACE_REC_CAMERA_VIEW_W      384
+#define FACE_REC_CAMERA_VIEW_H      384
+#define FACE_REC_TEXT_H             32
 #define FACE_REC_CAMERA_BORDER_W    2
 #define FACE_REC_CAMERA_RADIUS      0
 #define FACE_REC_CAMERA_PANEL_W     (FACE_REC_CAMERA_VIEW_W + FACE_REC_CAMERA_BORDER_W * 2)
 #define FACE_REC_CAMERA_PANEL_H     (FACE_REC_CAMERA_VIEW_H + FACE_REC_TEXT_H + FACE_REC_CAMERA_BORDER_W * 2)
-#define FACE_REC_BUTTON_X           292
-#define FACE_REC_BUTTON_W           82
-#define FACE_REC_BUTTON_H           38
-#define FACE_REC_BUTTON_GAP         18
-#define FACE_REC_BUTTON_Y0          50
+#define FACE_REC_BUTTON_X           436
+#define FACE_REC_BUTTON_W           180
+#define FACE_REC_BUTTON_H           72
+#define FACE_REC_BUTTON_GAP         28
+#define FACE_REC_BUTTON_Y0          40
 #define ARCH_ROW_H             UI_LY(34)
 #define ARCH_ROW_GAP           UI_LY(10)
 #define ARCH_PANEL_H           UI_LY(178)
@@ -420,7 +419,10 @@ static lv_obj_t *create_face_recognition_button(lv_obj_t *parent, const char *te
     lv_obj_center(label);
     lv_obj_set_style_text_color(label, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    set_label_font(label, &lv_font_ali_25);
+    /* The 25px subset does not contain the face-action glyphs (录入/验证/
+     * 查询/重置). Keep the complete 16px face-recognition font used by the
+     * original Robot UI until the larger subset is regenerated. */
+    set_label_font(label, &lv_font_ali_16);
     return btn;
 }
 

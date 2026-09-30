@@ -19,6 +19,7 @@ extern "C" {
 #include <driver/gpio.h>
 }
 #include <stdbool.h>
+#include "board_pins.h"
 #include "yoloface_detection.h"
 #include "demo/car_tracking.h"
 
@@ -58,8 +59,8 @@ static HandGestureDetectionModel *s_model = NULL;
  * input (model->getWidth()/getHeight()) is the *source* coordinate space the
  * boxes are reported in, and the ISP secondary path is auto-sized to it by
  * AvdkVideoReatorOSD::OpenISPCamera(). */
-#define CAR_TRACKING_DISPLAY_W   400
-#define CAR_TRACKING_DISPLAY_H   320
+#define CAR_TRACKING_DISPLAY_W   640
+#define CAR_TRACKING_DISPLAY_H   480
 
 /* Gesture box closed-loop tracking: turn chassis for X, tilt servo2 for Y,
  * then drive chassis forward/backward for overall gesture box size. */
@@ -532,12 +533,12 @@ static void car_detection_config(void)
     gpu_board_config_t gpu_board = {0};
 
     camera_board.mipi.enable = true;
-    camera_board.mipi.pin_scl = GPIO_70;
-    camera_board.mipi.pin_sda = GPIO_71;
-    camera_board.mipi.i2c_id = 1;
-    camera_board.mipi.pin_reset = GPIO_31;
-    camera_board.mipi.pin_pwdn = -1;
-    camera_board.mipi.pin_xclk = GPIO_59;
+    camera_board.mipi.pin_scl = BOARD_CAMERA_PIN_SCL;
+    camera_board.mipi.pin_sda = BOARD_CAMERA_PIN_SDA;
+    camera_board.mipi.i2c_id = BOARD_CAMERA_I2C_ID;
+    camera_board.mipi.pin_reset = BOARD_CAMERA_PIN_RESET;
+    camera_board.mipi.pin_pwdn = BOARD_CAMERA_PIN_PWDN;
+    camera_board.mipi.pin_xclk = BOARD_CAMERA_PIN_XCLK;
     camera_board.mipi.sensor_max_width = 1088;
     camera_board.mipi.sensor_max_height = 1088;
     camera_board.mipi.sensor_fps = 15;

@@ -98,8 +98,6 @@
 #define DEFAULT_MIPI_PANEL (&lcd_device_gc9503cv_mipi_480x640)
 
 #if CONFIG_LVGL
-extern void lv_gpu_init(uint32_t tess_width, uint32_t tess_height);
-
 #define LVGL_DISP_WIDTH  480
 #define LVGL_DISP_HEIGHT 640
 #define LVGL_COMPRESS_DISP_WIDTH  ((LVGL_DISP_WIDTH + 15) & ~15)
@@ -211,9 +209,9 @@ bk_err_t bk_robot_lvgl_resume_display(void)
     }
 
     s_lvgl_dpu_handle = new_handle;
-    /* Camera/edge preview closes its GPU controller, which also closes the
-     * shared VG-Lite context. Re-open it before LVGL compressed flush resumes. */
-    lv_gpu_init(0, 0);
+    /* LVGL retains its own GPU-driver reference while an edge-AI controller
+     * temporarily adds and removes another one. Reinitializing here leaks one
+     * reference on every return from AI mode and eventually exhausts HSRAM. */
     LOGI("bk_robot_lvgl_resume_display: dpu handle %p\n", new_handle);
 
     return BK_OK;
@@ -306,7 +304,7 @@ int main(void)
 
         media_service_init();
         bk_frame_buffer_init();
-        media_board_power_on(); //power on ai board peripherals
+        media_board_power_on();
 #if CONFIG_LVGL
         AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true), TAG, "media lcd panel open error");
         AVDK_RETURN_ON_ERROR(bk_robot_lvgl_init(media_panel_get_dpu_handle()), TAG, "bk robot lvgl init error");

@@ -14,6 +14,7 @@
 #include <common/avdk_pixel_types.h>
 
 #include "media_devices.h"
+#include "board_pins.h"
 #include "lcd_image.h"
 
 #include "app_display.h"
@@ -44,19 +45,6 @@
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 
-
-/* Robot R2 board GPIO map shared by all display flows. */
-#define ROBOT_GPIO_PERIPH_3V3      GPIO_20
-#define ROBOT_GPIO_PANEL_RESET     GPIO_42
-#define ROBOT_GPIO_PANEL_BACKLIGHT GPIO_40   /* PNP high-side switch: low = on */
-
-/* MIPI CSI camera (gc2053 / cv2005) board pin map. */
-#define ROBOT_GPIO_PERIPH_2V8      GPIO_29
-#define ROBOT_GPIO_CAM_SCL         GPIO_64
-#define ROBOT_GPIO_CAM_SDA         GPIO_65
-#define ROBOT_GPIO_CAM_RESET       GPIO_30
-#define ROBOT_GPIO_CAM_XCLK        GPIO_59
-#define ROBOT_CAM_I2C_ID           0
 
 /* ===========================================================================
  * Module-private singletons
@@ -90,32 +78,32 @@ static media_test_state_t s_test;
 void media_board_power_on(void)
 {
     /* board LCD panel peripheral 3.3V power-on */
-    gpio_dev_unmap(ROBOT_GPIO_PERIPH_3V3);
-    BK_LOG_ON_ERR(bk_gpio_enable_output(ROBOT_GPIO_PERIPH_3V3));
-    BK_LOG_ON_ERR(bk_gpio_pull_up(ROBOT_GPIO_PERIPH_3V3));
-    bk_gpio_set_output_high(ROBOT_GPIO_PERIPH_3V3);
+    gpio_dev_unmap(BOARD_PIN_PERIPH_3V3);
+    BK_LOG_ON_ERR(bk_gpio_enable_output(BOARD_PIN_PERIPH_3V3));
+    BK_LOG_ON_ERR(bk_gpio_pull_up(BOARD_PIN_PERIPH_3V3));
+    bk_gpio_set_output_high(BOARD_PIN_PERIPH_3V3);
 
     /* board camera peripheral 2.8V power-on */
-    gpio_dev_unmap(ROBOT_GPIO_PERIPH_2V8);
-    BK_LOG_ON_ERR(bk_gpio_enable_output(ROBOT_GPIO_PERIPH_2V8));
-    BK_LOG_ON_ERR(bk_gpio_pull_up(ROBOT_GPIO_PERIPH_2V8));
-    bk_gpio_set_output_high(ROBOT_GPIO_PERIPH_2V8);
+    gpio_dev_unmap(BOARD_PIN_PERIPH_2V8);
+    BK_LOG_ON_ERR(bk_gpio_enable_output(BOARD_PIN_PERIPH_2V8));
+    BK_LOG_ON_ERR(bk_gpio_pull_up(BOARD_PIN_PERIPH_2V8));
+    bk_gpio_set_output_high(BOARD_PIN_PERIPH_2V8);
 }
 
 static void media_backlight_on(void)
 {
     /* active-low backlight: drive LOW = ON. */
-    gpio_dev_unmap(ROBOT_GPIO_PANEL_BACKLIGHT);
-    BK_LOG_ON_ERR(bk_gpio_enable_output(ROBOT_GPIO_PANEL_BACKLIGHT));
-    BK_LOG_ON_ERR(bk_gpio_pull_down(ROBOT_GPIO_PANEL_BACKLIGHT));
-    bk_gpio_set_output_low(ROBOT_GPIO_PANEL_BACKLIGHT);
+    gpio_dev_unmap(BOARD_LCD_PIN_BACKLIGHT);
+    BK_LOG_ON_ERR(bk_gpio_enable_output(BOARD_LCD_PIN_BACKLIGHT));
+    BK_LOG_ON_ERR(bk_gpio_pull_down(BOARD_LCD_PIN_BACKLIGHT));
+    bk_gpio_set_output_low(BOARD_LCD_PIN_BACKLIGHT);
 }
 
 static void media_backlight_off(void)
 {
-    gpio_dev_unmap(ROBOT_GPIO_PANEL_BACKLIGHT);
-    BK_LOG_ON_ERR(bk_gpio_enable_output(ROBOT_GPIO_PANEL_BACKLIGHT));
-    bk_gpio_set_output_high(ROBOT_GPIO_PANEL_BACKLIGHT);
+    gpio_dev_unmap(BOARD_LCD_PIN_BACKLIGHT);
+    BK_LOG_ON_ERR(bk_gpio_enable_output(BOARD_LCD_PIN_BACKLIGHT));
+    bk_gpio_set_output_high(BOARD_LCD_PIN_BACKLIGHT);
 }
 
 /* ===========================================================================
@@ -135,7 +123,7 @@ avdk_err_t media_lcd_panel_open(const bk_display_dsi_panel_t *panel,
 
     display_board_config_t db = {0};
     db.mipi.enable          = true;
-    db.mipi.pin_reset       = ROBOT_GPIO_PANEL_RESET;
+    db.mipi.pin_reset       = BOARD_LCD_PIN_RESET;
     db.mipi.pin_scl         = -1;   /* panel has no side-band I2C bridge */
     db.mipi.pin_sda         = -1;
     db.mipi.panel           = panel;
@@ -327,12 +315,12 @@ avdk_err_t media_camera_open(uint16_t cam_w,
 #else
     camera_board_config_t cfg = {0};
     cfg.mipi.enable             = true;
-    cfg.mipi.pin_scl            = ROBOT_GPIO_CAM_SCL;
-    cfg.mipi.pin_sda            = ROBOT_GPIO_CAM_SDA;
-    cfg.mipi.i2c_id             = ROBOT_CAM_I2C_ID;
-    cfg.mipi.pin_reset          = ROBOT_GPIO_CAM_RESET;
-    cfg.mipi.pin_pwdn           = -1;
-    cfg.mipi.pin_xclk           = ROBOT_GPIO_CAM_XCLK;
+    cfg.mipi.pin_scl            = BOARD_CAMERA_PIN_SCL;
+    cfg.mipi.pin_sda            = BOARD_CAMERA_PIN_SDA;
+    cfg.mipi.i2c_id             = BOARD_CAMERA_I2C_ID;
+    cfg.mipi.pin_reset          = BOARD_CAMERA_PIN_RESET;
+    cfg.mipi.pin_pwdn           = BOARD_CAMERA_PIN_PWDN;
+    cfg.mipi.pin_xclk           = BOARD_CAMERA_PIN_XCLK;
     cfg.mipi.sensor_max_width   = cam_w;
     cfg.mipi.sensor_max_height  = cam_h;
     cfg.mipi.sensor_fps         = (uint8_t)fps;

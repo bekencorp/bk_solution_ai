@@ -1,4 +1,8 @@
 menu "BEKEN GENIE demo Configuration"
+    config ROBOT_R2
+        bool
+        default y
+
     config HARDWARE_SPEAKER_VER
         int "select HARDWARE_SPEAKER_VER"
         range 0 8

@@ -10,6 +10,7 @@ extern "C" {
 #include <driver/gpio.h>
 }
 #include <stdbool.h>
+#include "board_pins.h"
 #include "hand_gesture_detection.h"
 #include "demo/hand_gesture.h"
 
@@ -61,8 +62,8 @@ static const bk_hiwonder_hand_servo_hw_map_t s_hiwonder_servo_hw_map[] = {
 #define HAND_GESTURE_MODEL_SD_PATH "1:/tflite/hand_gesture_detection_vela.tflite"
 #endif
 
-#define HAND_GESTURE_DISPLAY_W   400
-#define HAND_GESTURE_DISPLAY_H   320
+#define HAND_GESTURE_DISPLAY_W   640
+#define HAND_GESTURE_DISPLAY_H   480
 
 #define HAND_GESTURE_START_TASK_STACK_SIZE   (1024 * 8)
 #define HAND_GESTURE_START_TASK_NAME         "hand_gesture_start"
@@ -140,12 +141,12 @@ static void hand_gesture_detection_config(void)
     gpu_board_config_t gpu_board = {0};
 
     camera_board.mipi.enable = true;
-    camera_board.mipi.pin_scl = GPIO_70;
-    camera_board.mipi.pin_sda = GPIO_71;
-    camera_board.mipi.i2c_id = 1;
-    camera_board.mipi.pin_reset = GPIO_31;
-    camera_board.mipi.pin_pwdn = -1;
-    camera_board.mipi.pin_xclk = GPIO_59;
+    camera_board.mipi.pin_scl = BOARD_CAMERA_PIN_SCL;
+    camera_board.mipi.pin_sda = BOARD_CAMERA_PIN_SDA;
+    camera_board.mipi.i2c_id = BOARD_CAMERA_I2C_ID;
+    camera_board.mipi.pin_reset = BOARD_CAMERA_PIN_RESET;
+    camera_board.mipi.pin_pwdn = BOARD_CAMERA_PIN_PWDN;
+    camera_board.mipi.pin_xclk = BOARD_CAMERA_PIN_XCLK;
     camera_board.mipi.sensor_max_width = 1088;
     camera_board.mipi.sensor_max_height = 1088;
     camera_board.mipi.sensor_fps = 15;
