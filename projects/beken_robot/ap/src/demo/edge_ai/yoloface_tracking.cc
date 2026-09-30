@@ -1614,7 +1614,6 @@ static int yoloface_open_blend_display(void)
 static void yoloface_detection_config(void)
 {
     camera_board_config_t camera_board = {0};
-    gpu_board_config_t gpu_board = {0};
 
     camera_board.mipi.enable = true;
     camera_board.mipi.pin_scl = GPIO_70;
@@ -1641,35 +1640,27 @@ static void yoloface_detection_config(void)
     camera_board.isp.mp_format = BK_PIXEL_FORMAT_NV12;
     camera_board.isp.sp_enable = false;
     camera_board.isp.sp_flexa = false;
+    app_camera_board_config_set(&camera_board);
 
-    gpu_board.flexa.enable = true;
-    gpu_board.flexa.degree = 270;
-    if (s_yoloface_lvgl_camera_blend) {
-        gpu_board.flexa.tess_width = YOLOFACE_LVGL_CAMERA_W / 2;
-        gpu_board.flexa.tess_height = YOLOFACE_LVGL_CAMERA_H / 2;
-        gpu_board.flexa.src_width = YOLOFACE_LVGL_CAMERA_W;
-        gpu_board.flexa.src_height = YOLOFACE_LVGL_CAMERA_H;
-        gpu_board.flexa.dst_width = YOLOFACE_LVGL_CAMERA_W;
-        gpu_board.flexa.dst_height = YOLOFACE_LVGL_CAMERA_H;
-    } else {
+    /* Face detection owns the direct ISP -> GPU Flexa display path. Face
+     * recognition consumes MP frames in frame mode and blends them with LVGL,
+     * so it must not publish a GPU Flexa board configuration here. */
+    if (!s_yoloface_lvgl_camera_blend) {
+        gpu_board_config_t gpu_board = {0};
+        gpu_board.flexa.enable = true;
+        gpu_board.flexa.degree = 270;
         gpu_board.flexa.tess_width = YOLOFACE_DISPLAY_W / 2;
         gpu_board.flexa.tess_height = YOLOFACE_DISPLAY_H / 2;
         gpu_board.flexa.src_width = YOLOFACE_DISPLAY_W;
         gpu_board.flexa.src_height = YOLOFACE_DISPLAY_H;
         gpu_board.flexa.dst_width = YOLOFACE_DISPLAY_W;
         gpu_board.flexa.dst_height = YOLOFACE_DISPLAY_H;
-    }
-    gpu_board.flexa.src_format = BK_PIXEL_FORMAT_NV12;
-    gpu_board.flexa.dst_format = BK_PIXEL_FORMAT_ARGB8888;
-    gpu_board.flexa.dst_compress = true;
-    gpu_board.flexa.scale = false;
-
-    gpu_board.flexa.frame_done = NULL;
-    gpu_board.flexa.frame_done_args = NULL;
-
-    /* Board config for Multimedia config */
-    app_camera_board_config_set(&camera_board);
-    if (!s_yoloface_lvgl_camera_blend) {
+        gpu_board.flexa.src_format = BK_PIXEL_FORMAT_NV12;
+        gpu_board.flexa.dst_format = BK_PIXEL_FORMAT_ARGB8888;
+        gpu_board.flexa.dst_compress = true;
+        gpu_board.flexa.scale = false;
+        gpu_board.flexa.frame_done = NULL;
+        gpu_board.flexa.frame_done_args = NULL;
         app_gpu_board_config_set(&gpu_board);
     }
 
