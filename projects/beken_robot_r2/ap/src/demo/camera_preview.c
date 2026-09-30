@@ -72,7 +72,7 @@ bk_err_t bk_robot_lvgl_resume_display(void);
  * present in defconfig for this code to actually compile in.
  * --------------------------------------------------------------------- */
 #ifndef CONFIG_CAM_PREVIEW_SDNAND_DEBUG
-#define CONFIG_CAM_PREVIEW_SDNAND_DEBUG 0
+#define CONFIG_CAM_PREVIEW_SDNAND_DEBUG 1
 #endif
 
 #define CAM_PREV_SDNAND_DEBUG_EFFECTIVE \
