@@ -412,7 +412,11 @@ void HandGestureDetectionModel::resourceLoad(void)
     model_data_size = hand_gesture_detection_vela_tflite_len;
 #endif
 
+#if CONFIG_ROBOT_R2
+    fast_ram_type = AVDK_NN_MEM_TYPE_PSRAM_SLAB_UNCODED;
+#else
     fast_ram_type = AVDK_NN_MEM_TYPE_HSRAM;
+#endif
     fast_ram_data_size = ETHOSU_SCRATCH_SIZE;
     fast_ram_data = nullptr;
 

@@ -63,7 +63,11 @@ bool FaceDetectionRuntime::init()
 
     model_.setName("FaceDetectionRuntime");
     model_.setModelType(AVDK_NN_MODEL_TYPE_NPU);
+#if CONFIG_ROBOT_R2
+    model_.setFastRam(AVDK_NN_MEM_TYPE_PSRAM_SLAB_UNCODED, kDetectScratchSize);
+#else
     model_.setFastRam(AVDK_NN_MEM_TYPE_HSRAM, kDetectScratchSize);
+#endif
     model_.setArenaRam(AVDK_NN_MEM_TYPE_PSRAM_SLAB_UNCODED, kDetectArenaSize);
 #if CONFIG_SDCARD
     model_.setModelLoadType(AVDK_NN_MODEL_LOAD_TYPE_SD_FILE);

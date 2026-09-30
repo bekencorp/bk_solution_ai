@@ -73,7 +73,11 @@ bool FaceVerifyRuntime::init()
 
     model_.setName("FaceVerifyRuntime");
     model_.setModelType(AVDK_NN_MODEL_TYPE_NPU);
+#if CONFIG_ROBOT_R2
+    model_.setFastRam(AVDK_NN_MEM_TYPE_PSRAM_SLAB_UNCODED, kVerifyScratchSize);
+#else
     model_.setFastRam(AVDK_NN_MEM_TYPE_HSRAM, kVerifyScratchSize);
+#endif
     model_.setArenaRam(AVDK_NN_MEM_TYPE_PSRAM_SLAB_UNCODED, kVerifyArenaSize);
 #if CONFIG_SDCARD
     model_.setModelLoadType(AVDK_NN_MODEL_LOAD_TYPE_SD_FILE);
