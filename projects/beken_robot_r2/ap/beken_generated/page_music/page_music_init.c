@@ -21,8 +21,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define PAGE9_BAR_Y_BASE    170
-#define PAGE9_BUTTON_Y      240
+#define PAGE9_BAR_Y_BASE    UI_LY(170)
+#define PAGE9_BUTTON_Y      UI_LY(240)
 
 static void page9_style_btn(lv_obj_t *btn)
 {
@@ -37,7 +37,7 @@ static void page9_style_btn(lv_obj_t *btn)
     lv_obj_set_style_border_width(btn, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(btn, lv_color_hex(0xeaf4ff), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(btn, &lv_font_ali_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(btn, &lv_font_ali_25, LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
 void init_page_page_9(bk_lv_ui_t *bk_ui)
@@ -58,32 +58,32 @@ void init_page_page_9(bk_lv_ui_t *bk_ui)
 
     bk_ui->page_9_label_track = lv_label_create(bk_ui->page_9);
     lv_label_set_text(bk_ui->page_9_label_track, "");
-    lv_obj_set_width(bk_ui->page_9_label_track, 320);
+    lv_obj_set_width(bk_ui->page_9_label_track, UI_LX(320));
     lv_label_set_long_mode(bk_ui->page_9_label_track, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(bk_ui->page_9_label_track, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(bk_ui->page_9_label_track, lv_color_hex(0xf4f7ff), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(bk_ui->page_9_label_track, &lv_font_ali_16, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_pos(bk_ui->page_9_label_track, 20, PAGE9_BAR_Y_BASE + 10);
+    lv_obj_set_style_text_font(bk_ui->page_9_label_track, &lv_font_ali_25, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_pos(bk_ui->page_9_label_track, UI_LX(20), PAGE9_BAR_Y_BASE + UI_LY(10));
 
     bk_ui->page_9_button_play = lv_btn_create(bk_ui->page_9);
-    lv_obj_set_size(bk_ui->page_9_button_play, 92, 44);
-    lv_obj_set_pos(bk_ui->page_9_button_play, 20, PAGE9_BUTTON_Y);
+    lv_obj_set_size(bk_ui->page_9_button_play, UI_LX(92), UI_LY(44));
+    lv_obj_set_pos(bk_ui->page_9_button_play, UI_LX(20), PAGE9_BUTTON_Y);
     bk_ui->page_9_button_play_label = lv_label_create(bk_ui->page_9_button_play);
     lv_label_set_text(bk_ui->page_9_button_play_label, ui_tr(STR_MUSIC_PREV));
     lv_obj_align(bk_ui->page_9_button_play_label, LV_ALIGN_CENTER, 0, 0);
     page9_style_btn(bk_ui->page_9_button_play);
 
     bk_ui->page_9_button_stop = lv_btn_create(bk_ui->page_9);
-    lv_obj_set_size(bk_ui->page_9_button_stop, 92, 44);
-    lv_obj_set_pos(bk_ui->page_9_button_stop, 134, PAGE9_BUTTON_Y);
+    lv_obj_set_size(bk_ui->page_9_button_stop, UI_LX(92), UI_LY(44));
+    lv_obj_set_pos(bk_ui->page_9_button_stop, UI_LX(134), PAGE9_BUTTON_Y);
     bk_ui->page_9_button_stop_label = lv_label_create(bk_ui->page_9_button_stop);
     lv_label_set_text(bk_ui->page_9_button_stop_label, ui_tr(STR_MUSIC_PLAY));
     lv_obj_align(bk_ui->page_9_button_stop_label, LV_ALIGN_CENTER, 0, 0);
     page9_style_btn(bk_ui->page_9_button_stop);
 
     bk_ui->page_9_button_next = lv_btn_create(bk_ui->page_9);
-    lv_obj_set_size(bk_ui->page_9_button_next, 92, 44);
-    lv_obj_set_pos(bk_ui->page_9_button_next, 248, PAGE9_BUTTON_Y);
+    lv_obj_set_size(bk_ui->page_9_button_next, UI_LX(92), UI_LY(44));
+    lv_obj_set_pos(bk_ui->page_9_button_next, UI_LX(248), PAGE9_BUTTON_Y);
     bk_ui->page_9_button_next_label = lv_label_create(bk_ui->page_9_button_next);
     lv_label_set_text(bk_ui->page_9_button_next_label, ui_tr(STR_MUSIC_NEXT));
     lv_obj_align(bk_ui->page_9_button_next_label, LV_ALIGN_CENTER, 0, 0);

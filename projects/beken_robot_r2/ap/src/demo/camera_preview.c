@@ -72,7 +72,7 @@ bk_err_t bk_robot_lvgl_resume_display(void);
  * present in defconfig for this code to actually compile in.
  * --------------------------------------------------------------------- */
 #ifndef CONFIG_CAM_PREVIEW_SDNAND_DEBUG
-#define CONFIG_CAM_PREVIEW_SDNAND_DEBUG 1
+#define CONFIG_CAM_PREVIEW_SDNAND_DEBUG 0
 #endif
 
 #define CAM_PREV_SDNAND_DEBUG_EFFECTIVE \
@@ -112,12 +112,11 @@ extern const bk_display_dsi_panel_t lcd_device_gc9503cv_mipi_480x640;
 #define PREVIEW_SENSOR_W    1280
 #define PREVIEW_SENSOR_H    720
 #define PREVIEW_SENSOR_FPS  20
-/* Still the jd9855-era geometry: this LVGL preview path has not been
- * re-targeted to the 480x640 panel, which needs 640x480 + 90 deg rotate
- * (see the bring-up path in ap_main.c). */
-#define PREVIEW_ISP_W       400
-#define PREVIEW_ISP_H       320
-#define PREVIEW_GPU_ROTATE  270
+/* ISP MP 640x480 rotated 90 degrees matches the 480x640 portrait panel.
+ * Both edges also satisfy the GPU compression HV_SAMPLE tile rules. */
+#define PREVIEW_ISP_W       640
+#define PREVIEW_ISP_H       480
+#define PREVIEW_GPU_ROTATE  90
 
 /* SP 640x480 NV12 (1:1 with sensor). NV12 from the UNCODED slab (16 MB
  * pool at 0x60000000); never goes anywhere near PSRAM_HEAP (920 KB). */

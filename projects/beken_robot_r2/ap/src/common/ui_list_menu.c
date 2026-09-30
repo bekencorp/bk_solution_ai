@@ -22,15 +22,16 @@
 #include "ui_theme.h"
 #include "ui_touch_gesture.h"
 
-/* Logical canvas is 385 x 320 (landscape after the ap_main ROTATE_90). */
+/* Logical canvas is 640 x 480 (landscape after the ap_main ROTATE_90); the
+ * offsets below were authored against the legacy 385x320 canvas. */
 #define LM_PANEL_X        0
-#define LM_PANEL_Y_TABS   102
-#define LM_PANEL_Y_PLAIN  74
+#define LM_PANEL_Y_TABS   UI_LY(102)
+#define LM_PANEL_Y_PLAIN  UI_LY(74)
 #define LM_PANEL_W        LOGICAL_SCREEN_WIDTH
-#define LM_PANEL_H_TABS   (LOGICAL_SCREEN_HEIGHT - LM_PANEL_Y_TABS - 8)
-#define LM_PANEL_H_PLAIN  (LOGICAL_SCREEN_HEIGHT - LM_PANEL_Y_PLAIN - 8)
-#define LM_ROW_H          58
-#define LM_ROW_GAP        10
+#define LM_PANEL_H_TABS   (LOGICAL_SCREEN_HEIGHT - LM_PANEL_Y_TABS - UI_LY(8))
+#define LM_PANEL_H_PLAIN  (LOGICAL_SCREEN_HEIGHT - LM_PANEL_Y_PLAIN - UI_LY(8))
+#define LM_ROW_H          UI_LY(58)
+#define LM_ROW_GAP        UI_LY(10)
 
 #define LM_MAX_INSTANCES   6
 
@@ -277,15 +278,16 @@ static void build_menu(ui_list_menu_ctx_t *ctx, lv_obj_t *screen,
             active = 0;
         }
         snprintf(page_text, sizeof(page_text), "%d / %d", active + 1, cfg->tab_count);
-        (void)ui_theme_create_text(screen, page_text, 316, 24, 46,
-                                   &lv_font_ali_16, UI_THEME_COLOR_MUTED,
+        (void)ui_theme_create_text(screen, page_text, UI_LX(316), UI_LY(24), UI_LX(46),
+                                   &lv_font_ali_25, UI_THEME_COLOR_MUTED,
                                    LV_TEXT_ALIGN_RIGHT);
 
         int x = UI_THEME_SAFE_LEFT;
         for (int i = 0; i < cfg->tab_count; i++) {
-            int w = (i == cfg->tab_count - 1) ? 88 : 86;
-            (void)ui_theme_create_pill(screen, cfg->tabs[i], x, 64, w, 30, i == active);
-            x += w + 8;
+            int w = (i == cfg->tab_count - 1) ? UI_LX(88) : UI_LX(86);
+            (void)ui_theme_create_pill(screen, cfg->tabs[i], x, UI_LY(64), w, UI_LY(30),
+                                       i == active);
+            x += w + UI_LX(8);
         }
     }
 

@@ -1,21 +1,22 @@
 /*
  * Copyright (c) 2025 BekenCorp. All rights reserved.
- * 
+ *
  * This software is proprietary and confidential. No part of this software may be
  * reproduced, distributed, or transmitted in any form or by any means, including
  * photocopying, recording, or other electronic or mechanical methods, without the
  * prior written permission of BekenCorp, except in the case of brief quotations
  * embodied in critical reviews and certain other noncommercial uses permitted
  * by copyright law.
- * 
+ *
  * For permission requests, write to BekenCorp at armino_support@bekencorp.com.
 
  * Author: Beken LVGL Designer Tool
-*/ 
+*/
 #include "lvgl.h"
 #include "beken_ui.h"
 #include "custom_func.h"
 #include "event_runtime.h"
+#include "page_doa_eyes.h"
 #include "page_hooks.h"
 #include <stdio.h>
 #include <string.h>
@@ -29,7 +30,7 @@ void init_page_page_5(bk_lv_ui_t *bk_ui)
     if (bk_ui->page_5 != NULL && lv_obj_is_valid(bk_ui->page_5)) {
         destroy_page_page_5(bk_ui);
     }
-    
+
 
     bk_ui->page_5 = lv_obj_create(NULL);
     lv_obj_set_scrollbar_mode(bk_ui->page_5, LV_SCROLLBAR_MODE_OFF);
@@ -44,10 +45,10 @@ void init_page_page_5(bk_lv_ui_t *bk_ui)
     lv_arc_set_bg_angles(bk_ui->page_5_arc_1, 0, 360);
     lv_arc_set_rotation(bk_ui->page_5_arc_1, 0);
     lv_arc_set_mode(bk_ui->page_5_arc_1, LV_ARC_MODE_NORMAL);
-    lv_obj_set_x(bk_ui->page_5_arc_1, 56);
-    lv_obj_set_y(bk_ui->page_5_arc_1, 63);
-    lv_obj_set_width(bk_ui->page_5_arc_1, 248);
-    lv_obj_set_height(bk_ui->page_5_arc_1, 220);
+    lv_obj_set_x(bk_ui->page_5_arc_1, UI_LX(56));
+    lv_obj_set_y(bk_ui->page_5_arc_1, UI_LY(63));
+    lv_obj_set_width(bk_ui->page_5_arc_1, UI_LX(248));
+    lv_obj_set_height(bk_ui->page_5_arc_1, UI_LY(220));
     lv_obj_set_style_bg_color(bk_ui->page_5_arc_1, lv_color_hex(0xf6f6f6), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_5_arc_1, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_grad_dir(bk_ui->page_5_arc_1, LV_GRAD_DIR_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -69,18 +70,18 @@ void init_page_page_5(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_shadow_offset_x(bk_ui->page_5_arc_1, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_offset_y(bk_ui->page_5_arc_1, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_spread(bk_ui->page_5_arc_1, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_width(bk_ui->page_5_arc_1, 12, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(bk_ui->page_5_arc_1, PAGE_5_ARC_STROKE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_color(bk_ui->page_5_arc_1, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(bk_ui->page_5_arc_1, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_rounded(bk_ui->page_5_arc_1, true, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_width(bk_ui->page_5_arc_1, 12, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(bk_ui->page_5_arc_1, PAGE_5_ARC_STROKE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_color(bk_ui->page_5_arc_1, lv_color_hex(0x2195f6), LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(bk_ui->page_5_arc_1, 0, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_rounded(bk_ui->page_5_arc_1, true, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(bk_ui->page_5_arc_1, lv_color_hex(0x00b8ff), LV_PART_KNOB | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_5_arc_1, 255, LV_PART_KNOB | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_grad_dir(bk_ui->page_5_arc_1, LV_GRAD_DIR_NONE, LV_PART_KNOB | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_all(bk_ui->page_5_arc_1, 13, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(bk_ui->page_5_arc_1, UI_LY(13), LV_PART_KNOB | LV_STATE_DEFAULT);
 
 
     lv_obj_update_layout(bk_ui->page_5);

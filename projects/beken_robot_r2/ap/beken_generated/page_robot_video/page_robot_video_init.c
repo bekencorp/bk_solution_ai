@@ -43,7 +43,7 @@ void init_page_page_11(bk_lv_ui_t *bk_ui)
      * robot_ctrl_service is already up. */
     lv_label_set_text(bk_ui->page_11_label_state, "video connecting...");
     lv_obj_set_style_text_color(bk_ui->page_11_label_state, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(bk_ui->page_11_label_state, &lv_font_ali_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(bk_ui->page_11_label_state, &lv_font_ali_25, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_align(bk_ui->page_11_label_state, LV_ALIGN_CENTER, 0, 0);
 
     lv_obj_update_layout(bk_ui->page_11);

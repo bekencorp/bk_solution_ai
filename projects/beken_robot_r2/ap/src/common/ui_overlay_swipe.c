@@ -11,6 +11,8 @@
 #include <driver/drv_tp.h>
 #include <components/log.h>
 
+#include "beken_ui.h"
+
 #define TAG "overlay_swipe"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
@@ -18,16 +20,16 @@
 #define OVERLAY_SWIPE_TASK_STACK_SIZE  (1024 * 3)
 #define OVERLAY_SWIPE_TASK_NAME        "ov_swipe"
 #define OVERLAY_SWIPE_POLL_MS          20
-#define OVERLAY_SWIPE_MIN_DX           120
-#define OVERLAY_SWIPE_MAX_DY           120
-#define OVERLAY_SWIPE_EDGE_X           42
+#define OVERLAY_SWIPE_MIN_DX           UI_LX(120)
+#define OVERLAY_SWIPE_MAX_DY           UI_LY(120)
+#define OVERLAY_SWIPE_EDGE_X           UI_LX(42)
 #define OVERLAY_SWIPE_MAX_MS           1500U
 #define OVERLAY_SWIPE_DEBOUNCE_MS      500U
 #define OVERLAY_SWIPE_STOP_WAIT_MS     400U
 /* Tap: short press+release that stays within a small radius (i.e. clearly not
  * a swipe). */
 #define OVERLAY_TAP_MAX_MS             350U
-#define OVERLAY_TAP_MAX_MOVE           30
+#define OVERLAY_TAP_MAX_MOVE           UI_LX(30)
 #define OVERLAY_TAP_DEBOUNCE_MS        450U
 
 typedef enum {
@@ -57,8 +59,8 @@ static uint32_t s_last_back_ms;
 static ui_overlay_tap_cb_t s_tap_cb;
 static void *s_tap_arg;
 static uint32_t s_last_tap_ms;
-static int32_t s_tp_raw_w = 320;
-static int32_t s_tp_raw_h = 385;
+static int32_t s_tp_raw_w = SCREEN_WIDTH;
+static int32_t s_tp_raw_h = SCREEN_HEIGHT;
 static int s_tp_rotation = ROTATE_NONE;
 
 static int32_t abs_i32(int32_t v)

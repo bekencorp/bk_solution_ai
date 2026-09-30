@@ -31,6 +31,10 @@
 
 #define FACE_REC_SCREEN_W           LOGICAL_SCREEN_WIDTH
 #define FACE_REC_SCREEN_H           LOGICAL_SCREEN_HEIGHT
+/* The face-recognition screen keeps the legacy 385x320 metrics: VIEW_W/H also
+ * size the camera preview buffer, so re-scaling this screen has to happen
+ * together with the camera pipeline once that path is re-validated. The
+ * archive screen below is independent of the camera and is already scaled. */
 #define FACE_REC_CAMERA_VIEW_X      25
 #define FACE_REC_CAMERA_VIEW_Y      20
 #define FACE_REC_CAMERA_VIEW_W      256
@@ -45,9 +49,9 @@
 #define FACE_REC_BUTTON_H           38
 #define FACE_REC_BUTTON_GAP         18
 #define FACE_REC_BUTTON_Y0          50
-#define ARCH_ROW_H             34
-#define ARCH_ROW_GAP           10
-#define ARCH_PANEL_H           178
+#define ARCH_ROW_H             UI_LY(34)
+#define ARCH_ROW_GAP           UI_LY(10)
+#define ARCH_PANEL_H           UI_LY(178)
 #define ARCH_TASK_STACK_SIZE   (1024 * 4)
 #define ARCH_TASK_NAME         "face_archive"
 #define RESET_CONFIRM_MS       6000
@@ -416,7 +420,7 @@ static lv_obj_t *create_face_recognition_button(lv_obj_t *parent, const char *te
     lv_obj_center(label);
     lv_obj_set_style_text_color(label, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    set_label_font(label, &lv_font_ali_16);
+    set_label_font(label, &lv_font_ali_25);
     return btn;
 }
 
@@ -513,7 +517,7 @@ static void archive_ensure_rows(uint32_t visible)
         }
         s_archive_rows[i] = create_face_recognition_button(s_archive_panel, "--",
                                                    0, (int)i * (ARCH_ROW_H + ARCH_ROW_GAP),
-                                                   236, ARCH_ROW_H);
+                                                   UI_LX(236), ARCH_ROW_H);
         lv_obj_set_style_radius(s_archive_rows[i], 4, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_add_event_cb(s_archive_rows[i], archive_row_click_cb,
                             LV_EVENT_CLICKED, (void *)(uintptr_t)i);
@@ -1222,16 +1226,16 @@ int page_edge_ai_archive_enter(void)
     lv_obj_set_style_bg_opa(s_archive_screen, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     (void)create_label(s_archive_screen, face_recognition_tr(FACE_REC_STR_ARCHIVE_TITLE),
-                       20, 14, 180, 28,
-                       &lv_font_ali_25, 0xffffff);
+                       UI_LX(20), UI_LY(14), UI_LX(180), UI_LY(28),
+                       &lv_font_ali_30, 0xffffff);
     s_archive_status_label = create_label(s_archive_screen, face_recognition_tr(FACE_REC_STR_QUERYING),
-                                          20, 48, 340, 24,
-                                          &lv_font_ali_16, 0x32d5ff);
+                                          UI_LX(20), UI_LY(48), UI_LX(340), UI_LY(24),
+                                          &lv_font_ali_25, 0x32d5ff);
 
     s_archive_panel = lv_obj_create(s_archive_screen);
     lv_obj_remove_style_all(s_archive_panel);
-    lv_obj_set_pos(s_archive_panel, 20, 80);
-    lv_obj_set_size(s_archive_panel, 248, ARCH_PANEL_H);
+    lv_obj_set_pos(s_archive_panel, UI_LX(20), UI_LY(80));
+    lv_obj_set_size(s_archive_panel, UI_LX(248), ARCH_PANEL_H);
     lv_obj_set_scroll_dir(s_archive_panel, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(s_archive_panel, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_style_bg_opa(s_archive_panel, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1239,12 +1243,12 @@ int page_edge_ai_archive_enter(void)
 
     s_archive_delete_btn = create_face_recognition_button(s_archive_screen,
                                                   face_recognition_tr(FACE_REC_STR_ARCHIVE_DELETE),
-                                                  286, 104, 78, 40);
+                                                  UI_LX(286), UI_LY(104), UI_LX(78), UI_LY(40));
     lv_obj_add_event_cb(s_archive_delete_btn, archive_delete_click_cb, LV_EVENT_CLICKED, NULL);
 
     s_archive_return_btn = create_face_recognition_button(s_archive_screen,
                                                   face_recognition_tr(FACE_REC_STR_ARCHIVE_RETURN),
-                                                  286, 166, 78, 40);
+                                                  UI_LX(286), UI_LY(166), UI_LX(78), UI_LY(40));
     lv_obj_add_event_cb(s_archive_return_btn, archive_return_click_cb, LV_EVENT_CLICKED, NULL);
 
     bk_page_attach_right_swipe_gesture(s_archive_screen);
@@ -1298,7 +1302,7 @@ int page_edge_ai_face_recognition_enter(void)
                                            FACE_REC_CAMERA_BORDER_W,
                                            FACE_REC_CAMERA_BORDER_W + FACE_REC_CAMERA_VIEW_H,
                                            FACE_REC_CAMERA_VIEW_W, FACE_REC_TEXT_H,
-                                           &lv_font_ali_16, 0xffffff);
+                                           &lv_font_ali_25, 0xffffff);
     lv_obj_set_style_bg_color(s_face_recognition_status_label, lv_color_hex(0x10151f), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(s_face_recognition_status_label, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
 

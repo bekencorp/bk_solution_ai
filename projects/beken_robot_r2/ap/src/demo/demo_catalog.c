@@ -498,8 +498,8 @@ static lv_obj_t *demo_center_create_segment(lv_obj_t *parent, const char *text,
 {
     lv_obj_t *segment = lv_obj_create(parent);
     lv_obj_remove_style_all(segment);
-    lv_obj_set_pos(segment, x, 6);
-    lv_obj_set_size(segment, w, 34);
+    lv_obj_set_pos(segment, x, UI_LY(6));
+    lv_obj_set_size(segment, w, UI_LY(34));
     lv_obj_set_style_radius(segment, 14, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(segment,
                               lv_color_hex(active ? UI_THEME_COLOR_TAB_SEL : UI_THEME_COLOR_CARD),
@@ -528,13 +528,13 @@ static lv_obj_t *demo_center_create_segment(lv_obj_t *parent, const char *text,
     lv_label_set_text(label, text);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(label, w);
-    lv_obj_set_height(label, lv_font_ali_25.line_height + 2);
+    lv_obj_set_height(label, lv_font_ali_30.line_height + 2);
     lv_obj_set_style_bg_opa(label, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(label,
                                 lv_color_hex(active ? 0xffffff : UI_THEME_COLOR_DESC),
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(label, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(label, &lv_font_ali_25, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(label, &lv_font_ali_30, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_center(label);
     return segment;
@@ -544,7 +544,8 @@ static lv_obj_t *demo_center_create_row(lv_obj_t *parent, const char *title,
                                         const char *desc, int y, bool active,
                                         ui_theme_icon_kind_t icon)
 {
-    lv_obj_t *row = ui_theme_create_card(parent, 10, y, 316, 56, 18, false);
+    lv_obj_t *row = ui_theme_create_card(parent, UI_LX(10), y, UI_LX(316), UI_LY(56),
+                                         18, false);
     ui_theme_set_row_focus(row, title, desc, icon, active);
     return row;
 }
@@ -649,7 +650,8 @@ static void demo_center_render(void)
     (void)ui_theme_create_subtitle(s_demo_center_screen, subtitle);
 
     lv_obj_t *demo_panel = ui_theme_create_card(s_demo_center_screen,
-                                                19, 76, 347, 236, 22, true);
+                                                UI_LX(19), UI_LY(76),
+                                                UI_LX(347), UI_LY(236), 22, true);
     lv_obj_set_style_bg_color(demo_panel, lv_color_hex(0xf8fbff),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_color(demo_panel, lv_color_hex(UI_THEME_COLOR_BORDER),
@@ -657,14 +659,14 @@ static void demo_center_render(void)
 
     lv_obj_t *tabs_bg = lv_obj_create(demo_panel);
     lv_obj_remove_style_all(tabs_bg);
-    lv_obj_set_pos(tabs_bg, 8, 8);
-    lv_obj_set_size(tabs_bg, 331, 46);
+    lv_obj_set_pos(tabs_bg, UI_LX(8), UI_LY(8));
+    lv_obj_set_size(tabs_bg, UI_LX(331), UI_LY(46));
     lv_obj_set_style_bg_opa(tabs_bg, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    int segment_w = 103;
-    int segment_gap = 8;
+    int segment_w = UI_LX(103);
+    int segment_gap = UI_LX(8);
     for (int i = 0; i < DEMO_CAT_COUNT; i++) {
-        int x = 3 + i * (segment_w + segment_gap);
+        int x = UI_LX(3) + i * (segment_w + segment_gap);
         s_demo_center_tabs[i] = demo_center_create_segment(tabs_bg,
                                                           s_category_items[lang][i],
                                                           x, segment_w,
@@ -680,12 +682,14 @@ static void demo_center_render(void)
 
     s_demo_center_panel = lv_obj_create(demo_panel);
     lv_obj_remove_style_all(s_demo_center_panel);
-    lv_obj_set_pos(s_demo_center_panel, 0, 66);
-    lv_obj_set_size(s_demo_center_panel, 347, 162);
+    const int panel_h = UI_LY(162);
+    lv_obj_set_pos(s_demo_center_panel, 0, UI_LY(66));
+    lv_obj_set_size(s_demo_center_panel, UI_LX(347), panel_h);
     lv_obj_set_scroll_dir(s_demo_center_panel, LV_DIR_VER);
-    int content_h = cfg->item_count * 58 + (cfg->item_count > 0 ? (cfg->item_count - 1) * 10 : 0);
+    int content_h = cfg->item_count * UI_LY(58)
+                    + (cfg->item_count > 0 ? (cfg->item_count - 1) * UI_LY(10) : 0);
     lv_obj_set_scrollbar_mode(s_demo_center_panel,
-                              content_h > 162 ? LV_SCROLLBAR_MODE_ON : LV_SCROLLBAR_MODE_OFF);
+                              content_h > panel_h ? LV_SCROLLBAR_MODE_ON : LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_style_bg_opa(s_demo_center_panel, LV_OPA_TRANSP,
                             LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(s_demo_center_panel, 0,
@@ -701,7 +705,7 @@ static void demo_center_render(void)
         s_demo_center_rows[i] = demo_center_create_row(s_demo_center_panel,
                                                        cfg->items[i],
                                                        cfg->descriptions != NULL ? cfg->descriptions[i] : NULL,
-                                                       i * 68, i == s_demo_center_focus,
+                                                       i * UI_LY(68), i == s_demo_center_focus,
                                                        cfg->icons != NULL ? cfg->icons[i] : UI_THEME_ICON_DEMO);
         lv_obj_add_flag(s_demo_center_rows[i], LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(s_demo_center_rows[i], demo_center_row_press_cb,

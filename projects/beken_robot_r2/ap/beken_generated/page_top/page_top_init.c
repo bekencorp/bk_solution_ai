@@ -37,8 +37,8 @@ static void wifi_icon_draw_event_cb(lv_event_t *e)
 
     const lv_color_t color = lv_color_hex(UI_THEME_COLOR_PRIMARY);
     const int32_t cx = (coords.x1 + coords.x2) / 2;
-    const int32_t cy = coords.y2 - 2;               /* source dot near bottom */
-    static const uint16_t radii[3] = {4, 8, 12};    /* nested upward waves */
+    const int32_t cy = coords.y2 - UI_LY(2);        /* source dot near bottom */
+    static const uint16_t radii[3] = {UI_LY(4), UI_LY(8), UI_LY(12)}; /* nested upward waves */
 
     for (int i = 0; i < 3; i++) {
         lv_draw_arc_dsc_t adsc;
@@ -46,7 +46,7 @@ static void wifi_icon_draw_event_cb(lv_event_t *e)
         adsc.base.layer = layer;
         adsc.color = color;
         adsc.opa = LV_OPA_COVER;
-        adsc.width = 2;
+        adsc.width = UI_LY(2);
         adsc.rounded = 1;
         adsc.center.x = cx;
         adsc.center.y = cy;
@@ -63,7 +63,7 @@ static void wifi_icon_draw_event_cb(lv_event_t *e)
     ddsc.bg_opa = LV_OPA_COVER;
     ddsc.radius = LV_RADIUS_CIRCLE;
 
-    const int32_t rdot = 2;
+    const int32_t rdot = UI_LY(2);
     lv_area_t dot = { cx - rdot, cy - rdot, cx + rdot, cy + rdot };
     lv_draw_rect(layer, &ddsc, &dot);
 }
@@ -98,10 +98,10 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
     bk_ui->page_2_image_2 = lv_obj_create(bk_ui->page_2);
     lv_obj_remove_style_all(bk_ui->page_2_image_2);
     lv_obj_clear_flag(bk_ui->page_2_image_2, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_x(bk_ui->page_2_image_2, 330);
-    lv_obj_set_y(bk_ui->page_2_image_2, 24);
-    lv_obj_set_width(bk_ui->page_2_image_2, 28);
-    lv_obj_set_height(bk_ui->page_2_image_2, 18);
+    lv_obj_set_x(bk_ui->page_2_image_2, UI_LX(330));
+    lv_obj_set_y(bk_ui->page_2_image_2, UI_LY(24));
+    lv_obj_set_width(bk_ui->page_2_image_2, UI_LX(28));
+    lv_obj_set_height(bk_ui->page_2_image_2, UI_LY(18));
     lv_obj_add_event_cb(bk_ui->page_2_image_2, wifi_icon_draw_event_cb,
                         LV_EVENT_DRAW_MAIN, NULL);
     /* Initial WiFi icon visibility is set by the page_2 init hook in
@@ -115,10 +115,10 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
     lv_bar_set_start_value(bk_ui->page_2_bar_1, 0, LV_ANIM_ON);
     lv_bar_set_value(bk_ui->page_2_bar_1, 82, LV_ANIM_ON);
     lv_bar_set_mode(bk_ui->page_2_bar_1, LV_BAR_MODE_NORMAL);
-    lv_obj_set_x(bk_ui->page_2_bar_1, 286);
-    lv_obj_set_y(bk_ui->page_2_bar_1, 28);
-    lv_obj_set_width(bk_ui->page_2_bar_1, 36);
-    lv_obj_set_height(bk_ui->page_2_bar_1, 12);
+    lv_obj_set_x(bk_ui->page_2_bar_1, UI_LX(286));
+    lv_obj_set_y(bk_ui->page_2_bar_1, UI_LY(28));
+    lv_obj_set_width(bk_ui->page_2_bar_1, UI_LX(36));
+    lv_obj_set_height(bk_ui->page_2_bar_1, UI_LY(12));
     lv_obj_set_style_anim_duration(bk_ui->page_2_bar_1, 1000, 0);
     lv_obj_set_style_bg_color(bk_ui->page_2_bar_1, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(bk_ui->page_2_bar_1, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -147,8 +147,8 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
 
     lv_obj_t *battery_tip = lv_obj_create(bk_ui->page_2);
     lv_obj_remove_style_all(battery_tip);
-    lv_obj_set_pos(battery_tip, 323, 31);
-    lv_obj_set_size(battery_tip, 4, 6);
+    lv_obj_set_pos(battery_tip, UI_LX(323), UI_LY(31));
+    lv_obj_set_size(battery_tip, UI_LX(4), UI_LY(6));
     lv_obj_set_style_radius(battery_tip, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(battery_tip, lv_color_hex(UI_THEME_COLOR_PRIMARY), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(battery_tip, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -175,7 +175,7 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_clip_corner(bk_ui->page_2_button_1, false, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(bk_ui->page_2_button_1, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(bk_ui->page_2_button_1, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(bk_ui->page_2_button_1, &lv_font_ali_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(bk_ui->page_2_button_1, &lv_font_ali_25, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_align(bk_ui->page_2_button_1, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_letter_space(bk_ui->page_2_button_1, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_color(bk_ui->page_2_button_1, lv_color_hex(0x1e7fcf), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -209,7 +209,7 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
     lv_obj_set_style_clip_corner(bk_ui->page_2_button_3, false, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(bk_ui->page_2_button_3, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(bk_ui->page_2_button_3, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(bk_ui->page_2_button_3, &lv_font_ali_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(bk_ui->page_2_button_3, &lv_font_ali_25, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_align(bk_ui->page_2_button_3, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_letter_space(bk_ui->page_2_button_3, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_color(bk_ui->page_2_button_3, lv_color_hex(0x1e7fcf), LV_PART_MAIN | LV_STATE_DEFAULT);

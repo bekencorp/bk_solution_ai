@@ -90,7 +90,7 @@ static void apply_home_focus(void)
 
 static lv_obj_t *create_home_row(lv_obj_t *parent, int index, int y)
 {
-    lv_obj_t *row = ui_theme_create_card(parent, 18, y, 311, 48, 18, false);
+    lv_obj_t *row = ui_theme_create_card(parent, UI_LX(18), y, UI_LX(311), UI_LY(48), 18, false);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     ui_lang_t lang = ui_i18n_get_lang();
     ui_theme_set_row_focus(row, s_home_items[lang][index], s_home_tags[lang][index],
@@ -169,13 +169,14 @@ static void page_top_on_init(bk_lv_ui_t *ui)
     (void)ui_theme_create_title(ui->page_2, ui_tr(STR_HOME_TITLE));
     ui_touch_tap_reset(&s_home_tap_state);
 
-    lv_obj_t *card = ui_theme_create_card(ui->page_2, 19, 70, 347, 223, 30, true);
-    (void)ui_theme_create_text(card, ui_tr(STR_HOME_HINT), 22, 18, 170,
-                               &lv_font_ali_16, UI_THEME_COLOR_MUTED,
+    lv_obj_t *card = ui_theme_create_card(ui->page_2, UI_LX(19), UI_LY(70), UI_LX(347), UI_LY(223),
+                                        30, true);
+    (void)ui_theme_create_text(card, ui_tr(STR_HOME_HINT), UI_LX(22), UI_LY(18), UI_LX(170),
+                               &lv_font_ali_25, UI_THEME_COLOR_MUTED,
                                LV_TEXT_ALIGN_LEFT);
 
     for (int i = 0; i < HOME_ITEM_COUNT; i++) {
-        s_home_rows[i] = create_home_row(card, i, 56 + i * 52);
+        s_home_rows[i] = create_home_row(card, i, UI_LY(56) + i * UI_LY(52));
         lv_obj_add_event_cb(s_home_rows[i], home_row_press_cb, LV_EVENT_PRESSED,
                             (void *)(intptr_t)i);
         lv_obj_add_event_cb(s_home_rows[i], home_row_release_cb, LV_EVENT_RELEASED,

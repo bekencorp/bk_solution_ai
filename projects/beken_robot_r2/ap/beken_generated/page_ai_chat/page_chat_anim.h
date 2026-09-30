@@ -32,11 +32,16 @@ extern "C" {
  * image lines up exactly with the brackets. Keep them here (not duplicated in
  * each .c) to prevent the two from drifting out of sync.
  * ------------------------------------------------------------------------- */
-#define PAGE_VISION_CORE_CY      132
+#define PAGE_VISION_CORE_CY      UI_LY(132)
 /* Width MUST stay even: the live preview is an RGB565 image whose row stride is
  * width*2. An odd width yields a non-4-byte-aligned stride, and the LVGL/display
  * blit then overruns the tightly-sized preview frame buffers, corrupting the
- * frame-buffer slab (caught as MEM_SLAB_ERR_OVERFLOW_DATA_TAIL on free). */
+ * frame-buffer slab (caught as MEM_SLAB_ERR_OVERFLOW_DATA_TAIL on free).
+ *
+ * These two are deliberately NOT scaled to the 640x480 canvas: they also size
+ * the RGB565 preview buffer and the PP scaler output (VISION_PREVIEW_OUT_W/H
+ * in page_vision_preview.c). Growing them changes the camera pipeline, so the
+ * viewfinder keeps its legacy size until the camera path is re-validated. */
 #define PAGE_VISION_FRAME_W      256
 #define PAGE_VISION_FRAME_H      142
 #define PAGE_VISION_FRAME_LEFT   ((LOGICAL_SCREEN_WIDTH - PAGE_VISION_FRAME_W) / 2)

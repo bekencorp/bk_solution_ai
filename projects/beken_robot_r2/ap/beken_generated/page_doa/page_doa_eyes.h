@@ -47,6 +47,8 @@
 
 #include "lvgl.h"
 
+#include "beken_ui.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -55,44 +57,41 @@ extern "C" {
  *  Whole-composition nudge on page_5 (eyes + ring + mouth move together)
  * -------------------------------------------------------------------- */
 /*
- * Physical screen is ~4.6 cm x 3.9 cm (390 x 360 logical px, landscape):
- *   horizontal: ~8.5 px / mm
- *   vertical:   ~9.2 px / mm
+ * The nudges align the face with the chassis cutout, so they are a physical
+ * distance and are re-derived in mm rather than scaled with the canvas.
  *
- * Empirically-tuned constants, verified on hardware (385x320 logical):
- *   X: shift right ~3 mm  -> +22 px
- *   Y: shift up    ~3 mm  -> -25 px  (scaled from legacy -28 @ 360h)
- * Board coords: +X = right, -Y = up.
+ * Legacy panel (385 x 320 logical): ~8.5 px/mm horizontal, ~9.2 px/mm
+ * vertical. This panel is 2.41" with an 800 px diagonal, so pixels are
+ * square at ~13.07 px/mm on both axes.
+ *
+ * Board-verified nudge on the legacy panel was +14 px right / -20 px up,
+ * i.e. ~1.65 mm right and ~2.2 mm up. Board coords: +X = right, -Y = up.
  */
-/* Face read slightly low-left on hardware; nudged ~1 mm up-left
- * (X 22->14 = left, Y -12->-20 = up). +X=right, -Y=up (board-verified). */
-#define PAGE_5_FACE_NUDGE_X  14
-#define PAGE_5_FACE_NUDGE_Y  (-20)
+#define PAGE_5_FACE_NUDGE_X  22
+#define PAGE_5_FACE_NUDGE_Y  (-28)
 
 /* Ring-only vertical drop: the white arc (and its KNOB) move down by this
  * many px AFTER eyes/mouth are placed, so the face features stay put while
- * just the ring slides down. +Y = down on screen, ~9.2 px/mm vertical:
- *   was 4 mm down (+37); ring nudged up 2 mm -> net +19 px. */
-#define PAGE_5_RING_EXTRA_Y  19
+ * just the ring slides down. +Y = down on screen. The legacy +19 px at
+ * 9.2 px/mm is ~2.1 mm, which is 27 px at 13.07 px/mm. */
+#define PAGE_5_RING_EXTRA_Y  27
 
 /* ----------------------------------------------------------------------
  *  Ring bounding box (the white arc the KNOB rides along)
  * -------------------------------------------------------------------- */
 /*
- * Designer default was 248 x 220 (visibly smaller than the face). The
- * customer asked the whole face to scale up; we add ~8 mm of diameter
- * on each axis, then scale for 385x320 logical canvas:
- *   horizontal 316 * 385/390 -> 312
- *   vertical   294 * 320/360 -> 261
- * The ring and page_5_eyes share the same FACE_CENTER + FACE_NUDGE so
- * these two constants resize / shift the whole composition concentric.
+ * The ring fills a fixed fraction of the canvas rather than a fixed number
+ * of mm, so unlike the nudges above it scales with UI_LX/UI_LY. 316 x 294
+ * is the board-verified size on the legacy 385 x 320 canvas and is also
+ * REF_RING_W/H in page_doa_eyes.c, which derives every eye / mouth metric
+ * from the ratio PAGE_5_RING_* : REF_RING_* - so resizing here rescales the
+ * whole composition, and the shared FACE_CENTER + FACE_NUDGE keeps it
+ * concentric.
  */
-/* Restored to the original board ring size so eyes/mouth reproduce the
- * original layout 1:1 (ring == REF_RING_W/H in page_doa_eyes.c). */
-#define PAGE_5_RING_W  316
-#define PAGE_5_RING_H  294
+#define PAGE_5_RING_W  UI_LX(316)
+#define PAGE_5_RING_H  UI_LY(294)
 /* Must match page_doa_init.c lv_arc MAIN arc_width */
-#define PAGE_5_ARC_STROKE  12
+#define PAGE_5_ARC_STROKE  UI_LY(12)
 
 /* ----------------------------------------------------------------------
  *  Public API

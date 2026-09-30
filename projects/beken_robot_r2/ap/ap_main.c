@@ -100,8 +100,8 @@
 #if CONFIG_LVGL
 extern void lv_gpu_init(uint32_t tess_width, uint32_t tess_height);
 
-#define LVGL_DISP_WIDTH  320
-#define LVGL_DISP_HEIGHT 385
+#define LVGL_DISP_WIDTH  480
+#define LVGL_DISP_HEIGHT 640
 #define LVGL_COMPRESS_DISP_WIDTH  ((LVGL_DISP_WIDTH + 15) & ~15)
 #define LVGL_COMPRESS_DISP_HEIGHT ((LVGL_DISP_HEIGHT + 3) & ~3)
 
@@ -220,16 +220,6 @@ bk_err_t bk_robot_lvgl_resume_display(void)
 }
 #endif
 
-#ifdef CONFIG_LDO3V3_ENABLE
-#ifndef LDO3V3_CTRL_GPIO
-#ifdef CONFIG_LDO3V3_CTRL_GPIO
-#define LDO3V3_CTRL_GPIO    CONFIG_LDO3V3_CTRL_GPIO
-#else
-#define LDO3V3_CTRL_GPIO    GPIO_52
-#endif
-#endif
-#endif
-
 extern uint32_t bk_misc_get_ap_reset_reason(void);
 extern uint32_t bk_misc_get_cp_reset_reason(void);
 
@@ -317,39 +307,10 @@ int main(void)
         media_service_init();
         bk_frame_buffer_init();
         media_board_power_on(); //power on ai board peripherals
-#if CONFIG_ROBOT_LCD_BRINGUP_ONLY
-        /* ISP MP 640x480 rotated 90 deg gives 480x640, matching the GC9503CV
-         * portrait panel. Both edges satisfy the HV_SAMPLE tile rule
-         * (w % 16, h % 4) that the GPU compress path requires. */
-        AVDK_RETURN_ON_ERROR(
-            media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true),
-            TAG, "Robot R2 LCD panel open error");
-        AVDK_RETURN_ON_ERROR(
-            media_camera_open(1280, 720, 20, 640, 480),
-            TAG, "Robot R2 camera open error");
-        AVDK_RETURN_ON_ERROR(
-            media_gpu_open(640, 480, 90),
-            TAG, "Robot R2 GPU open error");
-
-        LOGI("Robot R2 bring-up: MIPI camera preview (640x480@90)\n");
-        return 0;
-#elif CONFIG_LVGL
+#if CONFIG_LVGL
         AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true), TAG, "media lcd panel open error");
         AVDK_RETURN_ON_ERROR(bk_robot_lvgl_init(media_panel_get_dpu_handle()), TAG, "bk robot lvgl init error");
-#else
-        AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true), TAG, "media lcd panel open error");
-        AVDK_RETURN_ON_ERROR(media_camera_open(1280, 720, 25, 400, 320), TAG, "media camera open error");
-        AVDK_RETURN_ON_ERROR(media_gpu_open(400, 320, 90), TAG, "media gpu open error");  //open gpu will display camera image on lcd
-        AVDK_RETURN_ON_ERROR(media_h264_encoder_start(), TAG, "media h264 encoder start error");
-        AVDK_RETURN_ON_ERROR(media_test_thread_start(MEDIA_TEST_MODE_H264_WIFI_TX), TAG, "media test thread start error");
 #endif
-
-    #ifdef CONFIG_LDO3V3_ENABLE
-        BK_LOG_ON_ERR(gpio_dev_unmap(LDO3V3_CTRL_GPIO));
-        bk_gpio_disable_pull(LDO3V3_CTRL_GPIO); 
-        bk_gpio_enable_output(LDO3V3_CTRL_GPIO);
-        bk_gpio_set_output_high(LDO3V3_CTRL_GPIO);
-    #endif
 
     // if(bk_misc_get_cp_reset_reason() == RESET_SOURCE_DEEPPS_GPIO && (bk_gpio_get_wakeup_gpio_id() == KEY_GPIO_12))
     // {

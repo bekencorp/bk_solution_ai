@@ -65,25 +65,25 @@
 
 #define CORE_CX           (APP_LOGICAL_W / 2)
 #define CORE_CY           PAGE_VISION_CORE_CY
-#define CORE_DIAM         50
+#define CORE_DIAM         UI_LY(50)
 
-/* Status line sits above the viewfinder. The vision preview now fills the whole
- * frame (top edge at FRAME_TOP = CORE_CY - FRAME_H/2 = 61), so keep the status
+/* Status line sits above the viewfinder. The vision preview fills the whole
+ * frame (top edge at FRAME_TOP = CORE_CY - FRAME_H/2), so keep the status
  * text clear of it: STATUS_Y + STATUS_FONT_H must stay below FRAME_TOP. */
-#define STATUS_Y          34
-#define STATUS_FONT_H     22
+#define STATUS_Y          UI_LY(34)
+#define STATUS_FONT_H     UI_LY(22)
 
 /* EQ bars: bottom-anchored, height grows upward. */
 #define EQ_BAR_COUNT      5
-#define EQ_BAR_W          22
-#define EQ_BAR_GAP        14
-#define EQ_BAR_BASE_H     14
-/* Peak height is bounded by the gap between EQ_BOTTOM_Y (=332) and the
- * lower edge of the core (=193) plus a small visual margin. 130px keeps
- * roughly 10px clearance to the core while filling ~36% of the screen
- * vertically so the bars feel substantial rather than decorative. */
-#define EQ_BAR_PEAK_H     115
-#define EQ_BOTTOM_MARGIN  25
+#define EQ_BAR_W          UI_LX(22)
+#define EQ_BAR_GAP        UI_LX(14)
+#define EQ_BAR_BASE_H     UI_LY(14)
+/* Peak height is bounded by the gap between EQ_BOTTOM_Y and the lower edge of
+ * the core, minus a small visual margin: the bars should fill roughly a third
+ * of the screen vertically so they feel substantial rather than decorative,
+ * while keeping visible clearance to the core. */
+#define EQ_BAR_PEAK_H     UI_LY(115)
+#define EQ_BOTTOM_MARGIN  UI_LY(25)
 #define EQ_BOTTOM_Y       (APP_LOGICAL_H - EQ_BOTTOM_MARGIN)
 #define EQ_TIMER_PERIOD_MS 33   /* ~30Hz refresh */
 #define EQ_LERP_NUM        3    /* cur_h += (target - cur_h) * 3/10 */
@@ -100,11 +100,11 @@
 #define CORNER_THICK      3
 
 /* Ripple */
-#define RIPPLE_MAX_DIAM   180
+#define RIPPLE_MAX_DIAM   UI_LY(180)
 
 /* Orbit dot */
-#define ORBIT_RADIUS      44
-#define ORBIT_DOT_DIAM    10
+#define ORBIT_RADIUS      UI_LY(44)
+#define ORBIT_DOT_DIAM    UI_LY(10)
 
 /* Colours -- one base palette per state */
 #define COLOR_BG_HEX          0x000000u
@@ -130,7 +130,7 @@
 #define COLOR_REC           lv_color_hex(COLOR_REC_HEX)
 #define COLOR_TEXT          lv_color_hex(COLOR_TEXT_HEX)
 
-extern const lv_font_t lv_font_ali_16;
+extern const lv_font_t lv_font_ali_25;
 
 /* ============================================================================
  *  Static state
@@ -514,7 +514,7 @@ static void build_vision_overlay(lv_obj_t *root)
     /* Blinking REC label below the frame top-right corner. */
     s_rec_label = lv_label_create(root);
     lv_label_set_text(s_rec_label, "REC");
-    lv_obj_set_style_text_font(s_rec_label, &lv_font_ali_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_rec_label, &lv_font_ali_25, LV_PART_MAIN);
     lv_obj_set_style_text_color(s_rec_label, COLOR_REC, LV_PART_MAIN);
     lv_obj_set_pos(s_rec_label, FRAME_LEFT + FRAME_W - 36, FRAME_TOP - 22);
 
@@ -539,7 +539,7 @@ static void build_voice_layer(lv_obj_t *parent)
     /* Status text at the top, centered. */
     s_status_label = lv_label_create(parent);
     lv_label_set_text(s_status_label, "Connecting...");
-    lv_obj_set_style_text_font(s_status_label, &lv_font_ali_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_status_label, &lv_font_ali_25, LV_PART_MAIN);
     lv_obj_set_style_text_color(s_status_label, COLOR_TEXT, LV_PART_MAIN);
     lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER,
                                 LV_PART_MAIN);

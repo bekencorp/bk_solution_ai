@@ -15,10 +15,10 @@
 extern "C" {
 #endif
 
-#define UI_THEME_SAFE_LEFT      30
-#define UI_THEME_SAFE_TOP       18
-#define UI_THEME_SAFE_RIGHT     22
-#define UI_THEME_SAFE_BOTTOM    18
+#define UI_THEME_SAFE_LEFT      UI_LX(30)
+#define UI_THEME_SAFE_TOP       UI_LY(18)
+#define UI_THEME_SAFE_RIGHT     UI_LX(22)
+#define UI_THEME_SAFE_BOTTOM    UI_LY(18)
 
 #define UI_THEME_COLOR_BG_TOP       0xe7f3ff
 #define UI_THEME_COLOR_BG_BOTTOM    0xdfeeff

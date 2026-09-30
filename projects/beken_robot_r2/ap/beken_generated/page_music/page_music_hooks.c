@@ -102,7 +102,7 @@ static void style_btn_normal(lv_obj_t *btn)
     lv_obj_set_style_border_width(btn, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(btn, lv_color_hex(0xeaf4ff), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(btn, &lv_font_ali_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(btn, &lv_font_ali_25, LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
 static void style_btn_focus(lv_obj_t *btn, bool focus)
@@ -203,7 +203,7 @@ static void build_progress(lv_obj_t *page)
     lv_label_set_text(s_time_label, "00:00 / 00:00");
     lv_obj_set_style_text_color(s_time_label, lv_color_hex(0x8ea4d7),
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(s_time_label, &lv_font_ali_16,
+    lv_obj_set_style_text_font(s_time_label, &lv_font_ali_25,
                                LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_pos(s_time_label, TIME_LABEL_X, TIME_LABEL_Y);
 }

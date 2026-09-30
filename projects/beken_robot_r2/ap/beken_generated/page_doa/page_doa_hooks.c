@@ -76,8 +76,8 @@ static void page_doa_on_init(bk_lv_ui_t *ui)
     lv_obj_clear_flag(ui->page_5_arc_1, LV_OBJ_FLAG_CLICKABLE);
 
     /* Page size override: ap_main sets ROTATE_90 so the logical screen
-     * is 385x320 (landscape), but Designer wrote lv_obj_set_size(page_5,
-     * 320, 385) for the physical orientation. Override here so page
+     * is landscape, but Designer wrote lv_obj_set_size(page_5, ...) for
+     * the portrait physical orientation. Override here so page
      * local coordinates match the application layer's. */
     lv_obj_set_size(ui->page_5, LOGICAL_SCREEN_WIDTH, LOGICAL_SCREEN_HEIGHT);
 

@@ -2,8 +2,8 @@
  * @file page_bt_music.c
  * @brief Bluetooth A2DP music page -- "Glass Spectrum" (design scheme 2).
  *
- * Layout (385 x 320):
- *   - top status bar: connection dot + state text (i18n via lv_font_ali_16);
+ * Layout (authored on the legacy 385 x 320 canvas, scaled via UI_LX/UI_LY):
+ *   - top status bar: connection dot + state text (i18n via lv_font_ali_25);
  *   - a cyan/purple "glass" panel with lightweight accent lines and 6 rainbow
  *     bars, one per hand joint (5 fingers low->high freq + wrist/base);
  *   - bottom row like the reference: prev / play / next / vol- / vol+ /
@@ -36,7 +36,7 @@
 
 #ifdef ROBOT_TEST
 
-#define BTM_TEXT_FONT  (&lv_font_ali_16)
+#define BTM_TEXT_FONT  (&lv_font_ali_25)
 
 /* ---- Neon palette (dark cyber theme) ---- */
 #define C_BG_BOTTOM    0x05060f
@@ -60,34 +60,34 @@
  * thumb/highest), bar5 = the wrist/base rotation. Each bar mirrors that servo's
  * live travel via bt_rhythm_get_pose_levels(). */
 #define BTM_BARS            6
-#define BTM_BAR_W           34
-#define BTM_BAR_GAP         20
-#define BTM_BAR_TOP         50
-#define BTM_BAR_H           144     /* baseline at y = TOP + H = 194 */
-#define BTM_BAR_MIN         6
-#define BTM_CAP_H           2
+#define BTM_BAR_W           UI_LX(34)
+#define BTM_BAR_GAP         UI_LX(20)
+#define BTM_BAR_TOP         UI_LY(50)
+#define BTM_BAR_H           UI_LY(144)
+#define BTM_BAR_MIN         UI_LY(6)
+#define BTM_CAP_H           UI_LY(2)
 #define BTM_BASE_Y          (BTM_BAR_TOP + BTM_BAR_H)
 #define BTM_BAR_VIS_MAX      84.0f  /* UI-only cap: hand can be 100, bar won't look full */
 #define BTM_BAR_VIS_GAIN     0.96f  /* compression starts before the top */
 #define BTM_BAR_TOP_COMPRESS 0.12f  /* stronger compression near 100 */
 #define BTM_IMM_TIMEOUT_MS   5000U
 #define BTM_TRANSPORT_DEBOUNCE_MS 300U
-#define BTM_IMM_BAR_W        38
-#define BTM_IMM_BAR_GAP      17
-#define BTM_IMM_BAR_TOP      30
-#define BTM_IMM_BAR_H        236
+#define BTM_IMM_BAR_W        UI_LX(38)
+#define BTM_IMM_BAR_GAP      UI_LX(17)
+#define BTM_IMM_BAR_TOP      UI_LY(30)
+#define BTM_IMM_BAR_H        UI_LY(236)
 #define BTM_IMM_BASE_Y       (BTM_IMM_BAR_TOP + BTM_IMM_BAR_H)
-#define BTM_IMM_CAP_H        3
+#define BTM_IMM_CAP_H        UI_LY(3)
 
 /* Top-right "pair" button: forces the sink back to connectable + discoverable
  * so the phone can find it while a reconnect to an older phone is still
  * retrying. Kept well inside the right edge, which the panel clips. */
-#define BTM_PAIR_W          52
-#define BTM_PAIR_H          24
-#define BTM_PAIR_X          (LOGICAL_SCREEN_WIDTH - BTM_PAIR_W - 30)
-#define BTM_PAIR_Y          13
-#define BTM_STATUS_TEXT_X   62
-#define BTM_STATUS_TEXT_W   (BTM_PAIR_X - BTM_STATUS_TEXT_X - 8)
+#define BTM_PAIR_W          UI_LX(52)
+#define BTM_PAIR_H          UI_LY(24)
+#define BTM_PAIR_X          (LOGICAL_SCREEN_WIDTH - BTM_PAIR_W - UI_LX(30))
+#define BTM_PAIR_Y          UI_LY(13)
+#define BTM_STATUS_TEXT_X   UI_LX(62)
+#define BTM_STATUS_TEXT_W   (BTM_PAIR_X - BTM_STATUS_TEXT_X - UI_LX(8))
 
 typedef enum {
     BTM_ACT_NONE = 0,
@@ -325,10 +325,10 @@ static void draw_button_base(lv_layer_t *layer, int x, int y, int w, int h,
 
 static void get_button_area(btm_action_t action, int *x, int *y, int *w, int *h)
 {
-    const int dn = 42, dp = 52, gap = 12;
+    const int dn = UI_LY(42), dp = UI_LY(52), gap = UI_LX(12);
     const int row_w = dn * 4 + dp + gap * 4;
     const int rx = (LOGICAL_SCREEN_WIDTH - row_w) / 2;
-    const int yn = 216, yp = 211;
+    const int yn = UI_LY(216), yp = UI_LY(211);
 
     switch (action) {
     case BTM_ACT_VOL_DOWN:
@@ -393,7 +393,7 @@ static void visualizer_draw_cb(lv_event_t *e)
     int span = BTM_BARS * bw + (BTM_BARS - 1) * gap;
     int x0 = (LOGICAL_SCREEN_WIDTH - span) / 2;
 
-    draw_rect(layer, 32, base_y + 3, LOGICAL_SCREEN_WIDTH - 64, 2,
+    draw_rect(layer, UI_LX(32), base_y + UI_LY(3), LOGICAL_SCREEN_WIDTH - UI_LX(64), UI_LY(2),
               C_BASE_GLOW, LV_OPA_40, 1);
 
     for (int i = 0; i < BTM_BARS; i++) {
@@ -445,12 +445,14 @@ static const char *button_symbol(btm_action_t action)
 
 static void draw_robot_icon(lv_layer_t *layer, int x, int y, int h)
 {
-    draw_rect(layer, x + 9,  y + 11, 18, 15, C_ROBOT_ON, LV_OPA_COVER, 4);
-    draw_rect(layer, x + 17, y + 6,   2,  5, C_ROBOT_ON, LV_OPA_COVER, 1);
-    draw_rect(layer, x + 14, y + 4,   8,  3, C_ROBOT_ON, LV_OPA_COVER, 2);
-    draw_rect(layer, x + 13, y + 17,  3,  3, C_BG_BOTTOM, LV_OPA_COVER, 2);
-    draw_rect(layer, x + 21, y + 17,  3,  3, C_BG_BOTTOM, LV_OPA_COVER, 2);
-    draw_rect(layer, x + 36, y + 7,   1, h - 14, C_ROBOT_ON, LV_OPA_60, 0);
+    /* The glyph is drawn from primitives rather than a font, so every span
+     * scales on the Y factor to stay square. */
+    draw_rect(layer, x + UI_LY(9),  y + UI_LY(11), UI_LY(18), UI_LY(15), C_ROBOT_ON, LV_OPA_COVER, 4);
+    draw_rect(layer, x + UI_LY(17), y + UI_LY(6),  UI_LY(2),  UI_LY(5),  C_ROBOT_ON, LV_OPA_COVER, 1);
+    draw_rect(layer, x + UI_LY(14), y + UI_LY(4),  UI_LY(8),  UI_LY(3),  C_ROBOT_ON, LV_OPA_COVER, 2);
+    draw_rect(layer, x + UI_LY(13), y + UI_LY(17), UI_LY(3),  UI_LY(3),  C_BG_BOTTOM, LV_OPA_COVER, 2);
+    draw_rect(layer, x + UI_LY(21), y + UI_LY(17), UI_LY(3),  UI_LY(3),  C_BG_BOTTOM, LV_OPA_COVER, 2);
+    draw_rect(layer, x + UI_LY(36), y + UI_LY(7),  1, h - UI_LY(14), C_ROBOT_ON, LV_OPA_60, 0);
 }
 
 static void draw_transport_button(lv_layer_t *layer, btm_action_t action)
@@ -507,14 +509,16 @@ static void chrome_draw_cb(lv_event_t *e)
     lv_layer_t *layer = lv_event_get_layer(e);
     bool linked = (s_ui_linked > 0);
 
-    draw_rect(layer, 28, 24, 9, 9, linked ? C_LINK_OK : C_LINK_OFF, LV_OPA_COVER, 5);
-    draw_text(layer, LV_SYMBOL_BLUETOOTH, 46, 18, 16, 18, LV_FONT_DEFAULT,
+    draw_rect(layer, UI_LX(28), UI_LY(24), UI_LY(9), UI_LY(9),
+              linked ? C_LINK_OK : C_LINK_OFF, LV_OPA_COVER, 5);
+    draw_text(layer, LV_SYMBOL_BLUETOOTH, UI_LX(46), UI_LY(18), UI_LX(16), UI_LY(18), LV_FONT_DEFAULT,
               linked ? C_TITLE : C_LINK_OFF, LV_TEXT_ALIGN_LEFT);
     draw_text(layer, ui_tr(linked ? STR_BT_MUSIC_CONNECTED : STR_BT_MUSIC_SEARCHING),
-              BTM_STATUS_TEXT_X, 18, BTM_STATUS_TEXT_W, 18, BTM_TEXT_FONT,
+              BTM_STATUS_TEXT_X, UI_LY(18), BTM_STATUS_TEXT_W, UI_LY(18), BTM_TEXT_FONT,
               linked ? C_TITLE : C_LINK_OFF, LV_TEXT_ALIGN_LEFT);
     draw_pair_button(layer);
-    draw_rect(layer, 16, 46, LOGICAL_SCREEN_WIDTH - 32, 1, C_DIVIDER, LV_OPA_COVER, 0);
+    draw_rect(layer, UI_LX(16), UI_LY(46), LOGICAL_SCREEN_WIDTH - UI_LX(32), 1,
+              C_DIVIDER, LV_OPA_COVER, 0);
 
     draw_transport_button(layer, BTM_ACT_VOL_DOWN);
     draw_transport_button(layer, BTM_ACT_PREV);
@@ -895,10 +899,10 @@ static void show_toast(const char *message, const lv_font_t *font)
 
     s_toast = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(s_toast);
-    lv_obj_set_width(s_toast, LOGICAL_SCREEN_WIDTH - 56);
+    lv_obj_set_width(s_toast, LOGICAL_SCREEN_WIDTH - UI_LX(56));
     lv_obj_set_height(s_toast, LV_SIZE_CONTENT);
     lv_obj_center(s_toast);
-    lv_obj_set_style_pad_all(s_toast, 14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_toast, UI_LY(14), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_radius(s_toast, 12, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(s_toast, lv_color_hex(0x10182e), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(s_toast, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -907,7 +911,7 @@ static void show_toast(const char *message, const lv_font_t *font)
     lv_obj_set_style_border_opa(s_toast, LV_OPA_70, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     lv_obj_t *lbl = lv_label_create(s_toast);
-    lv_obj_set_width(lbl, LOGICAL_SCREEN_WIDTH - 56 - 28);
+    lv_obj_set_width(lbl, LOGICAL_SCREEN_WIDTH - UI_LX(56) - UI_LX(28));
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_font(lbl, font, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(lbl, lv_color_hex(C_TITLE), LV_PART_MAIN | LV_STATE_DEFAULT);

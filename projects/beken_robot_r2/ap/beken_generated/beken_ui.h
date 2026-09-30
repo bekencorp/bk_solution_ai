@@ -31,16 +31,24 @@ extern "C" {
 #include "lvgl.h"
 
 /* Display configuration (physical panel scan order) */
-#define SCREEN_WIDTH    320
-#define SCREEN_HEIGHT   385
+#define SCREEN_WIDTH    480
+#define SCREEN_HEIGHT   640
 /* Logical canvas after ap_main ROTATE_90 */
-#define LOGICAL_SCREEN_WIDTH   385
-#define LOGICAL_SCREEN_HEIGHT  320
+#define LOGICAL_SCREEN_WIDTH   640
+#define LOGICAL_SCREEN_HEIGHT  480
 /* Scale Designer coords (390x360 logical) to current logical canvas */
 #define UI_SCALE_X(v)  ((v) * LOGICAL_SCREEN_WIDTH  / 390)
 #define UI_SCALE_Y(v)  ((v) * LOGICAL_SCREEN_HEIGHT / 360)
-/* ~2 mm vertical shift on 385x320 logical canvas (~9.2 px/mm) */
-#define UI_SHIFT_Y_2MM  18
+/* Scale legacy page coords to the current logical canvas. Page layouts were
+ * authored directly in the 385x320 canvas of the old jd9855 panel, which is a
+ * different basis from the 390x360 Designer sheet above: on Y the two diverge
+ * by 12% (480/320 vs 480/360), so the two pairs are not interchangeable. */
+#define UI_LEGACY_CANVAS_W  385
+#define UI_LEGACY_CANVAS_H  320
+#define UI_LX(v)  ((v) * LOGICAL_SCREEN_WIDTH  / UI_LEGACY_CANVAS_W)
+#define UI_LY(v)  ((v) * LOGICAL_SCREEN_HEIGHT / UI_LEGACY_CANVAS_H)
+/* ~2 mm vertical shift on the 640x480 logical canvas (~13.07 px/mm) */
+#define UI_SHIFT_Y_2MM  26
 
 typedef struct
 {
