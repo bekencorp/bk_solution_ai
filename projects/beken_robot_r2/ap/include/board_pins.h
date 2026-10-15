@@ -12,6 +12,7 @@
 /* Shared peripheral power rails. */
 #define BOARD_PIN_PERIPH_3V3       GPIO_20
 #define BOARD_PIN_PERIPH_2V8       GPIO_29
+#define BOARD_PIN_PERIPH_1V2       GPIO_27
 
 /* MIPI DSI panel control. Backlight uses a PNP high-side switch: LOW = on. */
 #define BOARD_LCD_PIN_BACKLIGHT    GPIO_40

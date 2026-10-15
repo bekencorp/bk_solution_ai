@@ -78,22 +78,20 @@ static media_test_state_t s_test;
 void media_board_power_on(void)
 {
     /* board LCD panel peripheral 3.3V power-on */
-    gpio_dev_unmap(BOARD_PIN_PERIPH_3V3);
-    BK_LOG_ON_ERR(bk_gpio_enable_output(BOARD_PIN_PERIPH_3V3));
     BK_LOG_ON_ERR(bk_gpio_pull_up(BOARD_PIN_PERIPH_3V3));
     bk_gpio_set_output_high(BOARD_PIN_PERIPH_3V3);
 
     /* board camera peripheral 2.8V power-on */
-    gpio_dev_unmap(BOARD_PIN_PERIPH_2V8);
-    BK_LOG_ON_ERR(bk_gpio_enable_output(BOARD_PIN_PERIPH_2V8));
     BK_LOG_ON_ERR(bk_gpio_pull_up(BOARD_PIN_PERIPH_2V8));
     bk_gpio_set_output_high(BOARD_PIN_PERIPH_2V8);
+
+    BK_LOG_ON_ERR(bk_gpio_pull_up(BOARD_PIN_PERIPH_1V2));
+    bk_gpio_set_output_high(BOARD_PIN_PERIPH_1V2);
 }
 
 static void media_backlight_on(void)
 {
     /* active-low backlight: drive LOW = ON. */
-    gpio_dev_unmap(BOARD_LCD_PIN_BACKLIGHT);
     BK_LOG_ON_ERR(bk_gpio_enable_output(BOARD_LCD_PIN_BACKLIGHT));
     BK_LOG_ON_ERR(bk_gpio_pull_down(BOARD_LCD_PIN_BACKLIGHT));
     bk_gpio_set_output_low(BOARD_LCD_PIN_BACKLIGHT);
@@ -101,7 +99,6 @@ static void media_backlight_on(void)
 
 static void media_backlight_off(void)
 {
-    gpio_dev_unmap(BOARD_LCD_PIN_BACKLIGHT);
     BK_LOG_ON_ERR(bk_gpio_enable_output(BOARD_LCD_PIN_BACKLIGHT));
     bk_gpio_set_output_high(BOARD_LCD_PIN_BACKLIGHT);
 }
