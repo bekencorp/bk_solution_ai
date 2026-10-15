@@ -2207,9 +2207,19 @@ static int audio_engine_start_inner(audio_engine_cfg_t *cfg)
         }
     }
     onboard_mic_cfg.adc_cfg.aec_en = cfg->aec_enable;
+#if CONFIG_ROBOT_R2
+    /* Robot R2: MICP0/N0, MICP1/N1, MICP2/N2 are differential analog pads.
+     * MICBIAS is enabled by bk_aud_adc_init(). Leave dmic off so ch0/ch1/ch2
+     * stay on those pads. aec_en above still appends the hardware ref lane. */
+    onboard_mic_cfg.dmic_en = 0;
+    for (uint32_t j = 0; j < AUD_ADC_CHL_MAX; j++) {
+        onboard_mic_cfg.adc_cfg.chl_cfg[j].adc_mode = AUD_ADC_MODE_DIFFEN;
+    }
+#else
     onboard_mic_cfg.dmic_cfg.dmic_clk_gpio  = GPIO_50;
     onboard_mic_cfg.dmic_cfg.dmic_data_gpio = GPIO_49;
     onboard_mic_cfg.dmic_en = 1;
+#endif
 #endif
 
     voice_cfg->mic_cfg.onboard_mic_cfg = onboard_mic_cfg;
@@ -2235,7 +2245,14 @@ static int audio_engine_start_inner(audio_engine_cfg_t *cfg)
             aec_cfg.aec_level_cb           = bk_aec_level_cb;
             aec_cfg.aec_cfg.ec_only_output = 1;
             aec_cfg.aec_cfg.multi_output_use_ec_out = 1;
-            aec_cfg.dual_ch            = 1;
+#if CONFIG_ROBOT_R2
+            /* Debug stage: de-interleave ADC0/1/2 into mic_addr. The AEC call is
+             * temporarily disabled in the shared algorithm implementation. */
+            aec_cfg.dual_ch = 2;
+            aec_cfg.aec_cfg.adc_ch_num = 3;
+#else
+            aec_cfg.dual_ch = 1;
+#endif
             aec_cfg.multi_in_port_num  = 0;
             aec_cfg.vad_cfg.vad_enable = 1;
             aec_cfg.vad_cfg.vad_eng_threshold = 500;
