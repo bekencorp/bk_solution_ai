@@ -80,11 +80,11 @@ int bt_music_start(void)
         return -1;
     }
 
-    bt_music_wifi_pause();
+    /* bt_music_wifi_pause(); */
 
     if (page_bt_music_enter() != 0) {
         LOGW("page enter failed\n");
-        bt_music_wifi_resume();
+        /* bt_music_wifi_resume(); */
         return -1;
     }
 
@@ -92,7 +92,7 @@ int bt_music_start(void)
     if (a2dp_sink_demo_start(0 /* aac off */, 1 /* auto-accept */) != 0) {
         LOGE("a2dp_sink_demo_start failed\n");
         (void)a2dp_sink_demo_stop();
-        bt_music_wifi_resume();
+        /* bt_music_wifi_resume(); */
         page_bt_music_show_low_mem_hint();
         return -1;
     }
@@ -112,7 +112,7 @@ int bt_music_stop(void)
 #if CONFIG_BT
     (void)a2dp_sink_demo_stop();
 #endif
-    bt_music_wifi_resume();
+    /* bt_music_wifi_resume(); */
     return 0;
 }
 
