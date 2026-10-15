@@ -18,7 +18,6 @@
 #include <avdk_error.h>
 #include <lcd/lcd_mipi_jd9855_320x385.h>
 
-
 #define TAG "baf_example"
 
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -35,9 +34,6 @@
 #define LVGL_DISP_HEIGHT       385
 #define LVGL_DRAW_BUFFER_LINES (64)
 
-#define SYS_ANA_REG_BASE    (0x44010000)
-#define LDO_ANA_REG         (0x69)
-
 #if CONFIG_LVGL
 static bk_display_ctlr_handle_t s_dpu_ctlr_handle = NULL;
 static bk_display_bus_handle_t  s_dsi_bus_handle = NULL;
@@ -51,15 +47,6 @@ static void robot_board_power_on(void)
     (void)bk_gpio_enable_output(BOARD_PERIPH_3V3_PIN);
     (void)bk_gpio_pull_up(BOARD_PERIPH_3V3_PIN);
     bk_gpio_set_output_high(BOARD_PERIPH_3V3_PIN);
-}
-
-static void bk_auxldo_enable(void)
-{
-    uint32_t reg = REG_READ(SYS_ANA_REG_BASE + LDO_ANA_REG * 4);
-    reg |= (0xFU << 28) | (0x2U << 23) | (0x7U << 19) | (0x7U << 15);
-    reg &= ~(0xFU << 11);
-    reg |= (0x8U << 11);
-    REG_WRITE(SYS_ANA_REG_BASE + LDO_ANA_REG * 4, reg);
 }
 
 #if CONFIG_LVGL
@@ -296,8 +283,6 @@ int main(void)
     media_service_init();
 
     robot_board_power_on();
-    bk_auxldo_enable();
-
     bk_frame_buffer_init();
 
     /* On-board TF/SD card + `tf` CLI (list dirs/files). Independent of the
