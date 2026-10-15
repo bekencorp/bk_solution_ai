@@ -30,6 +30,7 @@
 
 建议客户选择 `release/v4.0.1.x` 系列中版本号最大的标签进行开发和量产。仅需体验最新功能或参与开发时，才建议使用 `release/v4.0.1` 分支。
 
+<!-- readme-get-started:code -->
 ## 获取代码
 
 BK7259 机器人方案和 Armino SMP SDK 均同步发布至 GitHub、Gitee 和 GitLab，可根据网络环境及访问权限选择代码源。
@@ -68,8 +69,7 @@ git clone --branch release/v4.0.1.6 https://github.com/bekencorp/bk_avdk_smp.git
 git clone --branch release/v4.0.1.6 https://github.com/bekencorp/bk_solution_ai.git
 ```
 
-代码获取的更多说明见 [快速入门](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/zh_CN/v4.0.1/get-started/index.html)。
-
+<!-- readme-get-started:env -->
 ## 编译环境安装
 
 Armino SMP 支持本地编译和 Docker 编译，可根据开发平台选择以下方式部署编译环境。
@@ -90,10 +90,11 @@ sudo bash tools/env_tools/setup/armino_env_setup.sh
 
 ### Docker 编译
 
-Docker 编译镜像为 [`bekencorp/armino-idk`](https://hub.docker.com/r/bekencorp/armino-idk/tags)，请选择 `1.5` 或更高版本的镜像标签，支持 Windows / Linux / macOS。
+Docker 编译镜像为 [bekencorp/armino-idk](https://hub.docker.com/r/bekencorp/armino-idk/tags)，请选择 `1.5` 或更高版本的镜像标签，支持 Windows / Linux / macOS。
 
-详细安装步骤请参阅 [Armino SMP 快速入门：环境部署及编译](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7259/zh_CN/v4.0.1/get-started/index.html)。
+详细安装步骤请参阅 [环境部署及编译](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7259/zh_CN/v4.0.1/get-started/index.html#smp-get-started-env)。
 
+<!-- readme-get-started:build -->
 ## 编译工程
 
 以 `beken_robot` 工程为例（位于 `projects/beken_robot`），通过 `SDK_DIR` 指向 Armino SMP SDK 后本地编译：
@@ -117,8 +118,7 @@ export SDK_DIR=~/armino/bk_avdk_smp
 projects/beken_robot/build/bk7259/beken_robot/package/all-app.bin
 ```
 
-编译命令的详细说明请参阅 [快速入门](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/zh_CN/v4.0.1/get-started/index.html)。
-
+<!-- readme-get-started:flash -->
 ## 烧录固件
 
 可选择以下任一方式烧录固件：
@@ -128,16 +128,15 @@ projects/beken_robot/build/bk7259/beken_robot/package/all-app.bin
 
 烧录时请选择上一节编译生成的 `all-app.bin` 固件文件。
 
-详细烧录流程请参阅 [Armino SMP 快速入门](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7259/zh_CN/v4.0.1/get-started/index.html)。
+详细烧录流程请参阅 [烧录代码](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7259/zh_CN/v4.0.1/get-started/index.html#smp-get-started-flash)。
 
 ## 参考工程
 
-| 工程名 | 主要功能 | 详细说明 |
-| --- | --- | --- |
-| [beken_robot](../projects/beken_robot/) | 机器人应用底座：LCD / LVGL、本地语音唤醒、声源定位、AI 语音与视觉对话、BLE 配网、NPU 视觉识别、外设控制、Wi-Fi 图传、SD NAND 等。`secureboot_ai` 编译时引用本工程应用源码。 | [详细说明及使用说明在线文档](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/zh_CN/v4.0.1/projects/beken_robot/index.html) |
-| [secureboot_ai](../projects/secureboot_ai/) | 在 `beken_robot` 应用栈上增加 BL1、BL2/MCUboot、TF-M、镜像签名和 Flash AES。应用源码引用 `beken_robot`，本工程只保留安全启动差异。维护说明见 [代码复用说明](../projects/CODE_SHARE_GUIDE_CN.md)。 | [详细说明及使用说明在线文档](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/zh_CN/v4.0.1/projects/secureboot_ai/index.html) |
-| [baf_example](../projects/baf_example/) | BAF 动画播放示例：RAW/LVGL 后端、固件内置与 TF 卡 ``.baf`` 多层合成播放。 | [详细说明及使用说明在线文档](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/zh_CN/v4.0.1/projects/baf_example/index.html) |
-
+以下列出参考工程，可点击查看工程详细说明。<!-- readme-projects:begin -->
+- [baf_example](/projects/baf_example/)
+- [beken_robot](/projects/beken_robot/)
+- [secureboot_ai](/projects/secureboot_ai/)
+<!-- readme-projects:end -->
 ## BEKEN 相关资源
 
 - [BEKEN 官网](https://www.bekencorp.com/)

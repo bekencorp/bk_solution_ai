@@ -30,6 +30,7 @@ This solution uses a "maintenance branch + release tag" version management appro
 
 We recommend that customers choose the tag with the highest version number in the `release/v4.0.1.x` series for development and mass production. Only use the `release/v4.0.1` branch when you need to try the latest features or participate in development.
 
+<!-- readme-get-started:code -->
 ## Get the Code
 
 The BK7259 Robot Solution and the Armino SMP SDK are published simultaneously on GitHub, Gitee, and GitLab. Choose a code source based on your network environment and access permissions.
@@ -68,8 +69,7 @@ git clone --branch release/v4.0.1.6 https://github.com/bekencorp/bk_avdk_smp.git
 git clone --branch release/v4.0.1.6 https://github.com/bekencorp/bk_solution_ai.git
 ```
 
-For more details on getting the code, see [Quick Start](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/get-started/index.html).
-
+<!-- readme-get-started:env -->
 ## Set Up the Build Environment
 
 Armino SMP supports both local builds and Docker builds. Choose one of the following methods to set up the build environment based on your development platform.
@@ -90,10 +90,11 @@ Download and install [Armino Bash](https://dl.bekencorp.com/tools/arminosdk/Wind
 
 ### Docker Build
 
-The Docker build image is [`bekencorp/armino-idk`](https://hub.docker.com/r/bekencorp/armino-idk/tags). Choose an image tag of `1.5` or higher; it supports Windows / Linux / macOS.
+The Docker build image is [bekencorp/armino-idk](https://hub.docker.com/r/bekencorp/armino-idk/tags). Choose an image tag of `1.5` or higher; it supports Windows / Linux / macOS.
 
-For detailed setup steps, see [Armino SMP Quick Start: Environment deployment and build](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7259/en/v4.0.1/get-started/index.html).
+For detailed setup steps, see [Environment Deployment and Compilation](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7259/en/v4.0.1/get-started/index.html#smp-get-started-env).
 
+<!-- readme-get-started:build -->
 ## Build the Project
 
 Using the `beken_robot` project as an example (located at `projects/beken_robot`), build locally by pointing `SDK_DIR` to the Armino SMP SDK:
@@ -117,8 +118,7 @@ After a successful build, the firmware file used for flashing is located at the 
 projects/beken_robot/build/bk7259/beken_robot/package/all-app.bin
 ```
 
-For detailed build commands, see [Quick Start](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/get-started/index.html).
-
+<!-- readme-get-started:flash -->
 ## Flash the Firmware
 
 You can flash the firmware using either of the following methods:
@@ -128,16 +128,15 @@ You can flash the firmware using either of the following methods:
 
 When flashing, select the `all-app.bin` firmware file generated in the previous section.
 
-For the detailed flashing process, see [Armino SMP Quick Start](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7259/en/v4.0.1/get-started/index.html).
+For the detailed flashing process, see [Burn Code](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7259/en/v4.0.1/get-started/index.html#smp-get-started-flash).
 
 ## Reference Projects
 
-| Project | Main features | Details |
-| --- | --- | --- |
-| [beken_robot](../projects/beken_robot/) | Robot application base: LCD / LVGL, local voice wake-up, sound source localization, AI voice and vision dialog, BLE provisioning, NPU vision, peripherals, Wi-Fi video, SD NAND, and more. `secureboot_ai` compiles application sources from this project. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/projects/beken_robot/index.html) |
-| [secureboot_ai](../projects/secureboot_ai/) | Adds BL1, BL2/MCUboot, TF-M, image signing and Flash AES on top of the `beken_robot` application stack. Application sources are referenced from `beken_robot`; this project keeps the secure-boot differences. See the [sharing guide](../projects/CODE_SHARE_GUIDE.md). | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/projects/secureboot_ai/index.html) |
-| [baf_example](../projects/baf_example/) | BAF animation playback demo: RAW/LVGL backends, firmware-embedded and TF-card ``.baf`` multi-layer compositing. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7259/en/v4.0.1/projects/baf_example/index.html) |
-
+The following reference projects are listed; click a name for details.<!-- readme-projects:begin -->
+- [baf_example](/projects/baf_example/)
+- [beken_robot](/projects/beken_robot/)
+- [secureboot_ai](/projects/secureboot_ai/)
+<!-- readme-projects:end -->
 ## Beken Resources
 
 - [Beken official website](https://www.bekencorp.com/)

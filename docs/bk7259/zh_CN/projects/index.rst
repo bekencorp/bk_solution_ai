@@ -5,6 +5,7 @@
 
 .. toctree::
     :maxdepth: 1
-    :glob:
 
-    */index
+    baf_example/index
+    beken_robot/index
+    secureboot_ai/index

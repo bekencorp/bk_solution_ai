@@ -9,7 +9,7 @@ bk7259/
 ├── en/                                                     # 英文文档
 │   ├── index.rst
 │   ├── intro/         # 方案简介
-│   ├── get-started/   # 快速入门（含 env-manual / env-docker）
+│   ├── get-started/   # 快速入门（环境部署见 Armino SMP，本仓不维护 env-manual / env-docker）
 │   ├── hw-reference/  # 硬件参考
 │   ├── developer-guide/   # 各 components 模块开发者指南
 │   ├── projects/      # 参考工程（beken_robot 为应用底座；secureboot_ai 引用其源码；另有 baf_example）
