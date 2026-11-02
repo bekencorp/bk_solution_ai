@@ -44,8 +44,8 @@ static const char *const s_home_items[UI_LANG_COUNT][HOME_ITEM_COUNT] = {
 };
 
 static const char *const s_home_tags[UI_LANG_COUNT][HOME_ITEM_COUNT] = {
-    { "WiFi/BLE",  "AI/娱乐",  "音量/系统" },
-    { "WiFi/BLE",  "AI/Fun",   "Vol/Sys" },
+    { "WiFi/4G",  "AI/娱乐",  "音量/系统" },
+    { "WiFi/4G",  "AI/Fun",   "Vol/Sys" },
 };
 
 static const ui_theme_icon_kind_t s_home_icons[HOME_ITEM_COUNT] = {

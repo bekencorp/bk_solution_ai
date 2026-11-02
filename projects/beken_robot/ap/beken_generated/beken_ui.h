@@ -56,6 +56,7 @@ typedef struct
     lv_obj_t *page_2_button_3_label;
     lv_obj_t *page_2_image_1;
     lv_obj_t *page_2_image_2;
+    lv_obj_t *page_2_image_3;
     lv_obj_t *page_2_bar_1;
     /* Page: 2 objects */
     lv_obj_t *page_3;

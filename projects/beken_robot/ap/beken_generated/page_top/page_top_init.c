@@ -68,6 +68,45 @@ static void wifi_icon_draw_event_cb(lv_event_t *e)
     lv_draw_rect(layer, &ddsc, &dot);
 }
 
+/*
+ * Vector mobile-signal icon (4G). Four rising signal bars, drawn with LVGL
+ * primitives so it shares the theme primary colour with the WiFi / battery
+ * indicators. Hosted on page_2_image_3, toggled mutually-exclusively with the
+ * WiFi icon (page_2_image_2) by the wifi_status_ui bridge based on whether the
+ * active bearer is the 4G modem (NETIF_IF_MODEM) or WiFi.
+ */
+static void mobile_signal_icon_draw_event_cb(lv_event_t *e)
+{
+    lv_obj_t *obj = lv_event_get_target(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t coords;
+    lv_obj_get_coords(obj, &coords);
+
+    const lv_color_t color = lv_color_hex(UI_THEME_COLOR_PRIMARY);
+    const int32_t bottom = coords.y2 - 1;
+    static const uint16_t bar_h[4] = {4, 8, 12, 16};    /* rising bars */
+    const int32_t bw = 3;
+    const int32_t gap = 3;
+    const int32_t x0 = coords.x1 + 2;
+
+    lv_draw_rect_dsc_t ddsc;
+    lv_draw_rect_dsc_init(&ddsc);
+    ddsc.base.layer = layer;
+    ddsc.bg_color = color;
+    ddsc.bg_opa = LV_OPA_COVER;
+    ddsc.radius = 1;
+
+    for (int i = 0; i < 4; i++) {
+        lv_area_t bar = {
+            x0 + i * (bw + gap),
+            bottom - (int32_t)bar_h[i],
+            x0 + i * (bw + gap) + bw - 1,
+            bottom
+        };
+        lv_draw_rect(layer, &ddsc, &bar);
+    }
+}
+
 
 /*
  * @brief: init page page_2
@@ -108,6 +147,20 @@ void init_page_page_2(bk_lv_ui_t *bk_ui)
      * src/common/wifi_status_ui.c based on
      * bk_sconf_is_network_provisioned(); that dependency is kept out
      * of this generated file. */
+
+    /* 4G mobile-signal icon, stacked at the same top-right position and shown
+     * mutually-exclusively with the WiFi icon by the wifi_status_ui bridge
+     * when the active bearer is the 4G modem. Hidden by default. */
+    bk_ui->page_2_image_3 = lv_obj_create(bk_ui->page_2);
+    lv_obj_remove_style_all(bk_ui->page_2_image_3);
+    lv_obj_clear_flag(bk_ui->page_2_image_3, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(bk_ui->page_2_image_3, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_x(bk_ui->page_2_image_3, 330);
+    lv_obj_set_y(bk_ui->page_2_image_3, 24);
+    lv_obj_set_width(bk_ui->page_2_image_3, 28);
+    lv_obj_set_height(bk_ui->page_2_image_3, 18);
+    lv_obj_add_event_cb(bk_ui->page_2_image_3, mobile_signal_icon_draw_event_cb,
+                        LV_EVENT_DRAW_MAIN, NULL);
 
     bk_ui->page_2_bar_1 = lv_bar_create(bk_ui->page_2);
     lv_bar_set_range(bk_ui->page_2_bar_1, 0, 100);

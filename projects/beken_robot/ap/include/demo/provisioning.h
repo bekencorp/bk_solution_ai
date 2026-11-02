@@ -32,6 +32,16 @@ void provisioning_factory_reset(void);
 int provisioning_get_ssid(char *buf, int len);
 
 /**
+ * @brief Get the bearer string of the currently connected 4G LTE modem.
+ *
+ * @param buf  output buffer (always NUL-terminated).
+ * @param len  size of @p buf in bytes.
+ * @return 0 when the modem netif (NETIF_IF_MODEM) has a valid IP and @p buf
+ *         holds it; -1 otherwise (buf is set to an empty string).
+ */
+int provisioning_get_lte_info(char *buf, int len);
+
+/**
  * @brief Get the BLE provisioning device name (what the phone app scans for).
  *
  * The name follows the "bk_robot_XXXXXX" rule and is the single source of truth:

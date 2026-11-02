@@ -15,6 +15,7 @@
 #include "audio_engine.h"
 #include <components/log.h>
 #include <components/system.h>
+#include <components/netif.h>
 #include "bk_wifi.h"
 #include "bk_wifi_types.h"
 
@@ -125,6 +126,27 @@ int provisioning_get_ssid(char *buf, int len)
     return 0;
 }
 
+int provisioning_get_lte_info(char *buf, int len)
+{
+    netif_ip4_config_t ip4 = {0};
+
+    if (buf == NULL || len <= 0) {
+        return -1;
+    }
+    buf[0] = '\0';
+
+    if (bk_netif_get_ip4_config(NETIF_IF_MODEM, &ip4) != BK_OK) {
+        return -1;
+    }
+    if (ip4.ip[0] == '\0' || os_strcmp(ip4.ip, "0.0.0.0") == 0) {
+        return -1;
+    }
+
+    strncpy(buf, ip4.ip, (size_t)len - 1);
+    buf[len - 1] = '\0';
+    return 0;
+}
+
 int provisioning_get_ble_name(char *buf, int len)
 {
     return provisioning_build_device_name(buf, len);
@@ -172,6 +194,13 @@ void provisioning_trigger_smart_config(void) {}
 void provisioning_delete_smart_config(void) {}
 void provisioning_factory_reset(void) {}
 int  provisioning_get_ssid(char *buf, int len)
+{
+    if (buf != NULL && len > 0) {
+        buf[0] = '\0';
+    }
+    return -1;
+}
+int  provisioning_get_lte_info(char *buf, int len)
 {
     if (buf != NULL && len > 0) {
         buf[0] = '\0';

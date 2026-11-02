@@ -20,6 +20,9 @@
 #include "ui_theme.h"
 #include "ui_touch_gesture.h"
 
+#include <components/netif_types.h>
+#include <modules/wifi_types.h>
+
 #ifdef ROBOT_TEST
 
 #include "ui_nav_router.h"
@@ -82,7 +85,7 @@ static void apply_menu_focus(bk_lv_ui_t *ui)
  * all render in this same slot with a bearer prefix:
  *   - Wi-Fi connected  -> "Wi-Fi: <ssid>"          (wired today)
  *   - BT PAN connected -> "PAN: <name>"            (reserved, see TODO)
- *   - 4G LTE connected -> "LTE: <operator/apn>"    (reserved, see TODO)
+ *   - 4G LTE connected -> "LTE: <ip>"              (implemented, provisioning_get_lte_info)
  * When no bearer is up yet, this line stays empty. The BLE device name the
  * phone app scans for is shown on the caption line instead (built once in
  * init_page_page_4() from provisioning_get_ble_name()), not here.
@@ -93,23 +96,26 @@ static void apply_menu_focus(bk_lv_ui_t *ui)
 static void compute_status(char *status_line, size_t status_sz,
                            char *hint_line, size_t hint_sz)
 {
-    char ssid[33];
+    union {
+        char ssid[WIFI_SSID_STR_LEN];
+        char lte[NETIF_IP4_STR_LEN];
+    } bearer;
 
-    if (provisioning_get_ssid(ssid, sizeof(ssid)) == 0) {
-        snprintf(status_line, status_sz, "Wi-Fi: %s", ssid);
+    if (provisioning_get_ssid(bearer.ssid, sizeof(bearer.ssid)) == 0) {
+        snprintf(status_line, status_sz, "Wi-Fi: %s", bearer.ssid);
         snprintf(hint_line, hint_sz, "%s", "State: CONNECTED");
-    /*
-     * TODO: BT PAN / 4G LTE bearers render in this same slot once their
-     * link-status getters are available, e.g.:
-     *
-     * } else if (provisioning_get_pan_name(pan, sizeof(pan)) == 0) {
-     *     snprintf(status_line, status_sz, "PAN: %s", pan);
-     *     snprintf(hint_line, hint_sz, "%s", "State: CONNECTED");
-     * } else if (provisioning_get_lte_info(lte, sizeof(lte)) == 0) {
-     *     snprintf(status_line, status_sz, "LTE: %s", lte);
-     *     snprintf(hint_line, hint_sz, "%s", "State: CONNECTED");
-     */
+    } else if (provisioning_get_lte_info(bearer.lte, sizeof(bearer.lte)) == 0) {
+        snprintf(status_line, status_sz, "LTE: %s", bearer.lte);
+        snprintf(hint_line, hint_sz, "%s", "State: CONNECTED");
     } else {
+        /*
+         * TODO: BT PAN renders in this same slot once its link-status getter
+         * is available, e.g.:
+         *
+         * } else if (provisioning_get_pan_name(pan, sizeof(pan)) == 0) {
+         *     snprintf(status_line, status_sz, "PAN: %s", pan);
+         *     snprintf(hint_line, hint_sz, "%s", "State: CONNECTED");
+         */
         status_line[0] = '\0';
         snprintf(hint_line, hint_sz, "%s", s_state_text);
     }
@@ -249,6 +255,13 @@ static void on_screen_next(bk_lv_ui_t *ui)
         LOGI("Start provisioning\r\n");
         s_state_text = "State: PROVISIONING";
         provisioning_trigger_smart_config();
+        /* Hide the status icon synchronously: starting provisioning tears
+         * down both bearers, but the provisioning task may already be
+         * running (no RUNNING app_event is re-emitted in that case), so the
+         * event-driven hide alone would leave the stale icon visible. This
+         * is called inside the LVGL event-callback chain under
+         * lv_vendor_disp_lock(), matching the delete-provisioning branch. */
+        wifi_status_ui_set_provisioned_locked(false);
         break;
     case 1:
         LOGI("Delete provisioning\r\n");

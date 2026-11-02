@@ -26,7 +26,7 @@ static const char *const s_tr[STR_ID_COUNT][UI_LANG_COUNT] = {
     [STR_SPLASH_HINT]      = { "轻触屏幕进入系统",        "Tap screen to start" },
 
     [STR_PROV_TITLE]       = { "连接设置",              "Connection" },
-    [STR_PROV_SUBTITLE]    = { "BLE配网 · WiFi连接",     "BLE Setup · WiFi" },
+    [STR_PROV_SUBTITLE]    = { "BLE配网 · WiFi/4G连接", "BLE Setup · WiFi/4G" },
     [STR_PROV_DEVICE_NAME] = { "当前设备名",            "Device Name" },
     [STR_PROV_BTN_START]   = { "开始配网",              "Start Setup" },
     [STR_PROV_BTN_DELETE]  = { "删除配网",              "Delete" },
