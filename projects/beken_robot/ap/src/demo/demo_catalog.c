@@ -55,7 +55,7 @@ enum {
 
 static const char *const s_category_items[UI_LANG_COUNT][DEMO_CAT_COUNT] = {
     { "端侧AI",    "云端AI",    "娱乐互动" },
-    { "Edge AI",   "Cloud AI",  "Fun" },
+    { "Edge AI",   "Cloud AI",  "Media" },
 };
 
 static const char *const s_category_descs[UI_LANG_COUNT][DEMO_CAT_COUNT] = {
@@ -105,11 +105,11 @@ static void demo_center_switch_tab(int delta);
 /* ------------------------------------------------------------------ */
 static const char *const s_edge_items[UI_LANG_COUNT][7] = {
     { "命令词识别", "声源定位", "手掌跟随", "人脸检测", "手势识别", "小车跟随", "人脸识别" },
-    { "Keyword ASR", "Sound Locate", "Palm Follow", "Face Detect", "Gesture", "Car Follow", "Face Recognition" },
+    { "Keyword ASR", "Sound Localization", "Palm Tracking", "Face Detection", "Gesture", "Car Tracking", "Face Recognition" },
 };
 static const char *const s_edge_descs[UI_LANG_COUNT][7] = {
     { "语音控制", "方向定位", "摄像头跟随", "人脸检测", "手势识别", "小车跟随", "人脸识别" },
-    { "Voice", "Direction", "Camera", "Face", "Hand", "Car", "Face recognition" },
+    { "Voice control", "Direction locating", "Camera follow", "Face detection", "Gesture recognition", "Car following", "Face recognition" },
 };
 static const ui_theme_icon_kind_t s_edge_icons[] = {
     UI_THEME_ICON_ASR,
@@ -193,11 +193,11 @@ int demo_category_edge_enter(void)
 /* ------------------------------------------------------------------ */
 static const char *const s_cloud_items[UI_LANG_COUNT][3] = {
     { "AI对话",    "视觉识别",   "AI相机" },
-    { "AI Chat",   "Vision",     "AI Camera" },
+    { "AI Chat",   "Visual Recognition", "AI Camera" },
 };
 static const char *const s_cloud_descs[UI_LANG_COUNT][3] = {
     { "大模型对话", "预览/识图",  "拍照预览" },
-    { "LLM Chat",  "Preview",    "Photo" },
+    { "LLM Chat",  "Preview / Recognize", "Photo Preview" },
 };
 static const ui_theme_icon_kind_t s_cloud_icons[] = {
     UI_THEME_ICON_CHAT,
@@ -281,7 +281,7 @@ static const char *const s_fun_items[UI_LANG_COUNT][3] = {
 };
 static const char *const s_fun_descs[UI_LANG_COUNT][3] = {
     { "音乐控制",  "实时图传", "手机音乐" },
-    { "Playback",  "Live",     "Phone playback" },
+    { "Playback",  "Live Video", "Phone Music" },
 };
 static const ui_theme_icon_kind_t s_fun_icons[] = {
     UI_THEME_ICON_MUSIC,
@@ -789,7 +789,7 @@ static const char *const s_settings_items[UI_LANG_COUNT][SETTINGS_ITEM_COUNT] = 
 };
 static const char *const s_settings_descs[UI_LANG_COUNT][SETTINGS_ITEM_COUNT] = {
     { "系统音量",  "USB存储", "",  "清除配置" },
-    { "System",   "Storage", "",  "Clear" },
+    { "System volume", "USB storage", "", "Clear settings" },
 };
 static const ui_theme_icon_kind_t s_settings_icons[SETTINGS_ITEM_COUNT] = {
     UI_THEME_ICON_VOLUME,

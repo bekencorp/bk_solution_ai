@@ -40,12 +40,12 @@ enum {
 
 static const char *const s_home_items[UI_LANG_COUNT][HOME_ITEM_COUNT] = {
     { "连接设置",  "Demo中心",    "设备设置" },
-    { "Connect",   "Demo Center", "Settings" },
+    { "Connection","Demo Center", "Settings" },
 };
 
 static const char *const s_home_tags[UI_LANG_COUNT][HOME_ITEM_COUNT] = {
     { "WiFi/4G",  "AI/娱乐",  "音量/系统" },
-    { "WiFi/4G",  "AI/Fun",   "Vol/Sys" },
+    { "WiFi/4G",  "AI/Media",  "Volume/System" },
 };
 
 static const ui_theme_icon_kind_t s_home_icons[HOME_ITEM_COUNT] = {
