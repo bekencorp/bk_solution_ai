@@ -3,4 +3,13 @@ menu "BK Smart Config"
 	config BK_SMART_CONFIG
 		bool "Enable beken sramt config module"
 		default y
+
+	config BK_MODEM_POWER_ON
+		int "GPIO used to power on the 4G module"
+		depends on BK_MODEM
+		default 21
+		range 0 255
+		help
+		  Power-enable GPIO of the 4G module, driven high to switch on
+		  the +4V2 rail (P4G_EN). Robot V2 = 21, Robot R2 = 26.
 endmenu

@@ -45,8 +45,8 @@
 #include "components/modem_driver.h"
 #include <driver/io_matrix_types.h>
 /* gpio_dev_unmap is declared in the platform gpio_driver.h, which is not in
- * this TU's include chain; forward-declare it here for the 4G board GPIO_21
- * power/reset helper. */
+ * this TU's include chain; forward-declare it here for the 4G board power
+ * helper. */
 extern bk_err_t gpio_dev_unmap(gpio_id_t gpio_id);
 /* bk_gpio_get_gpio_func_code is declared in the internal gpio_driver_base.h,
  * which is not in this TU's include chain; forward-declare it here for the
@@ -1411,8 +1411,8 @@ int bk_sconf_exit_ai_mode_async(int from_vision)
 }
 
 #if CONFIG_BK_MODEM
-/* Serializes GPIO_21 power-enable access (see contract below). Initialized in
- * bk_sconf_init before any caller runs. */
+/* Serializes modem power-enable GPIO access (see contract below). Initialized
+ * in bk_sconf_init before any caller runs. */
 static beken_mutex_t s_modem_power_lock = NULL;
 
 static void bk_sconf_modem_power_lock_acquire(void)
@@ -1430,7 +1430,8 @@ static void bk_sconf_modem_power_lock_release(void)
 }
 
 /* ====================================================================
- * GPIO_21 (P21, net P4G_EN) drives the 4G module power-enable line
+ * CONFIG_BK_MODEM_POWER_ON (defconfig: V2 = GPIO_21, R2 = GPIO_26; net
+ * P4G_EN) drives the 4G module power-enable line
  * (high = power on, low = power off), via NPN S8050T -> P-MOS -> NT26_VDD.
  * The pad must be kept in plain GPIO-output mode (FUNC_CODE_OUTPUT): the
  * pin-mux alternatives (SDIO/LCD/ENET/ADC etc.) are mutually exclusive, so
@@ -1444,31 +1445,36 @@ static void bk_sconf_modem_power_lock_release(void)
  *   - bk_sconf_prepare_for_smart_config(): power off via power_off_if_on().
  *
  * Concurrency: callers run on different threads (boot/BLE/CLI/key-app/UI),
- * so every helper takes s_modem_power_lock around the GPIO access. GPIO_21
- * is only used by this component on this board, so the lock is sufficient;
- * future GPIO_21 users must go through these helpers.
+ * so every helper takes s_modem_power_lock around the GPIO access. The
+ * power-enable pin is only used by this component on this board, so the
+ * lock is sufficient; future users of this pin must go through these helpers.
  * ==================================================================== */
 static void bk_sconf_modem_power_on(void)
 {
     bk_sconf_modem_power_lock_acquire();
-    gpio_dev_unmap(GPIO_21);
-    bk_gpio_disable_pull(GPIO_21);
-    bk_gpio_enable_output(GPIO_21);
-    bk_gpio_set_output_high(GPIO_21);
-    LOGI("modem power on: GPIO_21 func=%d out=1\r\n",
-         bk_gpio_get_gpio_func_code(GPIO_21));
+
+    // Power-enable GPIO from CONFIG_BK_MODEM_POWER_ON (V2=21, R2=26)
+    gpio_dev_unmap(CONFIG_BK_MODEM_POWER_ON);
+    bk_gpio_disable_pull(CONFIG_BK_MODEM_POWER_ON);
+    bk_gpio_enable_output(CONFIG_BK_MODEM_POWER_ON);
+    bk_gpio_set_output_high(CONFIG_BK_MODEM_POWER_ON);
+
+    LOGI("modem power on: GPIO_%d func=%d out=1\r\n",
+         (int)CONFIG_BK_MODEM_POWER_ON,
+         bk_gpio_get_gpio_func_code(CONFIG_BK_MODEM_POWER_ON));
     bk_sconf_modem_power_lock_release();
 }
 
 /* Shared power-off primitive. Callers must hold s_modem_power_lock. */
 static void bk_sconf_modem_power_off_unlocked(void)
 {
-    gpio_dev_unmap(GPIO_21);
-    bk_gpio_disable_pull(GPIO_21);
-    bk_gpio_enable_output(GPIO_21);
-    bk_gpio_set_output_low(GPIO_21);
-    LOGI("modem power off: GPIO_21 func=%d out=0\r\n",
-         bk_gpio_get_gpio_func_code(GPIO_21));
+    gpio_dev_unmap(CONFIG_BK_MODEM_POWER_ON);
+    bk_gpio_disable_pull(CONFIG_BK_MODEM_POWER_ON);
+    bk_gpio_enable_output(CONFIG_BK_MODEM_POWER_ON);
+    bk_gpio_set_output_low(CONFIG_BK_MODEM_POWER_ON);
+    LOGI("modem power off: GPIO_%d func=%d out=0\r\n",
+         (int)CONFIG_BK_MODEM_POWER_ON,
+         bk_gpio_get_gpio_func_code(CONFIG_BK_MODEM_POWER_ON));
 }
 
 /* Power the 4G module down if its power-enable line is currently driven
@@ -1483,8 +1489,8 @@ static bool bk_sconf_modem_power_off_if_on(void)
     bool powered_off = false;
 
     bk_sconf_modem_power_lock_acquire();
-    if (bk_gpio_get_gpio_func_code(GPIO_21) == FUNC_CODE_OUTPUT &&
-        bk_gpio_get_output(GPIO_21)) {
+    if (bk_gpio_get_gpio_func_code(CONFIG_BK_MODEM_POWER_ON) == FUNC_CODE_OUTPUT &&
+        bk_gpio_get_output(CONFIG_BK_MODEM_POWER_ON)) {
         bk_sconf_modem_power_off_unlocked();
         powered_off = true;
     }
@@ -1629,16 +1635,17 @@ int bk_sconf_init(void)
     // bk_event_register_cb(EVENT_MOD_NETIF, EVENT_ID_ALL, bk_sconf_netif_event_cb, NULL);
 
 #if CONFIG_BK_MODEM
-    /* Serialize GPIO_21 power-enable access (see the power-helper contract). */
+    /* Serialize modem power-enable GPIO access (see the power-helper contract). */
     if (s_modem_power_lock == NULL && rtos_init_mutex(&s_modem_power_lock) != BK_OK) {
         LOGE("modem power lock init failed\r\n");
         s_modem_power_lock = NULL;
     }
 
-    /* Drive the 4G module control pin (GPIO_21) HIGH before auto-reconnect
-     * starts the modem, but only when 4G was actually provisioned: the
-     * default GPIO table pulls GPIO_21 low at boot. If 4G is provisioned
-     * later, BOARDING_OP_START_BK_MODEM powers the module back on. */
+    /* Drive the 4G module power-enable pin (CONFIG_BK_MODEM_POWER_ON) HIGH
+     * before auto-reconnect starts the modem, but only when 4G was actually
+     * provisioned: the default GPIO table pulls the pin low at boot. If 4G
+     * is provisioned later, BOARDING_OP_START_BK_MODEM powers the module
+     * back on. */
     {
         BK_FAST_CONNECT_D info = {0};
 
