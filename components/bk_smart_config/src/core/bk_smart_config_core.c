@@ -43,6 +43,20 @@
 #endif
 #if CONFIG_BK_MODEM
 #include "components/modem_driver.h"
+#include <driver/io_matrix_types.h>
+/* gpio_dev_unmap is declared in the platform gpio_driver.h, which is not in
+ * this TU's include chain; forward-declare it here for the 4G board GPIO_21
+ * power/reset helper. */
+extern bk_err_t gpio_dev_unmap(gpio_id_t gpio_id);
+/* bk_gpio_get_gpio_func_code is declared in the internal gpio_driver_base.h,
+ * which is not in this TU's include chain; forward-declare it here for the
+ * power-state query's pad-function check. */
+extern uint32_t bk_gpio_get_gpio_func_code(uint32_t gpio_id);
+/* Power helpers are defined later in this file, used by
+ * BOARDING_OP_START_BK_MODEM (power on) and the erase / start-provisioning
+ * paths (power off via power_off_if_on). */
+static void bk_sconf_modem_power_on(void);
+static bool bk_sconf_modem_power_off_if_on(void);
 #endif
 #if CONFIG_NET_PAN
 #include "pan_service.h"
@@ -738,16 +752,15 @@ void bk_sconf_ble_msg_handler(ble_prov_msg_t *msg)
             int ret = 0;
 
             // let the 4G module power on
-            bk_err_t gpio_dev_unmap(gpio_id_t gpio_id);
-            gpio_dev_unmap(GPIO_21);
-            bk_gpio_disable_pull(GPIO_21);
-            bk_gpio_enable_output(GPIO_21); 
-            bk_gpio_set_output_high(GPIO_21);
-            
+            bk_sconf_modem_power_on();
+
             ret = bk_modem_init(UART_NIC_MODE, UART_IF);
             if (ret) {
                 bk_modem_init(UART_NIC_MODE, UART_IF);
             }
+            /* Persist the actual modem comm parameters so auto-reconnect on
+             * boot starts the 4G modem the same way. */
+            bk_network_provisioning_set_modem_comm(UART_NIC_MODE, UART_IF);
         }
         break;
 #endif
@@ -877,6 +890,17 @@ void bk_sconf_erase_smart_config(void)
     if (ret != BK_OK) {
         LOGW("stop Wi-Fi STA after erase failed, ret=%d\r\n", ret);
     }
+
+#if CONFIG_BK_MODEM
+    /* Delete provisioning covers the 4G bearer too: soft-stop the modem driver
+     * first, then atomically power the module down if it is still enabled. */
+    bk_modem_deinit();
+    if (bk_sconf_modem_power_off_if_on()) {
+        LOGI("erase: modem power was on, powered off\r\n");
+    } else {
+        LOGI("erase: modem power already off, skip\r\n");
+    }
+#endif
 }
 void bk_sconf_factory_reset(void)
 {
@@ -894,6 +918,14 @@ void bk_sconf_prepare_for_smart_config(void)
 
 #if CONFIG_BK_MODEM
     bk_modem_deinit();
+    /* Power the 4G module down if it is still enabled before entering
+     * provisioning mode; it will be powered back on when the 4G bearer
+     * is configured. */
+    if (bk_sconf_modem_power_off_if_on()) {
+        LOGI("prepare: modem power was on, powered off\r\n");
+    } else {
+        LOGI("prepare: modem power already off, skip\r\n");
+    }
 #endif
 
 #if CONFIG_NET_PAN
@@ -1378,6 +1410,90 @@ int bk_sconf_exit_ai_mode_async(int from_vision)
                                            : SCONF_OP_EXIT_TEXT);
 }
 
+#if CONFIG_BK_MODEM
+/* Serializes GPIO_21 power-enable access (see contract below). Initialized in
+ * bk_sconf_init before any caller runs. */
+static beken_mutex_t s_modem_power_lock = NULL;
+
+static void bk_sconf_modem_power_lock_acquire(void)
+{
+    if (s_modem_power_lock != NULL) {
+        rtos_lock_mutex(&s_modem_power_lock);
+    }
+}
+
+static void bk_sconf_modem_power_lock_release(void)
+{
+    if (s_modem_power_lock != NULL) {
+        rtos_unlock_mutex(&s_modem_power_lock);
+    }
+}
+
+/* ====================================================================
+ * GPIO_21 (P21, net P4G_EN) drives the 4G module power-enable line
+ * (high = power on, low = power off), via NPN S8050T -> P-MOS -> NT26_VDD.
+ * The pad must be kept in plain GPIO-output mode (FUNC_CODE_OUTPUT): the
+ * pin-mux alternatives (SDIO/LCD/ENET/ADC etc.) are mutually exclusive, so
+ * each helper re-asserts the output function before driving the level.
+ *
+ * Callers (all in this TU):
+ *   - bk_sconf_init() boot: power on ONLY when 4G was provisioned.
+ *   - BOARDING_OP_START_BK_MODEM (BLE): power on, then bk_modem_init().
+ *   - bk_sconf_erase_smart_config(): power off via power_off_if_on() (atomic
+ *     check-and-off, no TOCTOU).
+ *   - bk_sconf_prepare_for_smart_config(): power off via power_off_if_on().
+ *
+ * Concurrency: callers run on different threads (boot/BLE/CLI/key-app/UI),
+ * so every helper takes s_modem_power_lock around the GPIO access. GPIO_21
+ * is only used by this component on this board, so the lock is sufficient;
+ * future GPIO_21 users must go through these helpers.
+ * ==================================================================== */
+static void bk_sconf_modem_power_on(void)
+{
+    bk_sconf_modem_power_lock_acquire();
+    gpio_dev_unmap(GPIO_21);
+    bk_gpio_disable_pull(GPIO_21);
+    bk_gpio_enable_output(GPIO_21);
+    bk_gpio_set_output_high(GPIO_21);
+    LOGI("modem power on: GPIO_21 func=%d out=1\r\n",
+         bk_gpio_get_gpio_func_code(GPIO_21));
+    bk_sconf_modem_power_lock_release();
+}
+
+/* Shared power-off primitive. Callers must hold s_modem_power_lock. */
+static void bk_sconf_modem_power_off_unlocked(void)
+{
+    gpio_dev_unmap(GPIO_21);
+    bk_gpio_disable_pull(GPIO_21);
+    bk_gpio_enable_output(GPIO_21);
+    bk_gpio_set_output_low(GPIO_21);
+    LOGI("modem power off: GPIO_21 func=%d out=0\r\n",
+         bk_gpio_get_gpio_func_code(GPIO_21));
+}
+
+/* Power the 4G module down if its power-enable line is currently driven
+ * high, under one lock hold (no TOCTOU). Used by the erase (delete
+ * provisioning) and start-provisioning (provisioning-entry) paths so a
+ * module that was never powered on is left untouched. Returns true if a
+ * power-off was issued. Note: "on" here means the software output latch,
+ * not the module's real power state; a real link check must use the modem
+ * netif IP instead. */
+static bool bk_sconf_modem_power_off_if_on(void)
+{
+    bool powered_off = false;
+
+    bk_sconf_modem_power_lock_acquire();
+    if (bk_gpio_get_gpio_func_code(GPIO_21) == FUNC_CODE_OUTPUT &&
+        bk_gpio_get_output(GPIO_21)) {
+        bk_sconf_modem_power_off_unlocked();
+        powered_off = true;
+    }
+    bk_sconf_modem_power_lock_release();
+
+    return powered_off;
+}
+#endif
+
 static void bk_sconf_cli_handler(char *pcWriteBuffer, int xWriteBufferLen, int argC, char **argV)
 {
     if ((argC == 2) && (os_strcmp(argV[1], "start") == 0)) {
@@ -1511,6 +1627,27 @@ int bk_sconf_init(void)
     bk_ble_provisioning_set_msg_handle_cb(bk_sconf_ble_msg_handler);
     // bk_event_register_cb(EVENT_MOD_WIFI, EVENT_ID_ALL, bk_sconf_wifi_event_cb, NULL);
     // bk_event_register_cb(EVENT_MOD_NETIF, EVENT_ID_ALL, bk_sconf_netif_event_cb, NULL);
+
+#if CONFIG_BK_MODEM
+    /* Serialize GPIO_21 power-enable access (see the power-helper contract). */
+    if (s_modem_power_lock == NULL && rtos_init_mutex(&s_modem_power_lock) != BK_OK) {
+        LOGE("modem power lock init failed\r\n");
+        s_modem_power_lock = NULL;
+    }
+
+    /* Drive the 4G module control pin (GPIO_21) HIGH before auto-reconnect
+     * starts the modem, but only when 4G was actually provisioned: the
+     * default GPIO table pulls GPIO_21 low at boot. If 4G is provisioned
+     * later, BOARDING_OP_START_BK_MODEM powers the module back on. */
+    {
+        BK_FAST_CONNECT_D info = {0};
+
+        bk_get_env_enhance("d_network_id", (void *)&info, sizeof(info));
+        if (info.flag & BIT(NETIF_IF_MODEM)) {
+            bk_sconf_modem_power_on();
+        }
+    }
+#endif
 
     bk_network_auto_reconnect_init(NULL);
     bk_sconf_cli_network_provisioning_init();
