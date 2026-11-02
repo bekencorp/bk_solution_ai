@@ -1,0 +1,20 @@
+#
+# Automatically generated project default config. You can update it with menuconfig [D] option.
+# This file contains only differences compared to board defconfig.
+#
+CONFIG_BT=y
+CONFIG_BTDM_CONTROLLER_ONLY=y
+CONFIG_GET_UID_ENABLE=y
+CONFIG_DUMP_BY_LOG_UART=y
+CONFIG_OTP_V1=y
+CONFIG_USR_GPIO_CFG_EN=y
+
+# For USB Debug log
+# CONFIG_UART1=y
+# CONFIG_UART_PRINT_PORT=1
+# CONFIG_UART1_TX_PIN=64
+# CONFIG_UART1_RX_PIN=65
+CONFIG_PSRAM_AS_SYS_MEMORY=n
+CONFIG_OVERRIDE_VND_CAL=y
+CONFIG_CPU_DEFAULT_FREQ_60M=n
+CONFIG_KEEP_ALIVE_ARP_REPLY_ENABLE=y

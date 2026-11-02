@@ -1,3 +1,4 @@
 cd beken_robot;./dbuild.sh make bk7259
 cd baf_example;./dbuild.sh make bk7259
 cd secureboot_ai;./dbuild.sh make bk7259
+cd beken_robot_128B;./dbuild.sh make bk7259
