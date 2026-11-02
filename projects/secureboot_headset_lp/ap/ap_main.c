@@ -28,6 +28,7 @@
 #endif
 #include "lcd/lcd_mipi_jd9855_320x385.h"
 #include "driver/drv_tp.h"
+#include "ap_key.h"
 
 #define AUTO_ENABLE_BLUETOOTH_DEMO 1
 
@@ -420,5 +421,11 @@ int main(void)
 #endif
 
 #endif
+
+	/* On-board ADC keys: S4 long press powers off the AP. Registered after
+	 * all services so the key thread cannot trigger a power cycle while the
+	 * display/BT stack is still coming up. */
+	(void)ap_key_init();
+
 	return 0;
 }

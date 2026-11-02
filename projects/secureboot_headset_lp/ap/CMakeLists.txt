@@ -25,8 +25,9 @@ set(incs . include)
 
 set(srcs
     ap_main.c
-	src/common/media_devices.c
-	src/common/board_usb_switch.c
+        src/common/media_devices.c
+        src/common/board_usb_switch.c
+        src/common/ap_key.c
 )
 
 # LVGL Designer-generated UI tree (page_*_init.c + fonts + event_runtime +
@@ -62,6 +63,10 @@ if (CONFIG_BT)
 endif()
 
 set(priv_req bk_init media_service bk_cli audio_play audio_record lwip_intf_v2_1 bk_bluetooth lvgl bk_display bk_peripheral multimedia_device_service)
+
+if (CONFIG_ADC_KEY)
+    list(APPEND priv_req adc_key)
+endif()
 
 if (CONFIG_AUD_PARAM_CTRL)
     list(APPEND priv_req bk_aud_param_ctrl)

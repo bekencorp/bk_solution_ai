@@ -34,11 +34,15 @@ CP 侧（`cp/config/bk7259/defconfig`）：
 - `CONFIG_PM_AP_FAST_BOOT_ENABLE=y`：AP Fast Boot 恢复通路。
 - `CONFIG_BLUETOOTH_SUPPORT_AP_PWD_RETENTION=y`：BT 控制器随 AP 掉电保留。
 - `CONFIG_BLE_LV_SUPPORT=y`、`CONFIG_STA_PS=y`：BLE / Wi-Fi 低功耗。
+- `CONFIG_PM_POWER_VOTE_RECORD=y`、`CONFIG_PM_CLOCK_VOTE_RECORD=y`：记录每次投票的调用点，便于排查“CP 为什么不睡”。
 
 AP 侧（`ap/config/bk7259_ap/defconfig`）：
 
 - `CONFIG_PM_AP_SUBPOWER_DOMAIN_DEFAULT_DISABLE=y`：AP 电源管理初始化时默认关闭 VIDEO_POST / H26E / ISP / NPU 子电源域。
 - `CONFIG_PSRAM_DATA_RETENTION_ENABLE=y`、`CONFIG_PM_AP_FAST_BOOT_ENABLE=y`。
+- `CONFIG_WIFI_ENABLE=y`、`CONFIG_WIFI_AT_ENABLE=y`：Wi-Fi 显式打开（`WIFI_ENABLE` 的 Kconfig 默认虽是 `y`，但历史上出现过被旧 config 缓存覆盖成 `n` 的情况）。
+
+> **安全世界 RAM 必须是 0x14000**：`partitions/bk7259/ram_regions.csv` 中 `CP_SPE_RAM` 为 `0x014000`。TF-M 的 `bk7259_s.ld` 在 RAM 末尾用固定地址保留了 4 KB 给 fastboot resume code（`TFM_FASTBOOT_CODE_ADDR = 0x28011000`），如果 `CP_SPE_RAM` 仍是 `0x012000`，常规 `.data/.bss` 会压到这段保留区，链接报 `section .tfm_fastboot_code VMA overlaps section .TFM_BSS`。
 
 > **必须保持为 n 的三项**：CP defconfig 中的 `CONFIG_PM_CURRENT_OPTIMIZE_XTAL_RX_TX_ANABUF`、`CONFIG_PM_CP_PERI_CLK_DEFAULT_OFF`、`CONFIG_PM_XTAL_RX_TX_ANABUF_DEFAULT_OFF`。把它们置 `y` 会破坏 DSI 链路时序，串口持续报 `DSI ERR dpi_pld_full`，画面出现变色、上下滚动。
 
@@ -106,7 +110,7 @@ ap_main: LVGL ready on 320x385 MIPI (first page pending)
 
 ## 5. 界面操作
 
-单页面产品，没有多级菜单，也没有实体按键导航（页面导航接口在本工程中是 stub）。
+单页面产品，没有多级菜单；页面导航接口在本工程中是 stub，物理按键只用于关闭 AP。
 
 ### 触摸
 
@@ -115,24 +119,35 @@ ap_main: LVGL ready on 320x385 MIPI (first page pending)
 - 中间 6 根霓虹柱：随 SBC 子带能量实时律动（低音→高音）。
 - 播放中约 5 秒无触摸会自动进入沉浸模式（隐藏状态栏与操作栏、柱体放大），点击屏幕任意位置退出。
 
+### 物理按键
+
+板载 4 个 ADC 按键（S2~S5），当前只用了 S4：**长按 3 秒关闭 AP**。其余按键未绑定功能。按键不会唤醒 AP——AP 掉电后靠手机重新推流唤醒。详见 [6.1 按键](#61-按键)。
+
 ## 6. 低功耗验证
 
-AP 的关 / 开全部在 **CP 侧**用 CLI 驱动，AP 侧只注册电源回调（与 SDK 的 `pm_secureboot_ap_fast_boot` 示例一致）。上电时 `cp_main.c` 的 `user_app_main()` 会投一次 ON 把 AP 拉起，之后在 CP 控制台执行：
+低功耗通路由硬件触发，不依赖串口命令：
 
-| 命令 | 作用 |
-|---|---|
-| `ap_fast_boot on` | 投 ON，拉起 AP，阻塞到 AP full ready |
-| `ap_fast_boot off` | 投 OFF，关 AP，阻塞到 `ap power off!!!` |
-| `ap_fast_boot cycle` | OFF → 延时 1 s → ON，一条命令走完一次掉电唤醒 |
+- **关 AP**：长按板载按键 **S4**（3 s）。AP 侧按键模块向 CP 投 AP OFF 票，CP 执行掉电流程。
+- **开 AP**：手机重新推流（A2DP 播放）即可。AP 掉电后手机推来的 ACL 数据到达 CP 控制器，`bt_ipc_mailbox_send_msg()` 会自动投 AP ON，AP 走 Fast Boot 恢复。
+- **CP 默认休眠**：`cp_main.c` 在 AP 起来约 3 s 后一次性投 `PM_SLEEP_MODULE_NAME_APP`。AP 运行时由 `PM_SLEEP_MODULE_NAME_AP` 票（AP 上电时投 0）挡住，CP 不会睡；AP 关掉后该票翻成 1，CP 自动进入低电压睡眠。
 
-等价的底层命令（模块号 9 = `PM_BOOT_AP_MODULE_NAME_APP`；state 0 = ON、1 = OFF，容易记反）：
+### 6.1 按键
 
-```text
-pm_boot_ap 9 0      # 打开 AP，等同 ap_fast_boot on
-pm_boot_ap 9 1      # 关闭 AP，等同 ap_fast_boot off
-```
+板载 ADC 按键与 `beken_robot` 工程同硬件：
 
-`ap_fast_boot off` 的串口现象：
+| 按键 | 通道 | 功能 |
+|---|---|---|
+| S2 | GPIO13 / ADC ch15（500~1500 mV） | 未绑定 |
+| S3 | GPIO13 / ADC ch15（4500~6000 mV） | 未绑定 |
+| **S4** | GPIO28 / ADC ch4（500~1500 mV） | **长按 3 s 关闭 AP** |
+| S5 | GPIO28 / ADC ch4（4500~6000 mV） | 未绑定 |
+
+长按时间由 `CONFIG_ADC_KEY_LONG_PRESS_MS=3000` 决定。按键模块 `ap/src/common/ap_key.c` 有两个关键点：
+
+- 投票在独立线程里执行，按键回调只发信号量，避免阻塞 20 ms 的 ADC 采样定时器。
+- **关电前必须先释放 saradc client**（`bk_adc_key_deinit_ex()` → `bk_saradc_driver_deinit()`）。如果拖到唤醒后再释放，CP 侧连接已经不存在，`mb_ipc_close()` 会失败并让 ipc 端口一直被占用，之后每次 `mb_ipc_socket()` 都报 `create socket failed`。唤醒后只需重新注册按键（`resume` 回调）。
+
+关 AP 的串口现象：
 
 ```text
 pm:I:ap_close: send recovery seq=1
@@ -141,31 +156,48 @@ ap0:ap_main:display quiesce: lvgl stopped + panel powered off in X ms
 pm:I:ap power off!!!
 ```
 
-此时屏幕熄灭（背光关 + 面板断电），AP 掉电但 SRAM / PSRAM 数据保留。面板 3.3V（GPIO53，同时是 SD-NAND 的 NAND_VDD）、camera 2.8V（GPIO32）和显示 1.8V AUX LDO 都在掉电前主动关掉——它们挂在常开域，不关会在整个 AP 掉电期间持续耗电。代价是 SD-NAND 一起断电，唤醒后如需访问 SD 卡要重新上电并初始化。
+此时屏幕熄灭（背光关 + 显示 1.8V LDO 关 + 屏复位拉低），AP 掉电但 SRAM / PSRAM 数据保留。注意 `media_board_power_off()` **不会拉低 GPIO53**（外设 3.3V，同时是 SD-NAND 的 NAND_VDD）：它是常开域的总闸，一旦拉低整板会靠电容撑几秒后冷启动复位，Fast Boot 通路直接失效。所以 SD-NAND 在 AP 掉电期间保持供电，但屏幕已失电，唤醒后如需访问 SD 卡仍要重新初始化。
 
-`ap_fast_boot on` 的串口现象：
+唤醒（手机重新推流）的串口现象：
 
 ```text
+D:boot_ap 9 0 0x0 [0]E_1
 pm:I:AP_TIME ap0_restore_scheduler_ready total_us=...
 pm:I:AP_TIME ap_full_ready total_us=...
 pm:D:pm_dbg mb_send cmd=0x11
 ap0:ap_main:display reinit after AP wake
 ap0:media_dev:panel opened: fmt=... decompress=1
+ap0:ap_key:ADC key re-init after AP wake
 ap0:ap_main:display reinit done
 ```
 
 唤醒后 AP 的 SRAM / PSRAM 数据仍在，但 **UART / DSI / DPU / GPU / TP 等外设寄存器已复位**，因此 `ap_main.c` 注册了一个 `PM_AP_POWER_PRIORITY_SERVICE` 的电源回调：
 
 - `prepare_power_off`：关闭 flush 门禁，保证掉电前不再有新帧写 DPU（必须常数时间返回，不能用 RTOS 接口）。
-- `quiesce`：在 PM 任务里 `lv_vendor_stop()` 停掉 LVGL 任务，再 `media_lcd_backlight_off()` 关背光、`media_board_power_off()` 关面板 3.3V / camera 2.8V / 显示 1.8V LDO 并拉住面板 reset。**停 LVGL 必须放在掉电前**：如果留到唤醒后再停，掉电瞬间未完成的帧永远等不到完成回调，`lv_vendor_stop()` 会永久阻塞（现象是只有 `display reinit after AP wake`，之后无任何日志，并周期性打印 `GPU hang`）。
+- `quiesce`：在 PM 任务里 `lv_vendor_stop()` 停掉 LVGL 任务，再 `media_lcd_backlight_off()` 关背光、`media_board_power_off()` 关显示 1.8V AUX LDO 并拉住面板 reset。**停 LVGL 必须放在掉电前**：如果留到唤醒后再停，掉电瞬间未完成的帧永远等不到完成回调，`lv_vendor_stop()` 会永久阻塞（现象是只有 `display reinit after AP wake`，之后无任何日志，并周期性打印 `GPU hang`）。
     - 回调里**不发面板 sleep-in DCS**：这套 `0x28 + 20 ms + 0x10 + 120 ms` 序列固定要 140 ms，超过 `PM_AP_QUIESCE_CALLBACK_TIMEOUT_MS`（100 ms），一旦超时整个关电流程会回滚（`AP_FAST_CB quiesce timeout` → `AP close abort completed` → `AP vote OFF ret=-1`，屏幕又亮起来）。所以改成断电：面板直接失去供电，sleep-in 序列留到唤醒路径的 `media_lcd_panel_close()` 里执行（那里没有时限）。DSI/DPU 寄存器本身位于 AP 电源域，随掉电复位，不需要在这里处理。
 - `resume`：唤醒后投递信号量，由独立线程 `disp_resume` 重建显示栈——`media_lcd_panel_close()`（拆掉已被掉电复位的旧 DSI/DPU/panel 上下文）→ `media_board_power_on()` → `media_lcd_panel_open()` → `lv_gpu_deinit()/lv_gpu_init()` → `drv_tp_close()/drv_tp_open()` → 重进蓝牙音乐页 → `lv_vendor_start()`。这条路径没有 100 ms 限制，完整重建约 1 s。
 
 唤醒后看到 `display reinit after AP wake` 和 `display reinit done` 即表示重建完成；若只有前者，说明重建过程中某一步阻塞，需要继续排查。
 
-> AP 侧不投票、也不注册 `app_resume`：关 / 开完全由 CP 投票驱动。AP 侧的 `bk_pm_module_vote_boot_ap_ctrl()` 只是给 CP 发一条 mailbox 请求并等 100 ms ack，不等整个掉电流程完成，用它做主控容易在掉电过程中继续跑代码。
+> AP 侧不投票、也不注册 `app_resume`：关 / 开完全由 CP 投票驱动。AP 侧按键模块调用 `bk_pm_module_vote_boot_ap_ctrl()` 只是给 CP 发一条 mailbox 请求并等 100 ms ack，不等整个掉电流程完成。
 >
 > AP 的任务栈 / 队列必须留在 SRAM（`CONFIG_TASK_STACK_IN_PSRAM` / `CONFIG_QUEUE_IN_PSRAM` 保持 `n`），否则 AP 唤醒时会 dump。
+
+### 6.2 已知问题
+
+**播放中关 AP 会偶发失败回滚。** 典型日志：
+
+```text
+ap0:pwr_core:E:AP fast suspend: DMA still busy mask=0x70 after quiesce
+pm:W:ap_close: suspend failed seq=N
+pm:I:AP close abort completed; business mailbox reopened
+ap0:ap_main:display reinit after AP wake      ← 屏幕灭一下又亮起，AP 实际没掉电
+```
+
+原因：`bk_pm_client_thread.c` 在 quiesce 之后会检查 GDMA 通道状态，只要还有通道在跑就拒绝 suspend。AP 侧当前只停了 LVGL 和面板，**没有停音频 DMA**，所以 A2DP 播放中关 AP 会命中这个保护。暂停播放后再关则正常。
+
+**CP 进入低电压睡眠后串口控制台基本不可用**：UART 被门控，命令字节会丢，通常只回一行 `wakeup`。此时只能靠手机操作与看日志。
 
 ## 7. 安全开发注意事项
 
@@ -179,13 +211,14 @@ ap0:ap_main:display reinit done
 | 位置 | 内容 |
 |---|---|
 | `ap/ap_main.c` | AP 入口：显示 / LVGL 初始化、蓝牙与 A2DP/HFP 初始化、低功耗唤醒重建 |
-| `ap/beken_generated/page_bt_music/` | 单页面 UI（`page_bt_music.c`）、频谱分析（`bt_rhythm.c`）、字体与 i18n |
-| `ap/beken_generated/page_bt_music/page_hooks.h` | 页面钩子 stub（单页面，无返回手势） |
-| `ap/beken_generated/page_bt_music/ui_nav_router.h` | 按键导航 stub（无多页面导航） |
+| `ap/beken_generated/` | LVGL Designer 生成的单页 UI（`page_1_init.c`、字体、`event_runtime`） |
+| `ap/beken_generated/page_hooks.c` | 页面钩子注册表，`bk_pages_init_all_hooks()` 统一注册 |
+| `ap/beken_generated/page_1_hooks.c` | page_1 业务逻辑：配对 / 播放暂停 / 上下一曲 / 音量 / 状态灯，接 A2DP Sink |
 | `ap/src/common/media_devices.c` | 板级电源、MIPI 屏 / DPU 开关、背光 |
+| `ap/src/common/ap_key.c` | ADC 按键：S4 长按关 AP、关电前释放 saradc client、唤醒后重注册 |
 | `ap/src/common/board_usb_switch.c` | Type-C UART/USB 切换（`usbsw` CLI）与 SD-NAND 辅助 |
 | `ap/a2dp_sink/`、`ap/hfp_hf/`、`ap/audio_param/` | A2DP Sink / HFP HF Demo 与音频参数 |
-| `cp/cp_main.c` | CP 启动 AP（投 ON）、`ap_fast_boot on\|off\|cycle` CLI、A2DP/HFP offload |
+| `cp/cp_main.c` | CP 启动 AP（投 ON）、CP 默认休眠投票、A2DP/HFP offload |
 | `partitions/bk7259/` | 分区表、安全配置、pack 描述 |
 | `config/key/` | 开发用签名密钥 |
 
