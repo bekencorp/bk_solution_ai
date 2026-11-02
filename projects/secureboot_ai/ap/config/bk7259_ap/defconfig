@@ -250,6 +250,7 @@ CONFIG_SUPPORT_WWDT=y
 # a minimal read/write accessibility probe before entering Non-Secure state.
 # U9e: restore GENERAL_DMA so audio demos / ring_buffer can link and run.
 # CONFIG_L2_CACHE_ENABLE is not set
+CONFIG_AP_SECURE_CACHE_NSC=y
 CONFIG_GENERAL_DMA=y
 # CONFIG_SPI_DMA is not set
 
