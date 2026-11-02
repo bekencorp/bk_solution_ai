@@ -1,19 +1,20 @@
 /**
  * @file sound_localization.c
  * @brief Backend for the page_5 sound source localization demo. Owns
- *        the cached arrow angle (consumed by audio_engine DOA weak link)
+ *        the cached arrow angle (pushed by the audio_engine DOA callback)
  *        and provides the audio_engine ASR start/stop service that feeds
  *        the DOA estimator. LVGL-free: the live angle is pushed into the
  *        UI via a callback registered by page_doa_hooks.c.
  *
  * Backward-compat: keeps `page_5_set_arrow_angle()` /
  * `page_5_get_arrow_angle()` / `page_5_set_arrow_pivot()` /
- * `page_5_cli_init()` exported so audio_engine (weak link) and legacy
+ * `page_5_cli_init()` exported so audio_engine and legacy
  * call sites continue to compile.
  */
 #include "demo/sound_localization.h"
 #include "page_5_api.h"
 #include "page_doa_eyes.h"
+#include "audio_param/audio_para.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -21,6 +22,7 @@
 #ifdef ROBOT_TEST
 
 #include "audio_engine.h"
+#include "audio_engine_hooks.h"
 #include "bk_cli.h"
 #include "cli.h"
 #include "os/os.h"
@@ -240,6 +242,11 @@ int sound_localization_stop_service(void)
 int sound_localization_init(void)
 {
     (void)page_5_cli_init();
+
+    /* DOA thresholds live with the other customer audio parameters in
+     * audio_para.c; only the registration belongs here. Runs at startup via
+     * bk_demos_init_all(), before any wakeup DOA report. */
+    audio_engine_register_doa_to_arrow_callback(audio_param_doa_to_arrow);
     return 0;
 }
 

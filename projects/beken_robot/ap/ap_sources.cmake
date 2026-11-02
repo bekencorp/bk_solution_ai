@@ -69,6 +69,8 @@ foreach(_rel ${_robot_app_rel_srcs})
     endif()
 endforeach()
 
+list(APPEND srcs "${APP_ROOT}/audio_param/audio_para.c")
+
 include(${APP_ROOT}/beken_generated/beken_generated.cmake)
 list(APPEND srcs ${BEKEN_GENERATOR_SOURCES})
 list(APPEND incs ${BEKEN_GENERATOR_INCLUDE_DIRS})
@@ -78,4 +80,5 @@ set(priv_req media_service network_engine bk_voice_service audio_engine
               bk_motor bk_nfc bk_batt_monitor bk_bluetooth bk_pan avdk_nn_module bk_servo
               bk_display bk_peripheral multimedia_device_service video_engine bk_cli avdk_utils lvgl
               bk_tflite_micro bk_network_transfer robot_lan_net robot_video_service robot_ctrl_service bk_vfs
+              bk_aud_param_ctrl
               audio_play)

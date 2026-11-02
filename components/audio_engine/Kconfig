@@ -4,6 +4,18 @@ menu "Audio Engine"
 		bool "enable audio engine"
 		default y
 
+	config AE_AUDIO_PARAM
+		bool "enable audio parameter"
+		depends on BK_AUDIO_ENGINE
+		depends on AUD_PARAM_CTRL
+		default n
+		help
+			Expose the voice service parameters (sys/aec/eq) to the
+			Beken audio tuning tool over the shell UART and apply the
+			project presets on start. The project must compile
+			ap/audio_param/audio_para.c and provide
+			media_audio_param_bind_voc_handle()/unbind.
+
 	config SUPPORT_3MIC
 		bool "Enable 3-mic (SSL3) audio support"
 		depends on BK_AUDIO_ENGINE

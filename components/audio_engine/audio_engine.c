@@ -1,4 +1,5 @@
 #include "audio_engine.h"
+#include "audio_engine_hooks.h"
 #include <os/os.h>
 #include <os/mem.h>
 #include <common/bk_include.h>
@@ -91,6 +92,58 @@ static int audio_engine_vfs_file_exists(const char *path)
 #define AE_ARROW_ANGLE_LEFT      (135)
 #define AE_ARROW_ANGLE_RIGHT     (45)
 #define AE_ARROW_ANGLE_CENTER    (90)
+
+/* Default decision used until the project registers its own callback. */
+static const audio_engine_doa_arrow_cfg_t s_default_asr_doa_cfg =
+{
+    .phs_sm2_min        = AE_ASR_PHSM2_MIN,
+    .phs_sm2_max        = AE_ASR_PHSM2_MAX,
+    .phs_sm2_right_max  = AE_ASR_PHSM2_RIGHT_MAX,
+    .phs_sm2_left_min   = AE_ASR_PHSM2_LEFT_MIN,
+    .arrow_angle_right  = AE_ARROW_ANGLE_RIGHT,
+    .arrow_angle_center = AE_ARROW_ANGLE_CENTER,
+    .arrow_angle_left   = AE_ARROW_ANGLE_LEFT,
+};
+
+/* Project callback registered by the project init (e.g. sound_localization_init);
+ * NULL = engine default decision. */
+static audio_engine_doa_to_arrow_callback_t s_doa_callback = NULL;
+
+void audio_engine_register_doa_to_arrow_callback(audio_engine_doa_to_arrow_callback_t callback)
+{
+    s_doa_callback = callback;
+}
+
+int audio_engine_doa_to_arrow_default(int32_t phs_sm2,
+                                      const audio_engine_doa_arrow_cfg_t *cfg)
+{
+    if (cfg == NULL) {
+        cfg = &s_default_asr_doa_cfg;
+    }
+
+    if (phs_sm2 < cfg->phs_sm2_min) {
+        phs_sm2 = cfg->phs_sm2_min;
+    } else if (phs_sm2 > cfg->phs_sm2_max) {
+        phs_sm2 = cfg->phs_sm2_max;
+    }
+
+    if (phs_sm2 <= cfg->phs_sm2_right_max) {
+        return cfg->arrow_angle_right;
+    } else if (phs_sm2 >= cfg->phs_sm2_left_min) {
+        return cfg->arrow_angle_left;
+    }
+
+    return cfg->arrow_angle_center;
+}
+
+static int audio_engine_phsm2_to_arrow(int32_t phs_sm2)
+{
+    if (s_doa_callback != NULL) {
+        return s_doa_callback(phs_sm2);
+    }
+
+    return audio_engine_doa_to_arrow_default(phs_sm2, &s_default_asr_doa_cfg);
+}
 
 /*
  * Weak reference to page_5_set_arrow_angle(). Projects that ship the
@@ -278,34 +331,13 @@ static int ae_worker_run(ae_op_fn_t fn)
 }
 
 /*
- * Map the cached AEC phase metric to an on-screen arrow angle.
- * The input is clamped first to defend against upstream drift.
- */
-static int audio_engine_phsm2_to_arrow_angle(int32_t phs_sm2)
-{
-    if (phs_sm2 < AE_ASR_PHSM2_MIN) {
-        phs_sm2 = AE_ASR_PHSM2_MIN;
-    } else if (phs_sm2 > AE_ASR_PHSM2_MAX) {
-        phs_sm2 = AE_ASR_PHSM2_MAX;
-    }
-
-    if (phs_sm2 <= AE_ASR_PHSM2_RIGHT_MAX) {
-        return AE_ARROW_ANGLE_RIGHT;
-    } else if (phs_sm2 >= AE_ASR_PHSM2_LEFT_MIN) {
-        return AE_ARROW_ANGLE_LEFT;
-    }
-
-    return AE_ARROW_ANGLE_CENTER;
-}
-
-/*
  * Called at wake-word hit: classify the latest phase metric and push
  * the resulting angle into the page_5 arrow, if the UI is linked in.
  */
 static void audio_engine_update_arrow_on_wakeup(void)
 {
     int32_t phsm2 = s_wakeup_phsm2;
-    int deg = audio_engine_phsm2_to_arrow_angle(phsm2);
+    int deg = audio_engine_phsm2_to_arrow(phsm2);
 
     LOGI("ASR wakeup phs_sm2=%d -> arrow=%d deg\r\n", (int)phsm2, deg);
 
@@ -1484,77 +1516,6 @@ void bk_audio_engine_asr_result_handle(void *p1, void *p2)
  *             - -6: Voice read start failed
  *             - -7: Voice write start failed
  */
-#if CONFIG_AUDIO_PARA
-extern app_aud_para_t *get_app_aud_cust_para(app_aud_service_type_t service_type);
-extern void set_app_aud_cust_service_handle(void *service_handle, app_aud_service_type_t service_type);
-
-void bk_audio_set_voc_cust_params(voice_cfg_t * voice_cfg, app_aud_service_type_t service_type)
-{
-	app_aud_para_t * cust_aud_para = NULL;
-	{
-		cust_aud_para = get_app_aud_cust_para(AUD_SERVICE_AI_VOC);
-		if (cust_aud_para == NULL)
-		{
-			LOGE("get_app_aud_cust_para fail\n");
-		} else
-		{
-			bk_aud_debug_get_audpara(cust_aud_para, AUD_SERVICE_AI_VOC);
-		}
-
-#if CONFIG_VOICE_SERVICE_EQ
-		if (voice_cfg->eq_en)
-		{
-			if (cust_aud_para && cust_aud_para->eq_dl_config.app_eq_en)
-			{
-				if (1)//(spk_sample_rate == cust_aud_para->eq_dl_config.eq_load.samplerate)
-				{
-					voice_cfg->eq_en = cust_aud_para->eq_dl_config.eq_en;
-					voice_cfg->eq_cfg.eq_alg_cfg.eq_cal_para.eq_en       = cust_aud_para->eq_dl_config.eq_en;
-					voice_cfg->eq_cfg.eq_alg_cfg.eq_cal_para.filters     = cust_aud_para->eq_dl_config.filters;
-					voice_cfg->eq_cfg.eq_alg_cfg.eq_cal_para.globle_gain = cust_aud_para->eq_dl_config.globle_gain;
-					os_memcpy(&voice_cfg->eq_cfg.eq_alg_cfg.eq_cal_para.eq_para, &cust_aud_para->eq_dl_config.eq_para, sizeof(eq_para_t)*cust_aud_para->eq_dl_config.filters);
-					os_memcpy(&voice_cfg->eq_cfg.eq_alg_cfg.eq_cal_para.eq_load, &cust_aud_para->eq_dl_config.eq_load, sizeof(app_eq_load_t));
-				} else
-				{
-					voice_cfg->eq_en = 0;
-					LOGE("voice dl eq init fail, spk_sample_rate not match\n");
-				}
-			}
-		}
-#endif
-
-		if (voice_cfg->mic_type == MIC_TYPE_ONBOARD)
-		{
-			if (cust_aud_para && cust_aud_para->sys_config.app_sys_en)
-			{
-				// voice_cfg->mic_cfg.onboard_mic_cfg.adc_cfg.ana_gain = cust_aud_para->sys_config.mic0_analog_gain;
-				// voice_cfg->mic_cfg.onboard_mic_cfg.adc_cfg.dig_gain = cust_aud_para->sys_config.mic0_digital_gain;
-			}
-		}
-		if (voice_cfg->spk_type == SPK_TYPE_ONBOARD)
-		{
-			if (cust_aud_para && cust_aud_para->sys_config.app_sys_en)
-			{
-				// voice_cfg->spk_cfg.onboard_spk_cfg.ana_gain = cust_aud_para->sys_config.speaker_chan0_analog_gain;
-				// voice_cfg->spk_cfg.onboard_spk_cfg.dig_gain = cust_aud_para->sys_config.speaker_chan0_digital_gain;
-			}
-		}
-		if (voice_cfg->aec_en)
-		{
-			if (cust_aud_para && cust_aud_para->aec_v3_config.app_aec_en)
-			{
-				voice_cfg->aec_en = cust_aud_para->aec_v3_config.aec_enable;
-				voice_cfg->aec_cfg.aec_alg_cfg.aec_cfg.delay_points = cust_aud_para->aec_v3_config.mic_delay;
-				voice_cfg->aec_cfg.aec_alg_cfg.aec_cfg.ec_depth     = cust_aud_para->aec_v3_config.ec_depth;
-				voice_cfg->aec_cfg.aec_alg_cfg.aec_cfg.ref_scale    = cust_aud_para->aec_v3_config.ref_scale;
-				voice_cfg->aec_cfg.aec_alg_cfg.aec_cfg.ns_level     = cust_aud_para->aec_v3_config.ns_level;
-				voice_cfg->aec_cfg.aec_alg_cfg.aec_cfg.ns_para      = cust_aud_para->aec_v3_config.ns_para;
-			}
-		}
-	}
-}
-#endif
-
 #if CONFIG_ADK_AEC_V3_ALGORITHM_COMPONENT_V2
 static int bk_aec_phase_callback(int32_t phs_sm2, int vad_state)
 {
@@ -2404,10 +2365,6 @@ static int audio_engine_start_inner(audio_engine_cfg_t *cfg)
     }
 #endif
 
-#if CONFIG_AUDIO_PARA
-    bk_audio_set_voc_cust_params(voice_cfg, AUD_SERVICE_AI_VOC);
-#endif
-
     /* Configure event callback */
     voice_cfg->event_handle = cfg->event_cb;
     voice_cfg->args = cfg->user_data;
@@ -2419,11 +2376,6 @@ static int audio_engine_start_inner(audio_engine_cfg_t *cfg)
         ret = AUDIO_ENGINE_ERR_VOICE_INIT;
         goto cleanup;
     }
-
-#if CONFIG_AUDIO_PARA
-    bk_app_aud_get_service_handle((void *)g_audio_engine.voice_handle, AUD_SERVICE_AI_VOC);
-    set_app_aud_cust_service_handle((void *)g_audio_engine.voice_handle, AUD_SERVICE_AI_VOC);
-#endif
 
     /* Initialize voice read service */
     voice_read_cfg_t voice_read_cfg = VOICE_READ_CFG_DEFAULT();
@@ -2486,6 +2438,16 @@ static int audio_engine_start_inner(audio_engine_cfg_t *cfg)
         ret = AUDIO_ENGINE_ERR_WRITE_START;
         goto cleanup_read_start;
     }
+
+#if CONFIG_AE_AUDIO_PARAM && CONFIG_AUD_PARAM_CTRL
+    /* Bind the param-ctrl framework only after the pipeline is fully started */
+    media_audio_param_bind_voc_handle(g_audio_engine.voice_handle, cfg->spk_sample_rate);
+#if CONFIG_ADK_ONBOARD_SPEAKER_STREAM_V2
+    /* The sys preset also carries a DAC digital gain, but the persisted user
+     * volume level must win at start-up, so re-apply it after the preset. */
+    (void)audio_engine_adjust_voice_gain(g_volume_gain[g_volume_level]);
+#endif
+#endif
 
     if(voice_cfg)
     {
@@ -2593,6 +2555,9 @@ static int audio_engine_stop_inner(void)
 
     /* Stop voice service */
     if (g_audio_engine.voice_handle) {
+#if CONFIG_AE_AUDIO_PARAM && CONFIG_AUD_PARAM_CTRL
+        media_audio_param_unbind_voc_handle();
+#endif
         if (BK_OK != bk_voice_stop(g_audio_engine.voice_handle)) {
             LOGE("Voice stop failed\n");
             ret = AUDIO_ENGINE_ERR_VOICE_STOP;
