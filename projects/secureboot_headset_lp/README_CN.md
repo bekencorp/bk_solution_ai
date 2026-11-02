@@ -121,15 +121,15 @@ ap_main: LVGL ready on 320x385 MIPI (first page pending)
 
 ### 物理按键
 
-板载 4 个 ADC 按键（S2~S5），当前只用了 S4：**长按 3 秒关闭 AP**。其余按键未绑定功能。按键不会唤醒 AP——AP 掉电后靠手机重新推流唤醒。详见 [6.1 按键](#61-按键)。
+板载 4 个 ADC 按键（S2~S5），当前只用了 S4：**长按 3 秒关闭 AP**，AP 掉电后**按一下 S4 即可唤醒**。其余按键未绑定功能。详见 [6.1 按键](#61-按键)。
 
 ## 6. 低功耗验证
 
 低功耗通路由硬件触发，不依赖串口命令：
 
-- **关 AP**：长按板载按键 **S4**（3 s）。AP 侧按键模块向 CP 投 AP OFF 票，CP 执行掉电流程。
-- **开 AP**：手机重新推流（A2DP 播放）即可。AP 掉电后手机推来的 ACL 数据到达 CP 控制器，`bt_ipc_mailbox_send_msg()` 会自动投 AP ON，AP 走 Fast Boot 恢复。
-- **CP 默认休眠**：`cp_main.c` 在 AP 起来约 3 s 后一次性投 `PM_SLEEP_MODULE_NAME_APP`。AP 运行时由 `PM_SLEEP_MODULE_NAME_AP` 票（AP 上电时投 0）挡住，CP 不会睡；AP 关掉后该票翻成 1，CP 自动进入低电压睡眠。
+- **关 AP**：长按板载按键 **S4**（3 s）。AP 侧按键模块先投 CP 睡眠票，再向 CP 投 AP OFF，CP 执行掉电流程。
+- **开 AP**：按一下 **S4**，或手机重新推流（A2DP 播放）。按键唤醒由 CP 接管，消抖后投 AP ON；手机推流时 ACL 数据到达 CP 控制器，也会自动投 AP ON。两种情况都走 Fast Boot 恢复。
+- **CP 睡眠时机**：CP 只在 AP 关电前收到 `PM_SLEEP_MODULE_NAME_APP` 睡眠票后进入低电压；AP 运行期间不会主动让 CP 睡。
 
 ### 6.1 按键
 
@@ -139,13 +139,13 @@ ap_main: LVGL ready on 320x385 MIPI (first page pending)
 |---|---|---|
 | S2 | GPIO13 / ADC ch15（500~1500 mV） | 未绑定 |
 | S3 | GPIO13 / ADC ch15（4500~6000 mV） | 未绑定 |
-| **S4** | GPIO28 / ADC ch4（500~1500 mV） | **长按 3 s 关闭 AP** |
+| **S4** | GPIO28 / ADC ch4（500~1500 mV） | **长按 3 s 关闭 AP / 短按唤醒 AP** |
 | S5 | GPIO28 / ADC ch4（4500~6000 mV） | 未绑定 |
 
-长按时间由 `CONFIG_ADC_KEY_LONG_PRESS_MS=3000` 决定。按键模块 `ap/src/common/ap_key.c` 有两个关键点：
+长按时间由 `CONFIG_ADC_KEY_LONG_PRESS_MS=3000` 决定。按键模块 `ap/src/common/ap_key.c` 用一个 worker 线程 + 消息队列处理“关 AP”和“唤醒后恢复”，按键回调与 PM 回调只投消息，不阻塞 20 ms 的 ADC 采样定时器。
 
-- 投票在独立线程里执行，按键回调只发信号量，避免阻塞 20 ms 的 ADC 采样定时器。
 - **关电前必须先释放 saradc client**（`bk_adc_key_deinit_ex()` → `bk_saradc_driver_deinit()`）。如果拖到唤醒后再释放，CP 侧连接已经不存在，`mb_ipc_close()` 会失败并让 ipc 端口一直被占用，之后每次 `mb_ipc_socket()` 都报 `create socket failed`。唤醒后只需重新注册按键（`resume` 回调）。
+- **按键唤醒由 CP 接管**：AP 掉电后，`cp/cp_main.c` 把 GPIO28 配成上拉输入并注册下降沿中断；AP 重新上电时释放该脚，交回 ADC 采样。CP 收到按键后消抖 50 ms，投 CP normal + AP ON。
 
 关 AP 的串口现象：
 
@@ -158,13 +158,15 @@ pm:I:ap power off!!!
 
 此时屏幕熄灭（背光关 + 显示 1.8V LDO 关 + 屏复位拉低），AP 掉电但 SRAM / PSRAM 数据保留。注意 `media_board_power_off()` **不会拉低 GPIO53**（外设 3.3V，同时是 SD-NAND 的 NAND_VDD）：它是常开域的总闸，一旦拉低整板会靠电容撑几秒后冷启动复位，Fast Boot 通路直接失效。所以 SD-NAND 在 AP 掉电期间保持供电，但屏幕已失电，唤醒后如需访问 SD 卡仍要重新初始化。
 
-唤醒（手机重新推流）的串口现象：
+唤醒（按 S4 或手机重新推流）的串口现象：
 
 ```text
+pm_secur:I:key wake armed: gpio=28 level=1
 D:boot_ap 9 0 0x0 [0]E_1
 pm:I:AP_TIME ap0_restore_scheduler_ready total_us=...
 pm:I:AP_TIME ap_full_ready total_us=...
 pm:D:pm_dbg mb_send cmd=0x11
+pm_secur:I:key wake: vote AP ON
 ap0:ap_main:display reinit after AP wake
 ap0:media_dev:panel opened: fmt=... decompress=1
 ap0:ap_key:ADC key re-init after AP wake
@@ -180,7 +182,7 @@ ap0:ap_main:display reinit done
 
 唤醒后看到 `display reinit after AP wake` 和 `display reinit done` 即表示重建完成；若只有前者，说明重建过程中某一步阻塞，需要继续排查。
 
-> AP 侧不投票、也不注册 `app_resume`：关 / 开完全由 CP 投票驱动。AP 侧按键模块调用 `bk_pm_module_vote_boot_ap_ctrl()` 只是给 CP 发一条 mailbox 请求并等 100 ms ack，不等整个掉电流程完成。
+> 关 / 开 AP 的投票分工：AP 侧 `pm_ap_key_sleep.c` 负责投 CP 睡眠票 + AP OFF；CP 侧 `cp_main.c` 负责按键唤醒后投 CP normal + AP ON。`bk_pm_module_vote_boot_ap_ctrl()` 只发 mailbox 请求并等 100 ms ack，不等整个掉电流程完成。
 >
 > AP 的任务栈 / 队列必须留在 SRAM（`CONFIG_TASK_STACK_IN_PSRAM` / `CONFIG_QUEUE_IN_PSRAM` 保持 `n`），否则 AP 唤醒时会 dump。
 
@@ -215,10 +217,11 @@ ap0:ap_main:display reinit after AP wake      ← 屏幕灭一下又亮起，AP 
 | `ap/beken_generated/page_hooks.c` | 页面钩子注册表，`bk_pages_init_all_hooks()` 统一注册 |
 | `ap/beken_generated/page_1_hooks.c` | page_1 业务逻辑：配对 / 播放暂停 / 上下一曲 / 音量 / 状态灯，接 A2DP Sink |
 | `ap/src/common/media_devices.c` | 板级电源、MIPI 屏 / DPU 开关、背光 |
-| `ap/src/common/ap_key.c` | ADC 按键：S4 长按关 AP、关电前释放 saradc client、唤醒后重注册 |
+| `ap/src/common/ap_key.c` | ADC 按键：S4 长按关 AP；单个 worker 线程处理关电与唤醒恢复 |
+| `ap/src/common/pm_ap_key_sleep.c` | AP 低功耗入口（pm demo）：释放 saradc、武装 GPIO28 唤醒源、投 CP 睡眠票 / AP OFF，提供 `apks enter/wake` CLI |
 | `ap/src/common/board_usb_switch.c` | Type-C UART/USB 切换（`usbsw` CLI）与 SD-NAND 辅助 |
 | `ap/a2dp_sink/`、`ap/hfp_hf/`、`ap/audio_param/` | A2DP Sink / HFP HF Demo 与音频参数 |
-| `cp/cp_main.c` | CP 启动 AP（投 ON）、CP 默认休眠投票、A2DP/HFP offload |
+| `cp/cp_main.c` | CP 启动 AP（投 ON）、AP 掉电时接管 GPIO28、按键唤醒后投 AP ON、A2DP/HFP offload |
 | `partitions/bk7259/` | 分区表、安全配置、pack 描述 |
 | `config/key/` | 开发用签名密钥 |
 

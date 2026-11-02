@@ -27,6 +27,7 @@
 
 #include "adc_key_main.h"
 #include "ap_key.h"
+#include "pm_ap_key_sleep.h"
 
 #define TAG "ap_key"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -35,8 +36,6 @@
 
 #define AP_KEY_THREAD_STACK   2048
 #define AP_KEY_THREAD_PRIO    BEKEN_DEFAULT_WORKER_PRIORITY
-
-extern bk_err_t bk_saradc_driver_deinit(void);
 
 typedef enum {
 	AP_KEY_ROLE_NONE = 0,
@@ -95,41 +94,58 @@ static const ap_key_cfg_t s_ap_keys[] = {
 
 #define AP_KEY_COUNT (sizeof(s_ap_keys) / sizeof(s_ap_keys[0]))
 
+typedef enum {
+	AP_KEY_MSG_POWER_OFF = 0,
+	AP_KEY_MSG_RESTORE,
+} ap_key_msg_e;
+
 static adc_key_handle_t s_ap_key_handles[AP_KEY_COUNT];
-static beken_semaphore_t s_ap_off_sema = NULL;
-static beken_thread_t s_ap_off_thread = NULL;
-static beken_semaphore_t s_key_restore_sema = NULL;
-static beken_thread_t s_key_restore_thread = NULL;
+static beken_queue_t s_ap_key_queue = NULL;
+static beken_thread_t s_ap_key_thread = NULL;
 
 static bk_err_t ap_key_register_items(void);
 
-/* The key callback must not block, so the vote runs in its own thread.
- *
- * The saradc client is released here, while the CP is still alive, because the
- * AP power-off kills the mailbox socket: calling mb_ipc_close() after the wake
- * would fail (the CP peer is gone) and leave the ipc port allocated forever,
- * so every later mb_ipc_socket() would return "create socket failed". */
-static void ap_power_off_thread(void *arg)
+static bk_err_t ap_key_post(ap_key_msg_e msg)
 {
+	if (s_ap_key_queue == NULL) {
+		return BK_FAIL;
+	}
+	return rtos_push_to_queue(&s_ap_key_queue, &msg, BEKEN_NO_WAIT);
+}
+
+/* Both the key callback and the PM resume callback only post a message; the
+ * actual work runs here in task context. The PM demo releases the saradc
+ * client while the CP is still alive: the AP power-off kills the mailbox
+ * socket, and calling mb_ipc_close() after the wake would fail (the CP peer is
+ * gone) and leave the ipc port allocated forever, so every later
+ * mb_ipc_socket() would return "create socket failed". */
+static void ap_key_thread(void *arg)
+{
+	ap_key_msg_e msg;
+
 	(void)arg;
 
 	while (1) {
-		if (rtos_get_semaphore(&s_ap_off_sema, BEKEN_WAIT_FOREVER) != BK_OK) {
+		if (rtos_pop_from_queue(&s_ap_key_queue, &msg, BEKEN_WAIT_FOREVER) != BK_OK) {
 			continue;
 		}
 
-		LOGI("key: request AP power off\n");
+		switch (msg) {
+		case AP_KEY_MSG_POWER_OFF:
+			LOGI("key: request AP power off -> pm demo\n");
 
-		(void)bk_adc_key_deinit_ex();
-		(void)bk_saradc_driver_deinit();
-
-		bk_err_t ret = bk_pm_module_vote_boot_ap_ctrl(PM_BOOT_AP_MODULE_NAME_APP,
-							     PM_POWER_MODULE_STATE_OFF);
-		LOGI("key: AP power off vote ret=%d\n", ret);
-
-		if (ret != BK_OK) {
-			/* The AP stays up, so bring the keys back. */
+			/* PM demo steps: release the ADC sampler, arm GPIO28 as the CP
+			 * wake source, vote CP sleep and vote the AP off. */
+			if (ap_key_sleep_enter() != BK_OK) {
+				LOGE("key: pm demo enter queue failed\n");
+			}
+			break;
+		case AP_KEY_MSG_RESTORE:
 			(void)ap_key_register_items();
+			LOGI("ADC key re-init after AP wake\n");
+			break;
+		default:
+			break;
 		}
 	}
 }
@@ -144,9 +160,7 @@ static void ap_key_long_cb(void *user_data)
 
 	LOGI("ADC KEY %s long press\n", ctx->name);
 
-	if (s_ap_off_sema != NULL) {
-		(void)rtos_set_semaphore(&s_ap_off_sema);
-	}
+	(void)ap_key_post(AP_KEY_MSG_POWER_OFF);
 }
 
 static bk_err_t ap_key_register_items(void)
@@ -194,30 +208,16 @@ static bk_err_t ap_key_register_items(void)
 	return BK_OK;
 }
 
-/* Mirror of the power-off side: the saradc client was released before the AP
- * went down, so only the key registration has to be rebuilt here. */
-static void ap_key_restore_thread(void *arg)
+bk_err_t ap_key_restore(void)
 {
-	(void)arg;
-
-	while (1) {
-		if (rtos_get_semaphore(&s_key_restore_sema, BEKEN_WAIT_FOREVER) != BK_OK) {
-			continue;
-		}
-
-		(void)ap_key_register_items();
-
-		LOGI("ADC key re-init after AP wake\n");
-	}
+	return ap_key_register_items();
 }
 
 static bk_err_t ap_key_resume(void *arg)
 {
 	(void)arg;
 
-	if (s_key_restore_sema != NULL) {
-		(void)rtos_set_semaphore(&s_key_restore_sema);
-	}
+	(void)ap_key_post(AP_KEY_MSG_RESTORE);
 
 	return BK_OK;
 }
@@ -230,28 +230,19 @@ static const pm_ap_power_ops_t s_ap_key_pm_ops = {
 
 int ap_key_init(void)
 {
-	if (rtos_init_semaphore_ex(&s_ap_off_sema, 1, 0) != BK_OK) {
-		LOGE("ap off sem init failed\n");
-		return BK_FAIL;
+	if (s_ap_key_queue == NULL) {
+		if (rtos_init_queue(&s_ap_key_queue, "ap_key", sizeof(ap_key_msg_e), 4) != BK_OK) {
+			LOGE("key queue init failed\n");
+			return BK_FAIL;
+		}
 	}
 
-	if (rtos_create_thread(&s_ap_off_thread, AP_KEY_THREAD_PRIO, "ap_key_pwr",
-			       ap_power_off_thread, AP_KEY_THREAD_STACK, NULL) != BK_OK) {
-		LOGE("ap off thread create failed\n");
-		(void)rtos_deinit_semaphore(&s_ap_off_sema);
-		s_ap_off_sema = NULL;
-		return BK_FAIL;
-	}
-
-	if (rtos_init_semaphore_ex(&s_key_restore_sema, 1, 0) != BK_OK) {
-		LOGE("key restore sem init failed\n");
-		return BK_FAIL;
-	}
-
-	if (rtos_create_thread(&s_key_restore_thread, AP_KEY_THREAD_PRIO, "ap_key_rst",
-			       ap_key_restore_thread, AP_KEY_THREAD_STACK, NULL) != BK_OK) {
-		LOGE("key restore thread create failed\n");
-		return BK_FAIL;
+	if (s_ap_key_thread == NULL) {
+		if (rtos_create_thread(&s_ap_key_thread, AP_KEY_THREAD_PRIO, "ap_key",
+				       ap_key_thread, AP_KEY_THREAD_STACK, NULL) != BK_OK) {
+			LOGE("key thread create failed\n");
+			return BK_FAIL;
+		}
 	}
 
 	if (ap_key_register_items() != BK_OK) {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <common/bk_err.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -15,6 +17,9 @@ extern "C" {
  * @return BK_OK on success, otherwise an error code.
  */
 int ap_key_init(void);
+
+/* Re-register the ADC keys after a rejected AP power-off attempt. */
+bk_err_t ap_key_restore(void);
 
 #ifdef __cplusplus
 }

@@ -25,9 +25,10 @@ set(incs . include)
 
 set(srcs
     ap_main.c
-        src/common/media_devices.c
-        src/common/board_usb_switch.c
-        src/common/ap_key.c
+	src/common/pm_ap_key_sleep.c
+	src/common/media_devices.c
+	src/common/board_usb_switch.c
+	src/common/ap_key.c
 )
 
 # LVGL Designer-generated UI tree (page_*_init.c + fonts + event_runtime +

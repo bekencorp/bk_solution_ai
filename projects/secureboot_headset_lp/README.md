@@ -121,15 +121,15 @@ This is a single-page product: there is no multi-level menu, and the page naviga
 
 ### Physical key
 
-The board has four ADC keys (S2~S5); only S4 is used: **long press for 3 seconds powers the AP off**. The other keys are not bound. The key never wakes the AP — after power-off the AP is woken by the phone resuming its audio stream. See [6.1 Keys](#61-keys).
+The board has four ADC keys (S2~S5); only S4 is used: **long press for 3 seconds powers the AP off, and a short press wakes it up again**. The other keys are not bound. See [6.1 Keys](#61-keys).
 
 ## 6. Low-Power Verification
 
 The low-power paths are triggered by hardware, not by UART commands:
 
-- **AP off**: long press the on-board key **S4** (3 s). The AP-side key module votes AP OFF to the CP, which runs the power-down sequence.
-- **AP on**: just start streaming from the phone again. After the AP is down, the ACL data the phone sends reaches the CP controller and `bt_ipc_mailbox_send_msg()` votes AP ON automatically, so the AP resumes through the fast-boot path.
-- **CP sleeps by default**: about 3 s after the AP is up, `cp_main.c` votes `PM_SLEEP_MODULE_NAME_APP` once. While the AP is running the `PM_SLEEP_MODULE_NAME_AP` vote (set to 0 on AP power-on) keeps the CP awake; once the AP is powered off that vote flips to 1 and the CP enters low-voltage sleep on its own.
+- **AP off**: long press the on-board key **S4** (3 s). The AP-side key module votes CP sleep first and then votes AP OFF to the CP, which runs the power-down sequence.
+- **AP on**: short press **S4**, or start streaming from the phone again. The CP owns key wake-up: it debounces the key and then votes AP ON. When the phone resumes streaming, the ACL data reaches the CP controller and also votes AP ON. Both paths resume the AP through fast boot.
+- **When the CP sleeps**: the CP enters low voltage only after the AP votes `PM_SLEEP_MODULE_NAME_APP` during power-off; while the AP is running it never asks the CP to sleep.
 
 ### 6.1 Keys
 
@@ -139,13 +139,13 @@ The on-board ADC keys use the same hardware as the `beken_robot` project:
 |---|---|---|
 | S2 | GPIO13 / ADC ch15 (500~1500 mV) | not bound |
 | S3 | GPIO13 / ADC ch15 (4500~6000 mV) | not bound |
-| **S4** | GPIO28 / ADC ch4 (500~1500 mV) | **long press 3 s → AP off** |
+| **S4** | GPIO28 / ADC ch4 (500~1500 mV) | **long press 3 s → AP off, short press → AP wake** |
 | S5 | GPIO28 / ADC ch4 (4500~6000 mV) | not bound |
 
-The long-press threshold comes from `CONFIG_ADC_KEY_LONG_PRESS_MS=3000`. Two things matter in `ap/src/common/ap_key.c`:
+The long-press threshold comes from `CONFIG_ADC_KEY_LONG_PRESS_MS=3000`. `ap/src/common/ap_key.c` uses one worker thread plus a message queue for both "power off" and "restore after wake"; the key and PM callbacks only post a message, so the 20 ms ADC sampling timer is never blocked.
 
-- The vote runs in its own thread; the key callback only posts a semaphore so the 20 ms ADC sampling timer is never blocked.
 - **The saradc client must be released before the power-off** (`bk_adc_key_deinit_ex()` → `bk_saradc_driver_deinit()`). If it is released after the wake-up instead, the CP-side connection is already gone, `mb_ipc_close()` fails and the ipc port stays allocated forever, so every later `mb_ipc_socket()` reports `create socket failed`. On the wake path only the key registration has to be rebuilt (the `resume` callback).
+- **The CP takes over key wake-up**: after AP power-off, `cp/cp_main.c` configures GPIO28 as a pull-up input with a falling-edge interrupt; when the AP is powered on again the pin is released back to the ADC sampler. The CP debounces the key for 50 ms and then votes CP normal + AP ON.
 
 Expected UART output for AP off:
 
@@ -158,13 +158,15 @@ pm:I:ap power off!!!
 
 The screen goes dark here (backlight off, display 1.8V LDO off, panel held in reset) while the AP SRAM/PSRAM contents are retained. Note that `media_board_power_off()` **does not drive GPIO53 low** (peripheral 3.3V, which also gates NAND_VDD): it is the always-on rail for the whole board, and cutting it lets the board run off its bulk capacitors for a few seconds and then cold-boot, which kills the fast-boot path entirely. The SD-NAND therefore stays powered while the AP is down, but the panel is unpowered, so a post-wake SD access still needs a fresh init.
 
-Expected UART output when the AP wakes up (phone resumes streaming):
+Expected UART output when the AP wakes up (S4 or the phone resumes streaming):
 
 ```text
+pm_secur:I:key wake armed: gpio=28 level=1
 D:boot_ap 9 0 0x0 [0]E_1
 pm:I:AP_TIME ap0_restore_scheduler_ready total_us=...
 pm:I:AP_TIME ap_full_ready total_us=...
 pm:D:pm_dbg mb_send cmd=0x11
+pm_secur:I:key wake: vote AP ON
 ap0:ap_main:display reinit after AP wake
 ap0:media_dev:panel opened: fmt=... decompress=1
 ap0:ap_key:ADC key re-init after AP wake
@@ -180,7 +182,7 @@ After wake-up the AP SRAM/PSRAM contents are retained, but **the UART / DSI / DP
 
 Seeing both `display reinit after AP wake` and `display reinit done` means the rebuild finished. If only the first line appears, something blocked partway through the rebuild and needs further investigation.
 
-> The AP does not vote and does not register `app_resume`: power on/off is fully owned by the CP. The AP-side key module calls `bk_pm_module_vote_boot_ap_ctrl()`, which only sends a mailbox request and waits for a 100 ms ack, not for the whole power-down.
+> Vote split: the AP side (`pm_ap_key_sleep.c`) votes CP sleep + AP OFF; the CP side (`cp_main.c`) votes CP normal + AP ON after a key wake. `bk_pm_module_vote_boot_ap_ctrl()` only sends a mailbox request and waits for a 100 ms ack, not for the whole power-down.
 >
 > AP task stacks / queues must stay in SRAM (`CONFIG_TASK_STACK_IN_PSRAM` / `CONFIG_QUEUE_IN_PSRAM` kept at `n`), otherwise the AP dumps on wake.
 
@@ -215,10 +217,11 @@ ap0:ap_main:display reinit after AP wake      ← the screen blinks and comes ba
 | `ap/beken_generated/page_hooks.c` | Page hook registry; `bk_pages_init_all_hooks()` registers them all |
 | `ap/beken_generated/page_1_hooks.c` | page_1 business logic: pair / play-pause / prev-next / volume / status dot, wired to the A2DP sink |
 | `ap/src/common/media_devices.c` | Board power, MIPI panel / DPU open-close, backlight |
-| `ap/src/common/ap_key.c` | ADC keys: S4 long press powers the AP off, releases the saradc client before power-off, re-registers on wake |
+| `ap/src/common/ap_key.c` | ADC keys: S4 long press powers the AP off; one worker thread handles power-off and wake restore |
+| `ap/src/common/pm_ap_key_sleep.c` | AP low-power entry (pm demo): releases saradc, arms GPIO28 as wake source, votes CP sleep / AP OFF, provides `apks enter/wake` CLI |
 | `ap/src/common/board_usb_switch.c` | Type-C UART/USB mux (`usbsw` CLI) and SD-NAND helpers |
 | `ap/a2dp_sink/`, `ap/hfp_hf/`, `ap/audio_param/` | A2DP Sink / HFP HF demos and audio parameters |
-| `cp/cp_main.c` | CP side: boots the AP (votes ON), default CP sleep vote, A2DP/HFP offload |
+| `cp/cp_main.c` | CP side: boots the AP (votes ON), takes over GPIO28 on AP power-off, votes AP ON after a key wake, A2DP/HFP offload |
 | `partitions/bk7259/` | Partition table, security configuration, pack description |
 | `config/key/` | Development signing keys |
 

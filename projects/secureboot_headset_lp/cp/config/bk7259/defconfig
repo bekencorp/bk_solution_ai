@@ -45,6 +45,9 @@ CONFIG_TFM_REG_ACCESS_NSC=y
 CONFIG_PSA_MBEDTLS=y
 # CONFIG_TRUSTENGINE is not set
 CONFIG_SW_CRYPTO=y
+# OTP and TE200 share the ENCP power domain, keep it always-on
+CONFIG_AON_ENCP=y
+# CONFIG_AP_SECURE_CACHE_NSC is not set
 
 # psram
 # data retention only, NOT used as system memory

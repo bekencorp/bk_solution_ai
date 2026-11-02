@@ -29,6 +29,7 @@
 #include "lcd/lcd_mipi_jd9855_320x385.h"
 #include "driver/drv_tp.h"
 #include "ap_key.h"
+#include "pm_ap_key_sleep.h"
 
 #define AUTO_ENABLE_BLUETOOTH_DEMO 1
 
@@ -426,6 +427,10 @@ int main(void)
 	 * all services so the key thread cannot trigger a power cycle while the
 	 * display/BT stack is still coming up. */
 	(void)ap_key_init();
+
+	/* Low-voltage entry used by the S4 long press: arm GPIO28 as the CP wake
+	 * source, vote CP sleep and vote the AP off. */
+	(void)ap_key_sleep_init();
 
 	return 0;
 }

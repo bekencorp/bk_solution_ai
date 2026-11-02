@@ -3,6 +3,7 @@
 #include <os/os.h>
 #include <modules/pm.h>
 #include <driver/pwr_clk.h>
+#include <driver/gpio.h>
 #include <components/log.h>
 #include <string.h>
 #if CONFIG_BLUETOOTH_A2DP_OFFLOAD_SINK
@@ -18,53 +19,130 @@
 
 extern void rtos_set_user_app_entry(beken_thread_function_t entry);
 
-/* Let the CP enter low voltage by default. The AP module vote (managed by
- * bk_pm_ap_ctrl) still keeps the CP awake while the AP is running: it is
- * voted 0 on AP power-on and 1 once the AP has been powered off, so this
- * one-time vote only takes effect while the AP is down. */
-#define CP_AUTO_SLEEP_VOTE_DELAY_MS  (3000)
-#define CP_AUTO_SLEEP_THREAD_STACK   (2048)
+#define CP_KEY_WAKE_GPIO             ((gpio_id_t)28)
+#define CP_KEY_WAKE_DEBOUNCE_MS      (50)
+#define CP_KEY_VOTE_THREAD_STACK     (1024)
 
-static beken_thread_t s_cp_sleep_vote_thd = NULL;
+static beken_semaphore_t s_key_vote_sema = NULL;
+static beken_thread_t s_key_vote_thread = NULL;
+
+static void cp_key_wake_isr(gpio_id_t gpio_id);
 
 static bk_err_t ap_fast_boot_vote(pm_power_module_state_e state)
 {
 	bk_err_t ret = bk_pm_module_vote_boot_ap_ctrl(PM_BOOT_AP_MODULE_NAME_APP, state);
-
-	BK_LOGI(TAG, "AP vote %s ret=%d\r\n",
-		(state == PM_POWER_MODULE_STATE_ON) ? "ON" : "OFF", ret);
+	BK_LOGI(TAG, "AP vote %s ret=%d\r\n", (state == PM_POWER_MODULE_STATE_ON) ? "ON" : "OFF", ret);
 	return ret;
 }
 
-static void cp_auto_sleep_vote_thread(void *arg)
+/* The vote locks the CP-PM mutex and blocks for the whole AP fast-boot
+ * handshake, so it must never run in the GPIO ISR. The ISR only signals this
+ * thread; the debounce is a task-context delay, which also works right after a
+ * Deep-LV wake where the software-timer service is not usable yet. */
+static void cp_key_vote_thread(void *arg)
 {
 	(void)arg;
 
-	/* Give the AP time to finish its post-boot display rebuild. */
-	rtos_delay_milliseconds(CP_AUTO_SLEEP_VOTE_DELAY_MS);
+	while (1) {
+		if (rtos_get_semaphore(&s_key_vote_sema, BEKEN_WAIT_FOREVER) != BK_OK) {
+			continue;
+		}
 
-	bk_err_t ret = bk_pm_module_vote_sleep_ctrl(PM_SLEEP_MODULE_NAME_APP, 1, 0);
+		/* A real press keeps the pin low for the whole window; bounce or a
+		 * release expires with the pin already high and is dropped here. */
+		rtos_delay_milliseconds(CP_KEY_WAKE_DEBOUNCE_MS);
 
-	BK_LOGI(TAG, "CP auto sleep vote ret=%d\r\n", ret);
+		if (bk_gpio_get_input(CP_KEY_WAKE_GPIO)) {
+			continue;       /* released again: bounce, not a press */
+		}
+		if (bk_pm_ap_boot_success_get()) {
+			continue;       /* AP is already up */
+		}
 
-	/* A FreeRTOS task must not return from its entry function. The vote is
-	 * one-shot, so release the thread explicitly. */
-	s_cp_sleep_vote_thd = NULL;
-	rtos_delete_thread(NULL);
+		bk_pm_module_vote_sleep_ctrl(PM_SLEEP_MODULE_NAME_APP, 0x0, 0x0);
+		ap_fast_boot_vote(PM_POWER_MODULE_STATE_ON);
+		BK_LOGI(TAG, "key wake: vote AP ON\r\n");
+	}
 }
 
-static void cp_auto_sleep_vote_start(void)
+/* AP is down: ADC4 is no longer being sampled, so turn the pad into a plain
+ * digital input and open its interrupt. The AP side never touches GPIO28, and
+ * its gpio_default_map_init() disables the interrupt on every boot, so the
+ * ownership has to move here. */
+static void cp_key_ap_power_off_cb(void *arg)
 {
-	if (s_cp_sleep_vote_thd != NULL) {
+	gpio_config_t in = {
+		.io_mode = GPIO_INPUT_ENABLE,
+		.pull_mode = GPIO_PULL_UP_EN,
+		.func_mode = GPIO_SECOND_FUNC_DISABLE,
+	};
+
+	(void)arg;
+
+	if (bk_gpio_set_config(CP_KEY_WAKE_GPIO, &in) != BK_OK) {
+		BK_LOGE(TAG, "key wake pin config failed\r\n");
+	}
+
+	/* The AP-side PM demo already registered GPIO28 as a CP wake source and
+	 * installed pm_core_gpio_callback; only the pad/edge/ISR/enable are needed
+	 * here so the key also works when the CP never enters low voltage. */
+	bk_gpio_set_interrupt_type(CP_KEY_WAKE_GPIO, GPIO_INT_TYPE_FALLING_EDGE);
+	bk_gpio_register_isr(CP_KEY_WAKE_GPIO, cp_key_wake_isr);
+	bk_gpio_enable_interrupt(CP_KEY_WAKE_GPIO);
+
+	BK_LOGI(TAG, "key wake armed: gpio=%d level=%d\r\n", CP_KEY_WAKE_GPIO, bk_gpio_get_input(CP_KEY_WAKE_GPIO));
+}
+
+/* AP is back: close the interrupt and return the pad to the high-impedance
+ * state ADC4 needs. It has no explicit ADC function code at boot either. */
+static void cp_key_ap_power_on_cb(void *arg)
+{
+	gpio_config_t high_z = {
+		.io_mode = GPIO_IO_DISABLE,
+		.pull_mode = GPIO_PULL_DISABLE,
+		.func_mode = GPIO_SECOND_FUNC_DISABLE,
+	};
+
+	(void)arg;
+
+	(void)bk_gpio_disable_interrupt(CP_KEY_WAKE_GPIO);
+	(void)bk_gpio_set_config(CP_KEY_WAKE_GPIO, &high_z);
+}
+
+static void cp_key_wake_isr(gpio_id_t gpio_id)
+{
+	(void)gpio_id;
+
+	/* Interrupt context: only wake the vote thread. Debounce runs there, so
+	 * this path does not depend on the software-timer service being ready. */
+	if (s_key_vote_sema != NULL) {
+		(void)rtos_set_semaphore(&s_key_vote_sema);
+	}
+}
+
+static void cp_key_wake_start(void)
+{
+	if (rtos_init_semaphore_ex(&s_key_vote_sema, 1, 0) != BK_OK) {
+		BK_LOGE(TAG, "key vote sem init failed\r\n");
 		return;
 	}
 
-	if (rtos_create_thread(&s_cp_sleep_vote_thd, BEKEN_DEFAULT_WORKER_PRIORITY,
-			       "cp_sleep_vote",
-			       cp_auto_sleep_vote_thread,
-			       CP_AUTO_SLEEP_THREAD_STACK, NULL) != BK_OK) {
-		s_cp_sleep_vote_thd = NULL;
-		BK_LOGE(TAG, "cp sleep vote thread create failed\r\n");
+	if (rtos_create_thread(&s_key_vote_thread, BEKEN_DEFAULT_WORKER_PRIORITY,
+			       "cp_key_vote", cp_key_vote_thread,
+			       CP_KEY_VOTE_THREAD_STACK, NULL) != BK_OK) {
+		BK_LOGE(TAG, "key vote thread create failed\r\n");
+		return;
+	}
+
+	/* GPIO28 ownership follows the AP: taken over on power-off, handed back
+	 * to the ADC4 sampler on power-on. */
+	if (bk_pm_ap_ctrl_callback_register(cp_key_ap_power_off_cb, NULL,
+					    PM_AP_CTRL_CB_TYPE_POWER_OFF) != BK_OK) {
+		BK_LOGW(TAG, "AP power-off callback register failed\r\n");
+	}
+	if (bk_pm_ap_ctrl_callback_register(cp_key_ap_power_on_cb, NULL,
+					    PM_AP_CTRL_CB_TYPE_POWER_ON) != BK_OK) {
+		BK_LOGW(TAG, "AP power-on callback register failed\r\n");
 	}
 }
 
@@ -107,7 +185,7 @@ void user_app_main(void)
     }
 #endif
 
-	cp_auto_sleep_vote_start();
+	cp_key_wake_start();
 }
 
 
