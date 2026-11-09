@@ -18,7 +18,11 @@ extern "C" {
  */
 int ap_key_init(void);
 
-/* Re-register the ADC keys after a rejected AP power-off attempt. */
+/* Unregister the key items and release SARADC, keeping the ADC key manager
+ * and its timer/mutex resident across AP power cycles. */
+bk_err_t ap_key_power_off(void);
+
+/* Re-register the ADC keys after an AP wake or a rejected power-off attempt. */
 bk_err_t ap_key_restore(void);
 
 #ifdef __cplusplus

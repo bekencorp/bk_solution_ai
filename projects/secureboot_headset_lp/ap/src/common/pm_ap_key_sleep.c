@@ -31,9 +31,9 @@
 #include "ap_key.h"
 #include "pm_ap_key_sleep.h"
 
-#if CONFIG_ADC_KEY
-#include "adc_key_main.h"
-extern bk_err_t bk_saradc_driver_deinit(void);
+#if CONFIG_LVGL
+extern void bk_robot_display_power_off(void);
+extern bk_err_t bk_robot_display_resume(void *arg);
 #endif
 
 #define TAG "apks"
@@ -45,7 +45,7 @@ extern bk_err_t bk_saradc_driver_deinit(void);
 #define APKS_WAKE_GPIO        ((gpio_id_t)28)
 #define APKS_WAKE_INT_TYPE    GPIO_INT_TYPE_FALLING_EDGE
 
-#define APKS_STACK_SIZE       (1024)
+#define APKS_STACK_SIZE       (6144)
 #define APKS_QUEUE_NUM        (4)
 
 typedef enum {
@@ -82,12 +82,23 @@ static void apks_enter_low_voltage(void)
 {
 	bk_err_t ret;
 
+#if CONFIG_LVGL
+	/* Stop LVGL and tear down the display hardware while retaining the current
+	 * page. The PM resume callback schedules the hardware restore. */
+	bk_robot_display_power_off();
+#endif
+
 #if CONFIG_ADC_KEY
-	/* GPIO28 is S4's ADC channel while the AP is alive. Release the sampler
-	 * here, before the AP is gone, so nothing reconfigures the pad after the
-	 * CP has taken it over as a plain digital input. */
-	(void)bk_adc_key_deinit_ex();
-	(void)bk_saradc_driver_deinit();
+	/* Unregister the keys and stop ADC sampling before GPIO28 becomes a plain
+	 * wake input. The ADC key manager/timer/mutex stay resident across AP off. */
+	ret = ap_key_power_off();
+	if (ret != BK_OK) {
+		LOGE("adc key power off failed: %d\r\n", ret);
+#if CONFIG_LVGL
+		(void)bk_robot_display_resume(NULL);
+#endif
+		return;
+	}
 #endif
 
 	ret = bk_gpio_register_isr(APKS_WAKE_GPIO, apks_wake_isr);
@@ -105,9 +116,11 @@ static void apks_enter_low_voltage(void)
 	LOGI("ap power off vote ret=%d\r\n", ret);
 
 	if (ret != BK_OK) {
-		/* The AP stays up: the ADC keys were released above, so bring them
-		 * back. */
+		/* The AP stays up: restore the ADC keys and restart the display. */
 		(void)ap_key_restore();
+#if CONFIG_LVGL
+		(void)bk_robot_display_resume(NULL);
+#endif
 	}
 }
 

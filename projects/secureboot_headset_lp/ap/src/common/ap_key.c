@@ -36,6 +36,9 @@
 
 #define AP_KEY_THREAD_STACK   2048
 #define AP_KEY_THREAD_PRIO    BEKEN_DEFAULT_WORKER_PRIORITY
+#define AP_KEY_ADC_SETTLE_MS  (2 * ADCKEY_TICKS_INTERVAL)
+
+extern bk_err_t bk_saradc_driver_deinit(void);
 
 typedef enum {
 	AP_KEY_ROLE_NONE = 0,
@@ -141,9 +144,12 @@ static void ap_key_thread(void *arg)
 			}
 			break;
 		case AP_KEY_MSG_RESTORE:
-			(void)ap_key_register_items();
-			LOGI("ADC key re-init after AP wake\n");
-			break;
+				if (ap_key_restore() == BK_OK) {
+					LOGI("ADC keys restored after AP wake\n");
+				} else {
+					LOGE("ADC key restore failed\n");
+				}
+				break;
 		default:
 			break;
 		}
@@ -163,22 +169,43 @@ static void ap_key_long_cb(void *user_data)
 	(void)ap_key_post(AP_KEY_MSG_POWER_OFF);
 }
 
-static bk_err_t ap_key_register_items(void)
+/* Keep the ADC key manager, timer and mutex alive for the whole AP lifetime.
+ * Removing the last item stops the CP sampler; after one settling window the
+ * empty timer no longer touches SARADC, so its IPC client can be closed safely. */
+static bk_err_t ap_key_release_items(void)
 {
-	adc_key_driver_config_t driver_config = {
-		.size = sizeof(adc_key_driver_config_t),
-		.version = ADC_KEY_CONFIG_VERSION,
-		.sample_period_ms = CONFIG_ADC_KEY_SAMPLE_PERIOD_MS,
-		.max_channels = 2U,
-		.max_items = (uint8_t)AP_KEY_COUNT,
-	};
+	bk_err_t first_error = BK_OK;
+	bool had_items = false;
 
-	bk_err_t ret = bk_adc_key_init_ex(&driver_config);
-	if (ret != BK_OK) {
-		LOGE("ADC key init failed: %d\n", ret);
-		return ret;
+	for (uint32_t i = 0; i < AP_KEY_COUNT; i++) {
+		if (s_ap_key_handles[i] == NULL) {
+			continue;
+		}
+
+		had_items = true;
+		bk_err_t ret = bk_adc_key_item_unconfigure_ex(s_ap_key_handles[i]);
+		if (ret == BK_OK) {
+			s_ap_key_handles[i] = NULL;
+		} else {
+			LOGE("ADC key %s unregister failed: %d\n", s_ap_keys[i].ctx.name, ret);
+			first_error = ret;
+		}
 	}
 
+	if (first_error != BK_OK) {
+		return first_error;
+	}
+
+	if (had_items) {
+		rtos_delay_milliseconds(AP_KEY_ADC_SETTLE_MS);
+		(void)bk_saradc_driver_deinit();
+	}
+
+	return BK_OK;
+}
+
+static bk_err_t ap_key_register_items(void)
+{
 	for (uint32_t i = 0; i < AP_KEY_COUNT; i++) {
 		const ap_key_cfg_t *key = &s_ap_keys[i];
 		adc_key_item_config_ex_t item = {
@@ -196,10 +223,14 @@ static bk_err_t ap_key_register_items(void)
 			.user_data = (void *)&key->ctx,
 		};
 
-		ret = bk_adc_key_item_configure_ex(&item, &s_ap_key_handles[i]);
+		if (s_ap_key_handles[i] != NULL) {
+			continue;
+		}
+
+		bk_err_t ret = bk_adc_key_item_configure_ex(&item, &s_ap_key_handles[i]);
 		if (ret != BK_OK) {
 			LOGE("ADC key %s register failed: %d\n", key->ctx.name, ret);
-			(void)bk_adc_key_deinit_ex();
+			(void)ap_key_release_items();
 			return ret;
 		}
 	}
@@ -208,8 +239,24 @@ static bk_err_t ap_key_register_items(void)
 	return BK_OK;
 }
 
+bk_err_t ap_key_power_off(void)
+{
+	bk_err_t ret = ap_key_release_items();
+
+	if (ret == BK_OK) {
+		LOGI("ADC keys suspended for AP off\n");
+	}
+	return ret;
+}
+
 bk_err_t ap_key_restore(void)
 {
+	bk_err_t ret = ap_key_release_items();
+
+	if (ret != BK_OK) {
+		return ret;
+	}
+
 	return ap_key_register_items();
 }
 
@@ -245,6 +292,23 @@ int ap_key_init(void)
 		}
 	}
 
+	adc_key_driver_config_t driver_config = {
+		.size = sizeof(adc_key_driver_config_t),
+		.version = ADC_KEY_CONFIG_VERSION,
+		.sample_period_ms = CONFIG_ADC_KEY_SAMPLE_PERIOD_MS,
+		.max_channels = 2U,
+		.max_items = (uint8_t)AP_KEY_COUNT,
+	};
+	bk_err_t ret = bk_adc_key_init_ex(&driver_config);
+
+	if (ret == BK_ERR_STATE) {
+		/* An unclean AP reset can retain the resident manager and old items. */
+		return ap_key_restore();
+	}
+	if (ret != BK_OK) {
+		LOGE("ADC key init failed: %d\n", ret);
+		return ret;
+	}
 	if (ap_key_register_items() != BK_OK) {
 		return BK_FAIL;
 	}
@@ -259,6 +323,16 @@ int ap_key_init(void)
 #else  /* !(CONFIG_ADC_KEY && CONFIG_ROBOT_V2_ADC_KEYS) */
 
 int ap_key_init(void)
+{
+	return BK_OK;
+}
+
+bk_err_t ap_key_power_off(void)
+{
+	return BK_OK;
+}
+
+bk_err_t ap_key_restore(void)
 {
 	return BK_OK;
 }

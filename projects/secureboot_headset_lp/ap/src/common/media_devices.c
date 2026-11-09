@@ -105,39 +105,13 @@ void media_board_power_on(void)
     bk_gpio_set_output_high(ROBOT_GPIO_PERIPH_3V3);
 }
 
-/* Local copy of the component's private display aux-LDO vote (app_display.c
- * keeps app_display_power_enable() static, and calling app_mipi_lcd_turn_off()
- * here is not an option: its panel sleep-in DCS sequence costs >100 ms, i.e.
- * more than the AP quiesce budget). Same PM user id, so the wake path's
- * app_mipi_lcd_turn_on() re-enables the rail by itself. */
-static void media_display_auxldo_off(void)
-{
-    pm_auxldo_ctrl_cfg_t cfg = {0};
-
-    cfg.ldo   = AUXLDOS_SEL_1P8V;
-    cfg.out   = PM_AUXLDO_1P8V_OUT_1P8V;
-    cfg.user  = PM_AUXLDO_USER_DISPLAY;
-    cfg.state = PM_AUXLDO_DISABLE;
-    if (bk_pm_auxldo_ctrl_vote(&cfg) != BK_OK) {
-        LOGW("display 1p8v ldo vote failed\n");
-    }
-    rtos_delay_milliseconds(1);
-}
-
-/* Counterpart of media_board_power_on(), used right before AP power-off, so the
- * panel and the camera rail stop drawing current during the AP-off window.
+/* Counterpart of media_board_power_on(). media_lcd_panel_close() has already
+ * turned off the backlight, display controller and display power rails.
  *
- * ROBOT_GPIO_PERIPH_3V3 (GPIO53) must NOT be driven low here: it is not a
- * panel-only rail (it also gates NAND_VDD), and cutting it lets the whole board
- * run off its bulk capacitors for a few seconds and then power-cycle. The chip
- * comes back through POR ("init: reason - power on" + full BL2/TF-M boot) and
- * the fast-boot resume path is never reached. */
+ * ROBOT_GPIO_PERIPH_3V3 (GPIO53) must NOT be driven low here: it also gates
+ * NAND_VDD, and cutting it can power-cycle the whole board. */
 void media_board_power_off(void)
 {
-    /* Drop the panel I/O rail before its 3.3V supply. The aux LDO is voted
-     * through the PM framework, so the off state survives the AP power-down. */
-    media_display_auxldo_off();
-
     /* Hold the panel in reset while it is unpowered. */
     gpio_dev_unmap(ROBOT_GPIO_PANEL_RESET);
     BK_LOG_ON_ERR(bk_gpio_enable_output(ROBOT_GPIO_PANEL_RESET));

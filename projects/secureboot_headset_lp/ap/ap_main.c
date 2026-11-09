@@ -49,44 +49,24 @@ extern void lv_gpu_deinit(void);
 #define LVGL_DISP_HEIGHT 385
 #define LVGL_COMPRESS_DISP_WIDTH  ((LVGL_DISP_WIDTH + 15) & ~15)
 #define LVGL_COMPRESS_DISP_HEIGHT ((LVGL_DISP_HEIGHT + 3) & ~3)
-/* The deinit/open chain plus page rebuild needs well over 4 KB (the panel
- * teardown alone is >2 KB), so keep some headroom here. */
+/* Panel open and the first full-screen redraw need more than 4 KB. */
 #define DISPLAY_RESUME_TASK_STACK 6144
 
 static bk_display_ctlr_handle_t s_lvgl_dpu_handle = NULL;
 
-/* AP power-off keeps SRAM/PSRAM but resets every peripheral register, so the
- * DSI/DPU/GPU stack must be rebuilt before LVGL may touch it again. This flag
- * is cleared as soon as the AP close request is probed and set again only when
- * the whole display stack has been re-initialized. */
-static volatile bool s_display_hw_ready = true;
-
-/* Frame buffers live in retained PSRAM; allocate them once so wake-up cycles
- * do not leak a fresh pair every time. */
+/* LVGL does not own these buffers in RENDER_PARTIAL_MODE; retain them together
+ * with the LVGL object tree across AP power cycles. */
 static void *s_lvgl_frame_buffer[2] = {NULL, NULL};
 
 static beken_thread_t s_display_resume_thread = NULL;
 static beken_semaphore_t s_display_resume_sem = NULL;
-static volatile bool s_display_reinit_pending = false;
-
-/* lv_vendor_stop() blocks forever on the task semaphore when LVGL was never
- * started, so track the started state ourselves. */
-static volatile bool s_lvgl_started = false;
+static volatile bool s_display_active = false;
 
 static void bk_robot_lvgl_flush_to_display(void *args, void *frame_buffer, int (*cb)(void *args))
 {
     bk_display_ctlr_handle_t *slot = (bk_display_ctlr_handle_t *)args;
 
-    /* Hardware is gone between AP power-off and the resume rebuild: drop the
-     * frame instead of writing into a reset DPU. */
-    if (!s_display_hw_ready) {
-        if (cb != NULL) {
-            cb(frame_buffer);
-        }
-        return;
-    }
-
-    /* Panel resume/reopen replaces the DPU controller, so refresh per flush. */
+    /* Panel open replaces the DPU controller, so refresh per flush. */
     bk_display_ctlr_handle_t dpu = media_panel_get_dpu_handle();
     if (slot != NULL) {
         *slot = dpu;
@@ -133,19 +113,15 @@ static bk_err_t bk_robot_lvgl_init(bk_display_ctlr_handle_t dpu_handle)
     cfg.flush_cb = bk_robot_lvgl_flush_cb;
 
     // ui_overlay_swipe_set_display_transform(cfg.width, cfg.height, cfg.rotation);
-    lv_vendor_init(&cfg);
+    bk_err_t ret = lv_vendor_init(&cfg);
+    if (ret != BK_OK) {
+        LOGE("LVGL init failed: %d\n", ret);
+        return ret;
+    }
 
 #if (CONFIG_TP)
     drv_tp_open(LVGL_DISP_WIDTH, LVGL_DISP_HEIGHT, TP_MIRROR_NONE);
 #endif
-
-    lv_vendor_disp_lock();
-    lv_vendor_disp_unlock();
-
-    /* NOTE: do NOT call beken_ui_init() here. beken_ui_init() creates
-     * page_1 and fires its on_page_init hook, which must be registered
-     * first. We defer it to bk_robot_lvgl_load_first_page() (called
-     * later in main() after bk_pages_init_all_hooks() + wifi_status_ui_init()). */
 
     LOGI("LVGL ready on %dx%d MIPI (first page pending)\n",
          LVGL_DISP_WIDTH, LVGL_DISP_HEIGHT);
@@ -161,49 +137,95 @@ static void bk_robot_lvgl_load_first_page(void)
     lv_vendor_disp_unlock();
 
     lv_vendor_start();
-    s_lvgl_started = true;
 }
 
-/* Rebuild DSI/panel/DPU/GPU/TP after an AP power-off wake-up. The LVGL object
- * tree and the frame buffers survive in retained RAM; only the hardware and the
- * rendered content have to be recreated. */
-static void bk_robot_display_reinit(void)
+static bk_err_t bk_robot_display_init(void)
 {
-    LOGI("display reinit after AP wake\n");
+    bk_err_t ret;
 
-    /* Normally already parked by quiesce() before power-off; only stop here if
-     * the close was rolled back while LVGL was still running. */
-    if (s_lvgl_started) {
-        lv_vendor_stop();
-        s_lvgl_started = false;
+    if (s_display_active) {
+        return BK_OK;
     }
 
+    ret = media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true);
+    if (ret != AVDK_ERR_OK) {
+        LOGE("display panel open failed: %d\n", ret);
+        return ret;
+    }
+
+    ret = bk_robot_lvgl_init(media_panel_get_dpu_handle());
+    if (ret != BK_OK) {
+        media_lcd_panel_close();
+        return ret;
+    }
+
+    bk_robot_lvgl_load_first_page();
+    s_display_active = true;
+    LOGI("display init done\n");
+    return BK_OK;
+}
+
+/* Stop rendering and tear down only the hardware. LVGL objects, timers and the
+ * current screen stay in retained RAM so wake-up restores the same UI state. */
+void bk_robot_display_power_off(void)
+{
+    uint32_t start_ms;
+
+    if (!s_display_active) {
+        return;
+    }
+
+    start_ms = rtos_get_time();
+    lv_vendor_stop();
+#if (CONFIG_TP)
+    drv_tp_close();
+#endif
+#if CONFIG_GPU
+    lv_gpu_deinit();
+#endif
     media_lcd_panel_close();
+    media_board_power_off();
+    s_lvgl_dpu_handle = NULL;
+    s_display_active = false;
+    LOGI("display hardware off in %u ms\n",
+         (unsigned)(rtos_get_time() - start_ms));
+}
+
+static bk_err_t bk_robot_display_restore(void)
+{
+    bk_err_t ret;
+
+    if (s_display_active) {
+        return BK_OK;
+    }
+
     media_board_power_on();
-    if (media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true) != AVDK_ERR_OK) {
-        LOGE("display reopen failed\n");
+    ret = media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true);
+    if (ret != AVDK_ERR_OK) {
+        LOGE("display panel resume failed: %d\n", ret);
+        return ret;
     }
     s_lvgl_dpu_handle = media_panel_get_dpu_handle();
 
 #if CONFIG_GPU
-    /* output_compress runs through the GPU, whose registers were reset too. */
-    lv_gpu_deinit();
     lv_gpu_init(0, 0);
 #endif
-
 #if (CONFIG_TP)
-    drv_tp_close();
     drv_tp_open(LVGL_DISP_WIDTH, LVGL_DISP_HEIGHT, TP_MIRROR_NONE);
 #endif
 
-    /* The DPU/GPU are alive again from here on: let flushes through before the
-     * LVGL task is restarted, otherwise the first frame is dropped. */
-    s_display_hw_ready = true;
+    /* Restart the retained LVGL context, then redraw the current screen into
+     * the re-opened panel without rebuilding or resetting the page. */
+    lv_vendor_start();
+    lv_vendor_disp_lock();
+    if (lv_screen_active() != NULL) {
+        lv_obj_invalidate(lv_screen_active());
+    }
+    lv_vendor_disp_unlock();
 
-    /* page_bt_music_enter() drops the old screen/timers and rebuilds the UI. */
-    bk_robot_lvgl_load_first_page();
-
-    LOGI("display reinit done\n");
+    s_display_active = true;
+    LOGI("display resume done\n");
+    return BK_OK;
 }
 
 static void bk_robot_display_resume_task(void *arg)
@@ -214,62 +236,20 @@ static void bk_robot_display_resume_task(void *arg)
         if (rtos_get_semaphore(&s_display_resume_sem, BEKEN_WAIT_FOREVER) != BK_OK) {
             continue;
         }
-        if (!s_display_reinit_pending) {
+        if (s_display_active) {
             continue;
         }
-        s_display_reinit_pending = false;
-        bk_robot_display_reinit();
+
+        if (bk_robot_display_restore() != BK_OK) {
+            LOGE("display resume failed\n");
+        }
     }
 }
 
-/* Probed from the AP idle path before power-off. Must stay constant time and
- * must not use RTOS services. */
-static bk_err_t bk_robot_display_prepare_power_off(void *arg)
+/* PM only schedules the hardware restore; the resume task does the slow work. */
+bk_err_t bk_robot_display_resume(void *arg)
 {
     (void)arg;
-    s_display_hw_ready = false;
-    return BK_OK;
-}
-
-/* Runs in the AP PM task right before the power-off sequence, while the DPU and
- * GPU are still alive. The LVGL task has to be parked here: after the AP is off
- * a stop request issued from the wake path never gets its ack (the in-flight
- * frame can no longer complete), so lv_vendor_stop() would block forever.
- * The backlight and the always-on board rails are driven off as well: the panel
- * is powered by GPIO53/GPIO32 and the display aux LDO, none of which are reset
- * by the AP power-down, so they would keep drawing current for the whole AP-off
- * window. Only the DSI/DPU registers are left alone -- they sit in the AP power
- * domain and are reset by the power-down itself. The full panel sleep-in DCS
- * sequence is NOT sent here because it alone costs >100 ms; it runs on wake
- * instead, where bk_robot_display_reinit() has no such limit.
- * Must finish within PM_AP_QUIESCE_CALLBACK_TIMEOUT_MS (100 ms). */
-static bk_err_t bk_robot_display_quiesce(void *arg)
-{
-    uint32_t start_ms;
-
-    (void)arg;
-
-    /* prepare_power_off() already ran and gated the flush path, so key the
-     * decision on s_lvgl_started only. Calling lv_vendor_stop() twice is a
-     * no-op. */
-    start_ms = rtos_get_time();
-    if (s_lvgl_started) {
-        lv_vendor_stop();
-        s_lvgl_started = false;
-    }
-    media_lcd_backlight_off();
-    media_board_power_off();
-    LOGI("display quiesce: lvgl stopped + panel powered off in %u ms\n",
-         (unsigned)(rtos_get_time() - start_ms));
-    return BK_OK;
-}
-
-/* Runs both on a real wake-up and when the power-off attempt is rolled back:
- * re-initializing an intact display is harmless, so no state is required. */
-static bk_err_t bk_robot_display_resume(void *arg)
-{
-    (void)arg;
-    s_display_reinit_pending = true;
     if (s_display_resume_sem != NULL) {
         rtos_set_semaphore(&s_display_resume_sem);
     }
@@ -278,8 +258,6 @@ static bk_err_t bk_robot_display_resume(void *arg)
 
 static const pm_ap_power_ops_t s_display_pm_ops = {
     .name = "lvgl_display",
-    .prepare_power_off = bk_robot_display_prepare_power_off,
-    .quiesce = bk_robot_display_quiesce,
     .resume = bk_robot_display_resume,
     .priority = PM_AP_POWER_PRIORITY_SERVICE,
 };
@@ -332,16 +310,7 @@ int main(void)
 	media_board_power_on(); //power on ai board peripherals
 
 #if CONFIG_LVGL
-    AVDK_RETURN_ON_ERROR(media_lcd_panel_open(DEFAULT_MIPI_PANEL, BK_PIXEL_FORMAT_ARGB8888, true), TAG, "media lcd panel open error");
-    AVDK_RETURN_ON_ERROR(bk_robot_lvgl_init(media_panel_get_dpu_handle()), TAG, "bk robot lvgl init error");
-
-    /* Register per-page business hooks before materializing page_1; pages
-     * fire their init hooks from the tail of init_page_page_N(). Then
-     * beken_ui_init() builds page_1, lv_screen_load()s it, and
-     * lv_vendor_start() begins LVGL rendering. */
-    // bk_pages_init_all_hooks();
-    bk_robot_lvgl_load_first_page(); 
-
+    AVDK_RETURN_ON_ERROR(bk_robot_display_init(), TAG, "display init error");
     AVDK_RETURN_ON_ERROR(bk_robot_display_pm_init(), TAG, "display pm init error");
 #endif
 
