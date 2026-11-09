@@ -2349,7 +2349,7 @@ static int audio_engine_start_inner(audio_engine_cfg_t *cfg)
         voice_cfg->eq_en = true;
         eq_algorithm_cfg_t eq_cfg = DEFAULT_EQ_ALGORITHM_CONFIG();
         eq_cfg.eq_chl_num = cfg->eq_enable;
-        eq_cfg.eq_mode = EQ_MODE_HARDWARE;
+        eq_cfg.eq_mode = EQ_MODE_SOFTWARE;
         voice_cfg->eq_cfg.eq_alg_cfg = eq_cfg;
     } else {
         voice_cfg->eq_en = false;

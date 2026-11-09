@@ -99,6 +99,7 @@ bk_err_t robot_ctrl_handle_audio(const char *method, cJSON *id, cJSON *params)
             cfg.mic_sample_rate = audio.record_sample_rate;
             cfg.spk_sample_rate = audio.play_sample_rate;
             cfg.aec_enable = audio.aec ? 1 : 0;
+            cfg.eq_enable = 1;
             cfg.enc_type = robot_ctrl_audio_enc_type(audio.record_fmt);
             cfg.dec_type = robot_ctrl_audio_dec_type(audio.play_fmt);
             if (cfg.enc_type == AUDIO_ENC_TYPE_INVALID || cfg.dec_type == AUDIO_DEC_TYPE_INVALID) {

@@ -20,7 +20,7 @@
 
 /* ============================ EQ (DL, 16K) ============================ */
 #define EQTotalNum 2
-#define FILTER_PREGAIN_FRA_BITS (14)
+#define EQGAIN 16384
 
 //E0_freq_600_gain_n15_qval_1_type_1_LS
 #define EQ0 1
@@ -56,7 +56,7 @@
     .app_eq_en = 1,                                                             \
     .eq_en = 1,                                                                 \
     .filters = EQTotalNum,                                                      \
-    .globle_gain = (int32_t)(1.12f * (1 << FILTER_PREGAIN_FRA_BITS)),           \
+    .globle_gain = EQGAIN,                                                      \
     .eq_para[0].a[0] = -EQ0A0,                                                  \
     .eq_para[0].a[1] = -EQ0A1,                                                  \
     .eq_para[0].b[0] = EQ0B0,                                                   \
