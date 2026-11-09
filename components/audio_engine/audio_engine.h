@@ -101,7 +101,45 @@ typedef struct {
     void *user_data;               /**< User data for callbacks */
 } audio_engine_cfg_t;
 
+#define AUDIO_ENGINE_BOARD_CFG_VERSION   (0x0001)
 
+typedef enum {
+    AUDIO_ENGINE_MIC_DMIC          = 0,
+    AUDIO_ENGINE_MIC_ANALOG_DIFF   = 1,
+    AUDIO_ENGINE_MIC_ANALOG_SINGLE = 2,
+} audio_engine_mic_type_t;
+
+typedef struct {
+    uint16_t version;
+    uint16_t size;
+    uint8_t  mic_type;
+    uint8_t  ch_bitmap;
+    uint8_t  dmic_mode;
+    int8_t   dmic_clk_gpio;
+    int8_t   dmic_data_gpio;
+    int8_t   aec_dist;
+    uint8_t  reserved[6];
+} audio_engine_board_cfg_t;
+
+/**
+ * @brief Install a board-level mic topology for the whole process.
+ *
+ * Optional. When not called, audio_engine_start() uses the built-in
+ * default topology. Must be called before the first audio_engine_start().
+ *
+ * @param cfg Pointer to board configuration
+ * @return int
+ *         - 0: Success
+ *         - < 0: Error codes (see audio_engine_err_t)
+ */
+int audio_engine_set_board_cfg(const audio_engine_board_cfg_t *cfg);
+
+/**
+ * @brief Get the board topology currently in effect.
+ *
+ * @return const audio_engine_board_cfg_t* Never NULL.
+ */
+const audio_engine_board_cfg_t *audio_engine_get_board_cfg(void);
 
 /**
  * @brief Initialize and start audio engine

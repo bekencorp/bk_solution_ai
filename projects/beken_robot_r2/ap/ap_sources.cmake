@@ -69,6 +69,8 @@ foreach(_rel ${_robot_app_rel_srcs})
     endif()
 endforeach()
 
+list(APPEND srcs "${APP_ROOT}/audio_param/audio_para.c")
+
 include(${APP_ROOT}/beken_generated/beken_generated.cmake)
 list(APPEND srcs ${BEKEN_GENERATOR_SOURCES})
 list(APPEND incs ${BEKEN_GENERATOR_INCLUDE_DIRS})

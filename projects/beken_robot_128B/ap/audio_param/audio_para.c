@@ -14,40 +14,71 @@
 #include <components/bk_audio/audio_algorithms/aec_v3_algorithm_v2.h>
 #endif
 
+#if CONFIG_BK_AUDIO_ENGINE
+#include "audio_engine.h"
+
+#if !CONFIG_ADK_ONBOARD_MIC_STREAM_V2
+#error "CONFIG_ADK_ONBOARD_MIC_STREAM_V2 must be enabled for onboard mic"
+#endif
+
+#define BOARD_AUDIO_MIC_TYPE        AUDIO_ENGINE_MIC_DMIC
+#define BOARD_AUDIO_CH_BITMAP       0x6
+#define BOARD_AUDIO_DMIC_MODE       1
+#define BOARD_AUDIO_DMIC_CLK_GPIO   50
+#define BOARD_AUDIO_DMIC_DATA_GPIO  49
+#define BOARD_AUDIO_AEC_DIST        (-1)
+
+static const audio_engine_board_cfg_t s_board_cfg = {
+    .version        = AUDIO_ENGINE_BOARD_CFG_VERSION,
+    .size           = sizeof(audio_engine_board_cfg_t),
+    .mic_type       = BOARD_AUDIO_MIC_TYPE,
+    .ch_bitmap      = BOARD_AUDIO_CH_BITMAP,
+    .dmic_mode      = BOARD_AUDIO_DMIC_MODE,
+    .dmic_clk_gpio  = BOARD_AUDIO_DMIC_CLK_GPIO,
+    .dmic_data_gpio = BOARD_AUDIO_DMIC_DATA_GPIO,
+    .aec_dist       = BOARD_AUDIO_AEC_DIST,
+};
+
+int audio_board_config_init(void)
+{
+    return audio_engine_set_board_cfg(&s_board_cfg);
+}
+#endif
+
 
 /* ============ Customer audio parameters (tuning tool only) ============= */
 #if CONFIG_AE_AUDIO_PARAM && CONFIG_AUD_PARAM_CTRL
 
 /* ============================ EQ (DL, 16K) ============================ */
-#define EQTotalNum 2
-#define FILTER_PREGAIN_FRA_BITS (14)
+#define VOC_EQ_TOTAL_NUM 2
+#define VOC_FILTER_PREGAIN_FRA_BITS (14)
 
 //E0_freq_600_gain_n15_qval_1_type_1_LS
-#define EQ0 1
-#define EQ0A0 -1668051
-#define EQ0A1 734106
-#define EQ0B0 934084
-#define EQ0B1 -1715175
-#define EQ0B2 801474
-#define EQ0FREQ 0x44160000
-#define EQ0GAIN 0xc1700000
-#define EQ0QVAL 0x3f800000
-#define EQ0FTYPE 0x01
+#define VOC_EQ0 1
+#define VOC_EQ0A0 -1668051
+#define VOC_EQ0A1 734106
+#define VOC_EQ0B0 934084
+#define VOC_EQ0B1 -1715175
+#define VOC_EQ0B2 801474
+#define VOC_EQ0FREQ 0x44160000
+#define VOC_EQ0GAIN 0xc1700000
+#define VOC_EQ0QVAL 0x3f800000
+#define VOC_EQ0FTYPE 0x01
 
 //E1_freq_700_gain_n1_qval_1_type_0_PK
-#define EQ1 1
-#define EQ1A0 -1764716
-#define EQ1A1 784980
-#define EQ1B0 1034243
-#define EQ1B1 -1764716
-#define EQ1B2 799312
-#define EQ1FREQ 0x442f0000
-#define EQ1GAIN 0xbf800000
-#define EQ1QVAL 0x3f800000
-#define EQ1FTYPE 0x00
+#define VOC_EQ1 1
+#define VOC_EQ1A0 -1764716
+#define VOC_EQ1A1 784980
+#define VOC_EQ1B0 1034243
+#define VOC_EQ1B1 -1764716
+#define VOC_EQ1B2 799312
+#define VOC_EQ1FREQ 0x442f0000
+#define VOC_EQ1GAIN 0xbf800000
+#define VOC_EQ1QVAL 0x3f800000
+#define VOC_EQ1FTYPE 0x00
 
-#define EQSAMP   0x3e80
-#define EQFGAIN  0x00000000
+#define VOC_EQSAMP   0x3e80
+#define VOC_EQFGAIN  0x00000000
 
 /* With CONFIG_AE_AUDIO_PARAM on, this preset replaces the engine's
  * DEFAULT_EQ_ALGORITHM_CONFIG() coefficients when the voice service binds. */
@@ -55,30 +86,30 @@
 {                                                                               \
     .app_eq_en = 1,                                                             \
     .eq_en = 1,                                                                 \
-    .filters = EQTotalNum,                                                      \
-    .globle_gain = (int32_t)(1.12f * (1 << FILTER_PREGAIN_FRA_BITS)),           \
-    .eq_para[0].a[0] = -EQ0A0,                                                  \
-    .eq_para[0].a[1] = -EQ0A1,                                                  \
-    .eq_para[0].b[0] = EQ0B0,                                                   \
-    .eq_para[0].b[1] = EQ0B1,                                                   \
-    .eq_para[0].b[2] = EQ0B2,                                                   \
-    .eq_para[1].a[0] = -EQ1A0,                                                  \
-    .eq_para[1].a[1] = -EQ1A1,                                                  \
-    .eq_para[1].b[0] = EQ1B0,                                                   \
-    .eq_para[1].b[1] = EQ1B1,                                                   \
-    .eq_para[1].b[2] = EQ1B2,                                                   \
-    .eq_load.f_gain     = EQFGAIN,                                              \
-    .eq_load.samplerate = EQSAMP,                                               \
-    .eq_load.eq_load_para[0].freq   = EQ0FREQ,                                  \
-    .eq_load.eq_load_para[0].gain   = EQ0GAIN,                                  \
-    .eq_load.eq_load_para[0].q_val  = EQ0QVAL,                                  \
-    .eq_load.eq_load_para[0].type   = EQ0FTYPE,                                 \
-    .eq_load.eq_load_para[0].enable = EQ0,                                      \
-    .eq_load.eq_load_para[1].freq   = EQ1FREQ,                                  \
-    .eq_load.eq_load_para[1].gain   = EQ1GAIN,                                  \
-    .eq_load.eq_load_para[1].q_val  = EQ1QVAL,                                  \
-    .eq_load.eq_load_para[1].type   = EQ1FTYPE,                                 \
-    .eq_load.eq_load_para[1].enable = EQ1,                                      \
+    .filters = VOC_EQ_TOTAL_NUM,                                                \
+    .globle_gain = (int32_t)(1.12f * (1 << VOC_FILTER_PREGAIN_FRA_BITS)),       \
+    .eq_para[0].a[0] = -VOC_EQ0A0,                                              \
+    .eq_para[0].a[1] = -VOC_EQ0A1,                                              \
+    .eq_para[0].b[0] = VOC_EQ0B0,                                               \
+    .eq_para[0].b[1] = VOC_EQ0B1,                                               \
+    .eq_para[0].b[2] = VOC_EQ0B2,                                               \
+    .eq_para[1].a[0] = -VOC_EQ1A0,                                              \
+    .eq_para[1].a[1] = -VOC_EQ1A1,                                              \
+    .eq_para[1].b[0] = VOC_EQ1B0,                                               \
+    .eq_para[1].b[1] = VOC_EQ1B1,                                               \
+    .eq_para[1].b[2] = VOC_EQ1B2,                                               \
+    .eq_load.f_gain     = VOC_EQFGAIN,                                          \
+    .eq_load.samplerate = VOC_EQSAMP,                                           \
+    .eq_load.eq_load_para[0].freq   = VOC_EQ0FREQ,                              \
+    .eq_load.eq_load_para[0].gain   = VOC_EQ0GAIN,                              \
+    .eq_load.eq_load_para[0].q_val  = VOC_EQ0QVAL,                              \
+    .eq_load.eq_load_para[0].type   = VOC_EQ0FTYPE,                             \
+    .eq_load.eq_load_para[0].enable = VOC_EQ0,                                  \
+    .eq_load.eq_load_para[1].freq   = VOC_EQ1FREQ,                              \
+    .eq_load.eq_load_para[1].gain   = VOC_EQ1GAIN,                              \
+    .eq_load.eq_load_para[1].q_val  = VOC_EQ1QVAL,                              \
+    .eq_load.eq_load_para[1].type   = VOC_EQ1FTYPE,                             \
+    .eq_load.eq_load_para[1].enable = VOC_EQ1,                                  \
 }
 
 /* ======================== SYS (mic/spk gains) ========================= */
@@ -165,35 +196,6 @@ void media_audio_param_unbind_voc_handle(void)
 }
 
 #endif /* CONFIG_AE_AUDIO_PARAM && CONFIG_AUD_PARAM_CTRL */
-
-/* ======================= ASR DOA / arrow mapping ====================== */
-/*
- * Board-dependent thresholds: the AEC only reports the raw phase metric
- * (phs_sm2), turning it into an arrow angle is product specific. The values
- * below currently equal the audio_engine defaults and must be replaced with
- * whole-product measurements.
- *
- * NOTE: registration is done by sound_localization_init(), so this preset only
- * takes effect while the demo/UI tree (CONFIG_ROBOT_TEST / CONFIG_LVGL) is
- * built in; otherwise the engine keeps its own default decision.
- */
-#if CONFIG_BK_AUDIO_ENGINE
-static const audio_engine_doa_arrow_cfg_t s_doa_arrow_cfg =
-{
-    .phs_sm2_min        = -16384,
-    .phs_sm2_max        =  20000,
-    .phs_sm2_right_max  =      0,
-    .phs_sm2_left_min   =   5000,
-    .arrow_angle_right  =     45,
-    .arrow_angle_center =     90,
-    .arrow_angle_left   =    135,
-};
-
-int audio_param_doa_to_arrow(int32_t phs_sm2)
-{
-    return audio_engine_doa_to_arrow_default(phs_sm2, &s_doa_arrow_cfg);
-}
-#endif /* CONFIG_BK_AUDIO_ENGINE */
 
 /* ============================ A2DP hooks ============================== */
 /*

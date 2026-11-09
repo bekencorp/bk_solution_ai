@@ -1,16 +1,64 @@
 /**
  * @file sound_localization.c
  * @brief Backend for the page_5 sound source localization demo. Owns
- *        the cached arrow angle (consumed by audio_engine DOA weak link)
+ *        the cached arrow angle (pushed by the audio_engine DOA callback)
  *        and provides the audio_engine ASR start/stop service that feeds
  *        the DOA estimator. LVGL-free: the live angle is pushed into the
  *        UI via a callback registered by page_doa_hooks.c.
  *
  * Backward-compat: keeps `page_5_set_arrow_angle()` /
  * `page_5_get_arrow_angle()` / `page_5_set_arrow_pivot()` /
- * `page_5_cli_init()` exported so audio_engine (weak link) and legacy
+ * `page_5_cli_init()` exported so audio_engine and legacy
  * call sites continue to compile.
  */
+/* ----------------------------------------------------------------------
+ * Three-mic geometry
+ *
+ * Frame: origin O = midpoint of mic0 and mic1
+ *        +X = horizontal, pointing right (mic1 -> mic0)
+ *        +Y = horizontal, perpendicular to X, pointing to the front of
+ *             the device (user side)
+ *        +Z = vertical, pointing up (device kept upright)
+ *        unit = mm
+ *
+ * 1. Offset of mic2 relative to O (signed)
+ *
+ *     dx = mic2.x - O.x =   0 mm   X offset of mic2 from midpoint O
+ *                                  + = on the mic0 side; - = on the mic1 side
+ *     dy = mic2.y - O.y = -20 mm   Y offset of mic2 from midpoint O
+ *                                  + = in front of the mic0-mic1 line
+ *                                      (user side)
+ *                                  - = behind it (inside the enclosure)
+ *     dz = mic2.z - O.z =   0 mm   Z offset of mic2 from midpoint O
+ *                                  + = above the mic0-mic1 line
+ *                                  - = below it; fill 0 when coplanar
+ *
+ *     Coordinates (d01 = mic0-mic1 spacing):
+ *         mic0 = (-d01/2, 0,     0)
+ *         mic1 = (+d01/2, 0,     0)
+ *         mic2 = (dx,     dy,    dz)
+ *
+ * 2. Baseline length
+ *
+ *     d01 = 56 mm          (spacing between mic0 and mic1)
+ *
+ * 3. Layout
+ *
+ *     [ ] Collinear (dy = 0 and dz = 0)
+ *     [Y] Triangular (dy or dz is non-zero)
+ *     [ ] Other: ____________________
+ *
+ * 4. Differential wiring
+ *
+ *     Every mic is wired differentially on its own +/- pair; the three
+ *     baselines are mutually independent.
+ *
+ * 5. Mounting
+ *
+ *     Mic openings on the device: [Y] front / __ top / __ bottom / __ side
+ *     Horizontal offset angle of mic2 from the mic0-mic1 line:
+ *         theta = 0 deg
+ * -------------------------------------------------------------------- */
 #include "demo/sound_localization.h"
 #include "page_5_api.h"
 #include "page_doa_eyes.h"
@@ -21,6 +69,7 @@
 #ifdef ROBOT_TEST
 
 #include "audio_engine.h"
+#include "audio_engine_hooks.h"
 #include "bk_cli.h"
 #include "cli.h"
 #include "os/os.h"
@@ -30,6 +79,139 @@
 #define TAG "doa_demo"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
+
+#define R2_DOA_SM2_OFFSET       (-12700)
+#define R2_DOA_SM2_DEAD_ZONE    (2500)
+#define R2_DOA_FB_OFFSET        (13900)
+#define R2_DOA_FB_DEAD_ZONE     (5000)
+#define R2_DOA_REAR_RIGHT_ANGLE (225)
+#define R2_DOA_REAR_CENTER_ANGLE (270)
+#define R2_DOA_REAR_LEFT_ANGLE  (315)
+
+#define R2_DOA_DIR_RIGHT    (-1)
+#define R2_DOA_DIR_CENTER   (0)
+#define R2_DOA_DIR_LEFT     (1)
+
+#define R2_DOA_W_SM2       2
+#define R2_DOA_W_DIFF      1
+
+static const audio_engine_doa_arrow_cfg_t s_doa_arrow_cfg = {
+    .phs_sm2_min        = -16384,
+    .phs_sm2_max        =  20000,
+    .phs_sm2_right_max  = R2_DOA_SM2_OFFSET - R2_DOA_SM2_DEAD_ZONE,
+    .phs_sm2_left_min   = R2_DOA_SM2_OFFSET + R2_DOA_SM2_DEAD_ZONE,
+    .arrow_angle_right  =    135,
+    .arrow_angle_center =     90,
+    .arrow_angle_left   =     45,
+};
+
+static int r2_doa_front_back(int32_t h_sum)
+{
+    int32_t score = h_sum - R2_DOA_FB_OFFSET;
+
+    if (score >= R2_DOA_FB_DEAD_ZONE) {
+        return -1;
+    }
+    if (score <= -R2_DOA_FB_DEAD_ZONE) {
+        return 1;
+    }
+    return 0;
+}
+
+static int r2_doa_h_classify(int32_t h, int32_t right_max, int32_t left_min)
+{
+    if (h <= right_max) {
+        return R2_DOA_DIR_RIGHT;
+    }
+    if (h >= left_min) {
+        return R2_DOA_DIR_LEFT;
+    }
+    return R2_DOA_DIR_CENTER;
+}
+
+static int r2_doa_fusion(const audio_engine_doa_metric_t *metric)
+{
+    int32_t h_sm2 = metric->phs_sm2;
+    int32_t h = h_sm2;
+    int32_t right_max = s_doa_arrow_cfg.phs_sm2_right_max;
+    int32_t left_min = s_doa_arrow_cfg.phs_sm2_left_min;
+    int32_t h_sum = metric->phs02 + metric->phs12;
+    int fb = 0;
+    int dir;
+    int angle;
+
+    if ((metric->mic_num >= 3) && ((metric->phs02 != 0) || (metric->phs12 != 0))) {
+        int32_t h_diff = metric->phs02 - metric->phs12;
+
+        h = (h_sm2 * R2_DOA_W_SM2 + h_diff * R2_DOA_W_DIFF) / (R2_DOA_W_SM2 + R2_DOA_W_DIFF);
+        fb = r2_doa_front_back(h_sum);
+        LOGI("doa fusion: 3mic h_sm2=%d phs02=%d phs12=%d h_diff=%d h_sum=%d fb=%d w=%d/%d h=%d\r\n",
+             (int)h_sm2, (int)metric->phs02, (int)metric->phs12, (int)h_diff,
+             (int)h_sum, fb, R2_DOA_W_SM2, R2_DOA_W_DIFF, (int)h);
+    } else {
+        LOGI("doa fusion: skip diff, mic=%u phs02=%d phs12=%d h=%d\r\n",
+             (unsigned)metric->mic_num, (int)metric->phs02, (int)metric->phs12, (int)h);
+    }
+
+    if (fb > 0) {
+        dir = r2_doa_h_classify(h, right_max, left_min);
+
+        switch (dir) {
+        case R2_DOA_DIR_RIGHT:
+            angle = R2_DOA_REAR_RIGHT_ANGLE;
+            break;
+        case R2_DOA_DIR_LEFT:
+            angle = R2_DOA_REAR_LEFT_ANGLE;
+            break;
+        default:
+            angle = R2_DOA_REAR_CENTER_ANGLE;
+            break;
+        }
+
+        LOGI("doa decide: rear h_sum=%d h=%d dir=%d angle=%d\r\n",
+             (int)h_sum, (int)h, dir, angle);
+
+        return angle;
+    }
+
+    dir = r2_doa_h_classify(h, right_max, left_min);
+
+    switch (dir) {
+    case R2_DOA_DIR_RIGHT:
+        angle = s_doa_arrow_cfg.arrow_angle_right;
+        break;
+    case R2_DOA_DIR_LEFT:
+        angle = s_doa_arrow_cfg.arrow_angle_left;
+        break;
+    default:
+        angle = s_doa_arrow_cfg.arrow_angle_center;
+        break;
+    }
+
+    LOGI("doa decide: h=%d right_max=%d left_min=%d dir=%d angle=%d\r\n",
+         (int)h, (int)right_max, (int)left_min, dir, angle);
+
+    return angle;
+}
+
+static int sound_localization_doa_metric(const audio_engine_doa_metric_t *metric)
+{
+    int angle;
+
+    if (metric->mic_num >= 3) {
+        angle = r2_doa_fusion(metric);
+    } else {
+        angle = audio_engine_doa_to_arrow_default(metric->phs_sm2, &s_doa_arrow_cfg);
+        LOGI("doa default: 2mic phs_sm2=%d angle=%d\r\n",
+             (int)metric->phs_sm2, angle);
+    }
+
+    LOGI("doa metric: mic=%u vad=%u phs_sm2=%d phs02=%d phs12=%d angle=%d\r\n",
+         (unsigned)metric->mic_num, (unsigned)metric->vad_state,
+         (int)metric->phs_sm2, (int)metric->phs02, (int)metric->phs12, angle);
+
+    return angle;
+}
 
 /* Defaults to 90 deg: blue KNOB under the mouth, pupils default to the
  * top/bottom region with the brown tint. */
@@ -240,6 +422,9 @@ int sound_localization_stop_service(void)
 int sound_localization_init(void)
 {
     (void)page_5_cli_init();
+
+    /* Runs at startup via bk_demos_init_all(), before any wakeup DOA report. */
+    audio_engine_register_doa_metric_callback(sound_localization_doa_metric);
     return 0;
 }
 

@@ -21,10 +21,7 @@ menu "Audio Engine"
 		depends on BK_AUDIO_ENGINE
 		default n
 		help
-			Enable the three-microphone array path: 3-channel ADC interleave,
-			SSL3 direction-of-arrival (azimuth / elevation) and its WiFi result
-			report. Off by default so that non-3-mic projects keep pure dual-mic
-			behavior. The beken_robot_r2 project enables this explicitly.
+			Enable 3-mic (SSL3) audio support
 	config AE_AUDIO_FRAME_DURATION_MS
 		int "default audio frame duration in ms"
 		range 20 60

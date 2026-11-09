@@ -28,6 +28,7 @@
 
 #if CONFIG_BK_AUDIO_ENGINE
 #include "audio_engine.h"
+#include "audio_param/audio_para.h"
 #endif
 
 #if CONFIG_BK_VIDEO_ENGINE
@@ -352,6 +353,10 @@ int main(void)
     bk_regist_factory_user_config((const struct factory_config_t *)&s_user_config,
                                     sizeof(s_user_config)/sizeof(s_user_config[0]));
     bk_factory_init();
+
+#if CONFIG_BK_AUDIO_ENGINE
+    (void)audio_board_config_init();
+#endif
 
 #if CONFIG_LVGL
     /* Load the persisted UI language before any page is built. */

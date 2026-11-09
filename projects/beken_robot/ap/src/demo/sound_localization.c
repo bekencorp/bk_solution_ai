@@ -14,7 +14,6 @@
 #include "demo/sound_localization.h"
 #include "page_5_api.h"
 #include "page_doa_eyes.h"
-#include "audio_param/audio_para.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -32,6 +31,21 @@
 #define TAG "doa_demo"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
+
+static const audio_engine_doa_arrow_cfg_t s_doa_arrow_cfg = {
+    .phs_sm2_min        = -16384,
+    .phs_sm2_max        =  20000,
+    .phs_sm2_right_max  =      0,
+    .phs_sm2_left_min   =   5000,
+    .arrow_angle_right  =     45,
+    .arrow_angle_center =     90,
+    .arrow_angle_left   =    135,
+};
+
+static int sound_localization_doa_to_arrow(int32_t phs_sm2)
+{
+    return audio_engine_doa_to_arrow_default(phs_sm2, &s_doa_arrow_cfg);
+}
 
 /* Defaults to 90 deg: blue KNOB under the mouth, pupils default to the
  * top/bottom region with the brown tint. */
@@ -243,10 +257,8 @@ int sound_localization_init(void)
 {
     (void)page_5_cli_init();
 
-    /* DOA thresholds live with the other customer audio parameters in
-     * audio_para.c; only the registration belongs here. Runs at startup via
-     * bk_demos_init_all(), before any wakeup DOA report. */
-    audio_engine_register_doa_to_arrow_callback(audio_param_doa_to_arrow);
+    /* Runs at startup via bk_demos_init_all(), before any wakeup DOA report. */
+    audio_engine_register_doa_to_arrow_callback(sound_localization_doa_to_arrow);
     return 0;
 }
 

@@ -10,6 +10,7 @@
 #include <components/bk_player_service.h>
 #include <components/bk_player_service_types.h>
 #include <components/bk_audio/audio_pipeline/rb_port.h>
+#include <components/bk_audio/audio_pipeline/audio_uplink_layout.h>
 #if CONFIG_AE_PROMPT_TONE_SOURCE_VFS || CONFIG_BEKEN_KWS_MODEL_FROM_UDISK
 #include "bk_posix.h"
 #endif
@@ -105,13 +106,31 @@ static const audio_engine_doa_arrow_cfg_t s_default_asr_doa_cfg =
     .arrow_angle_left   = AE_ARROW_ANGLE_LEFT,
 };
 
+/* Latest AEC phase metric, refreshed per-slot by bk_aec_phase_callback(). */
+static volatile int32_t s_wakeup_phsm2 = 0;
+static volatile int32_t s_wakeup_phs02 = 0;
+static volatile int32_t s_wakeup_phs12 = 0;
+static volatile uint8_t s_phase_vad_ok = 1;
+
+#ifndef CONFIG_AE_DOA_MIN_LEVEL
+#define CONFIG_AE_DOA_MIN_LEVEL 0
+#endif
+
 /* Project callback registered by the project init (e.g. sound_localization_init);
  * NULL = engine default decision. */
 static audio_engine_doa_to_arrow_callback_t s_doa_callback = NULL;
 
+static audio_engine_doa_metric_callback_t s_doa_metric_callback = NULL;
+static uint8_t s_doa_mic_num = 1;
+
 void audio_engine_register_doa_to_arrow_callback(audio_engine_doa_to_arrow_callback_t callback)
 {
     s_doa_callback = callback;
+}
+
+void audio_engine_register_doa_metric_callback(audio_engine_doa_metric_callback_t callback)
+{
+    s_doa_metric_callback = callback;
 }
 
 int audio_engine_doa_to_arrow_default(int32_t phs_sm2,
@@ -138,6 +157,21 @@ int audio_engine_doa_to_arrow_default(int32_t phs_sm2,
 
 static int audio_engine_phsm2_to_arrow(int32_t phs_sm2)
 {
+    if (s_doa_metric_callback != NULL) {
+        audio_engine_doa_metric_t metric;
+
+        memset(&metric, 0, sizeof(metric));
+        metric.version   = AUDIO_ENGINE_DOA_METRIC_VERSION;
+        metric.size      = sizeof(metric);
+        metric.mic_num   = s_doa_mic_num;
+        metric.vad_state = s_phase_vad_ok;
+        metric.phs_sm2   = phs_sm2;
+        metric.phs02     = s_wakeup_phs02;
+        metric.phs12     = s_wakeup_phs12;
+
+        return s_doa_metric_callback(&metric);
+    }
+
     if (s_doa_callback != NULL) {
         return s_doa_callback(phs_sm2);
     }
@@ -183,8 +217,8 @@ extern void page_5_set_arrow_angle(int degrees) __attribute__((weak));
 struct audio_engine_ctx g_audio_engine = {0};
 audio_engine_cfg_t g_audio_engine_cfg = {0};
 
-/* Latest AEC phase metric, refreshed per-slot by bk_aec_phase_callback(). */
-static volatile int32_t s_wakeup_phsm2 = 0;
+static audio_engine_board_cfg_t s_board_cfg;
+static bool s_board_cfg_valid = false;
 
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
 audio_engine_prompt_tone_handle_t g_audio_engine_prompt_tone = NULL;
@@ -337,9 +371,26 @@ static int ae_worker_run(ae_op_fn_t fn)
 static void audio_engine_update_arrow_on_wakeup(void)
 {
     int32_t phsm2 = s_wakeup_phsm2;
-    int deg = audio_engine_phsm2_to_arrow(phsm2);
+    int deg;
+    uint8_t level = audio_engine_get_mic_level();
 
-    LOGI("ASR wakeup phs_sm2=%d -> arrow=%d deg\r\n", (int)phsm2, deg);
+    if (!s_phase_vad_ok) {
+        LOGI("ASR wakeup phs_sm2=%d skipped: vad=0\r\n", (int)phsm2);
+        return;
+    }
+
+#if CONFIG_AE_DOA_MIN_LEVEL > 0
+    if (level < CONFIG_AE_DOA_MIN_LEVEL) {
+        LOGI("ASR wakeup phs_sm2=%d skipped: level=%u\r\n",
+             (int)phsm2, (unsigned)level);
+        return;
+    }
+#endif
+
+    deg = audio_engine_phsm2_to_arrow(phsm2);
+
+    LOGI("ASR wakeup phs_sm2=%d -> arrow=%d deg (vad=%u level=%u)\r\n",
+         (int)phsm2, deg, (unsigned)s_phase_vad_ok, (unsigned)level);
 
     if (page_5_set_arrow_angle != NULL) {
         page_5_set_arrow_angle(deg);
@@ -1519,12 +1570,26 @@ void bk_audio_engine_asr_result_handle(void *p1, void *p2)
 #if CONFIG_ADK_AEC_V3_ALGORITHM_COMPONENT_V2
 static int bk_aec_phase_callback(int32_t phs_sm2, int vad_state)
 {
-    (void)vad_state;
     /* Cache latest estimate so the wake-word handler can steer the arrow.
      * The mic activity / level signals for the UI come from the dedicated
      * vad_state_cb and aec_level_cb hooks below, which are stable and
      * already hysteresis-filtered by the SDK. */
     s_wakeup_phsm2 = phs_sm2;
+    (void)vad_state;
+    return 1;
+}
+
+static int bk_aec_phase02_callback(int32_t phs_sm2, int vad_state)
+{
+    (void)vad_state;
+    s_wakeup_phs02 = phs_sm2;
+    return 1;
+}
+
+static int bk_aec_phase12_callback(int32_t phs_sm2, int vad_state)
+{
+    (void)vad_state;
+    s_wakeup_phs12 = phs_sm2;
     return 1;
 }
 #endif /* CONFIG_ADK_AEC_V3_ALGORITHM_COMPONENT_V2 */
@@ -2104,6 +2169,107 @@ int audio_engine_asr_switch_model(int model_id)
 #endif
 #endif
 
+static void audio_engine_board_cfg_default(audio_engine_board_cfg_t *cfg)
+{
+    os_memset(cfg, 0, sizeof(*cfg));
+    cfg->version = AUDIO_ENGINE_BOARD_CFG_VERSION;
+    cfg->size    = sizeof(audio_engine_board_cfg_t);
+
+    cfg->mic_type       = AUDIO_ENGINE_MIC_DMIC;
+    cfg->ch_bitmap      = 0x6;
+    cfg->dmic_mode      = AUD_DMIC_MODE_1;
+    cfg->dmic_clk_gpio  = GPIO_50;
+    cfg->dmic_data_gpio = GPIO_49;
+    cfg->aec_dist       = -1;
+}
+
+const audio_engine_board_cfg_t *audio_engine_get_board_cfg(void)
+{
+    static audio_engine_board_cfg_t cached;
+
+    if (s_board_cfg_valid) {
+        return &s_board_cfg;
+    }
+
+    audio_engine_board_cfg_default(&cached);
+    return &cached;
+}
+
+static bool audio_engine_board_cfg_check(const audio_engine_board_cfg_t *cfg)
+{
+    if (cfg->version != AUDIO_ENGINE_BOARD_CFG_VERSION) {
+        LOGE("board cfg: unsupported version 0x%x\n", (unsigned)cfg->version);
+        return false;
+    }
+
+    if (cfg->size < sizeof(audio_engine_board_cfg_t)) {
+        LOGE("board cfg: size %u too small\n", (unsigned)cfg->size);
+        return false;
+    }
+
+    if (cfg->mic_type > AUDIO_ENGINE_MIC_ANALOG_SINGLE) {
+        LOGE("board cfg: invalid mic_type %u\n", (unsigned)cfg->mic_type);
+        return false;
+    }
+
+    if (cfg->ch_bitmap == 0 || (cfg->ch_bitmap & ~0x7u)) {
+        LOGE("board cfg: invalid ch_bitmap 0x%x\n", (unsigned)cfg->ch_bitmap);
+        return false;
+    }
+
+    if (cfg->mic_type == AUDIO_ENGINE_MIC_DMIC) {
+        uint8_t expect = cfg->dmic_mode ? 0x6u : 0x1u;
+
+        if (cfg->ch_bitmap != expect) {
+            LOGE("board cfg: dmic mode %u needs ch_bitmap 0x%x, got 0x%x\n",
+                 (unsigned)cfg->dmic_mode, (unsigned)expect,
+                 (unsigned)cfg->ch_bitmap);
+            return false;
+        }
+
+        if (cfg->dmic_clk_gpio < 0 || cfg->dmic_data_gpio < 0) {
+            LOGE("board cfg: dmic clk/data gpio not set\n");
+            return false;
+        }
+    } else if (cfg->dmic_mode != 0 || cfg->dmic_clk_gpio >= 0 ||
+               cfg->dmic_data_gpio >= 0) {
+        LOGE("board cfg: analog mic must not carry dmic fields\n");
+        return false;
+    }
+
+    if (cfg->aec_dist < -1 || cfg->aec_dist > 2) {
+        LOGE("board cfg: invalid aec_dist %d\n", (int)cfg->aec_dist);
+        return false;
+    }
+
+    return true;
+}
+
+int audio_engine_set_board_cfg(const audio_engine_board_cfg_t *cfg)
+{
+    if (cfg == NULL) {
+        return AUDIO_ENGINE_ERR_INVALID_PARAM;
+    }
+
+    if (g_audio_engine.is_started) {
+        LOGE("board cfg: engine already started\n");
+        return AUDIO_ENGINE_ERR_INVALID_PARAM;
+    }
+
+    if (!audio_engine_board_cfg_check(cfg)) {
+        return AUDIO_ENGINE_ERR_INVALID_PARAM;
+    }
+
+    s_board_cfg = *cfg;
+    s_board_cfg_valid = true;
+
+    LOGI("board cfg accepted: type=%u bitmap=0x%x mode=%u clk=%d data=%d\n",
+         (unsigned)cfg->mic_type, (unsigned)cfg->ch_bitmap,
+         (unsigned)cfg->dmic_mode, (int)cfg->dmic_clk_gpio,
+         (int)cfg->dmic_data_gpio);
+    return AUDIO_ENGINE_SUCCESS;
+}
+
 static int audio_engine_start_inner(audio_engine_cfg_t *cfg)
 {
     int ret = 0;
@@ -2158,32 +2324,44 @@ static int audio_engine_start_inner(audio_engine_cfg_t *cfg)
     }
 
 #if CONFIG_ADK_ONBOARD_MIC_STREAM_V2
-    onboard_mic_cfg.ch_bitmap = ONBOARD_MIC_ADC_DEFAULT_ACTIVE_CH_BITS;
-    onboard_mic_cfg.adc_cfg.chl_num = 0;
-    for(uint32_t j = 0; j < AUD_ADC_CHL_MAX; j++)
-    {
-        if(onboard_mic_cfg.ch_bitmap & (1 << j))
-        {
-            onboard_mic_cfg.adc_cfg.chl_num++;
+    const audio_engine_board_cfg_t *board_cfg = audio_engine_get_board_cfg();
+
+    onboard_mic_cfg.ch_bitmap = board_cfg->ch_bitmap;
+    onboard_mic_cfg.adc_cfg.chl_num = aud_uplink_popcount(board_cfg->ch_bitmap);
+    onboard_mic_cfg.adc_cfg.aec_en = cfg->aec_enable;
+
+    if (board_cfg->mic_type == AUDIO_ENGINE_MIC_DMIC) {
+        onboard_mic_cfg.dmic_cfg.dmic_mode = (aud_dmic_mode_t)board_cfg->dmic_mode;
+        onboard_mic_cfg.dmic_cfg.dmic_clk_gpio = board_cfg->dmic_clk_gpio;
+        onboard_mic_cfg.dmic_cfg.dmic_data_gpio = board_cfg->dmic_data_gpio;
+        onboard_mic_cfg.dmic_en = 1;
+    } else {
+        onboard_mic_cfg.dmic_en = 0;
+        for (uint32_t j = 0; j < AUD_ADC_CHL_MAX; j++) {
+            if (board_cfg->ch_bitmap & (1u << j)) {
+                onboard_mic_cfg.adc_cfg.chl_cfg[j].adc_mode =
+                    (board_cfg->mic_type == AUDIO_ENGINE_MIC_ANALOG_SINGLE)
+                        ? AUD_ADC_MODE_SIGNAL_END : AUD_ADC_MODE_DIFFEN;
+            }
         }
     }
-    onboard_mic_cfg.adc_cfg.aec_en = cfg->aec_enable;
-#if CONFIG_ROBOT_R2
-    /* Robot R2: MICP0/N0, MICP1/N1, MICP2/N2 are differential analog pads.
-     * MICBIAS is enabled by bk_aud_adc_init(). Leave dmic off so ch0/ch1/ch2
-     * stay on those pads. aec_en above still appends the hardware ref lane. */
-    onboard_mic_cfg.dmic_en = 0;
-    for (uint32_t j = 0; j < AUD_ADC_CHL_MAX; j++) {
-        onboard_mic_cfg.adc_cfg.chl_cfg[j].adc_mode = AUD_ADC_MODE_DIFFEN;
-    }
-#else
-    onboard_mic_cfg.dmic_cfg.dmic_clk_gpio  = GPIO_50;
-    onboard_mic_cfg.dmic_cfg.dmic_data_gpio = GPIO_49;
-    onboard_mic_cfg.dmic_en = 1;
-#endif
 #endif
 
     voice_cfg->mic_cfg.onboard_mic_cfg = onboard_mic_cfg;
+    s_doa_mic_num = onboard_mic_cfg.adc_cfg.chl_num;
+
+    {
+        const audio_engine_board_cfg_t *bc = audio_engine_get_board_cfg();
+
+        LOGI("board snapshot: type=%u bitmap=0x%x mic=%u aec_en=%u "
+             "dmic_en=%u mode=%u clk=%d data=%d dist=%d\n",
+             (unsigned)bc->mic_type, (unsigned)onboard_mic_cfg.ch_bitmap,
+             (unsigned)onboard_mic_cfg.adc_cfg.chl_num,
+             (unsigned)onboard_mic_cfg.adc_cfg.aec_en,
+             (unsigned)onboard_mic_cfg.dmic_en, (unsigned)bc->dmic_mode,
+             (int)bc->dmic_clk_gpio, (int)bc->dmic_data_gpio,
+             (int)bc->aec_dist);
+    }
 
     /* Configure AEC */
     voice_cfg->aec_en = cfg->aec_enable;
@@ -2206,19 +2384,27 @@ static int audio_engine_start_inner(audio_engine_cfg_t *cfg)
             aec_cfg.aec_level_cb           = bk_aec_level_cb;
             aec_cfg.aec_cfg.ec_only_output = 1;
             aec_cfg.aec_cfg.multi_output_use_ec_out = 1;
-#if CONFIG_ROBOT_R2
-            /* Debug stage: de-interleave ADC0/1/2 into mic_addr. The AEC call is
-             * temporarily disabled in the shared algorithm implementation. */
-            aec_cfg.dual_ch = 2;
-            aec_cfg.aec_cfg.adc_ch_num = 3;
-#else
-            aec_cfg.dual_ch = 1;
-#endif
+            aec_cfg.aec_cfg.adc_ch_num = (uint8_t)onboard_mic_cfg.adc_cfg.chl_num;
+            aec_cfg.dual_ch = (aec_cfg.aec_cfg.adc_ch_num > 0)
+                              ? (int)aec_cfg.aec_cfg.adc_ch_num - 1 : 0;
+            if (aec_cfg.dual_ch > 2) {
+                aec_cfg.dual_ch = 2;
+            }
+            if (aec_cfg.dual_ch >= 2) {
+                aec_cfg.aec_phase02_cb = bk_aec_phase02_callback;
+                aec_cfg.aec_phase12_cb = bk_aec_phase12_callback;
+            }
+            {
+                const audio_engine_board_cfg_t *bc = audio_engine_get_board_cfg();
+
+                if (bc->aec_dist >= 0) {
+                    aec_cfg.aec_cfg.dist = bc->aec_dist;
+                }
+            }
             aec_cfg.multi_in_port_num  = 0;
             aec_cfg.vad_cfg.vad_enable = 1;
             aec_cfg.vad_cfg.vad_eng_threshold = 500;
         #endif
-            voice_cfg->mic_cfg.onboard_mic_cfg = onboard_mic_cfg;
         }
 
         voice_cfg->aec_cfg.aec_alg_cfg = aec_cfg;
