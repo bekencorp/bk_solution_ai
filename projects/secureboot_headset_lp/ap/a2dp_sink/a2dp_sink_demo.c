@@ -211,6 +211,36 @@ static void a2dp_sink_gap_event_cb(bk_gap_bt_cb_event_t event, bk_bt_gap_cb_para
 {
     switch (event)
     {
+    case BK_BT_GAP_ACL_CONN_CMPL_STAT_EVT:
+        if (param && param->acl_conn_cmpl_stat.stat == 0)
+        {
+            /* Power-on reconnect follows the newest linkkey record, which is
+             * only refreshed on pairing by default. Move the device to the
+             * newest slot on every successful connection so the next boot
+             * reconnects to the last connected phone instead of the last
+             * paired one. Skip the flash write when the order is unchanged. */
+            uint8_t newest_addr[6] = {0};
+
+            if (bluetooth_storage_get_newest_linkkey_info(newest_addr, NULL) >= 0 &&
+                os_memcmp(newest_addr, param->acl_conn_cmpl_stat.bda, sizeof(newest_addr)) == 0)
+            {
+                break;
+            }
+
+            if (bluetooth_storage_update_to_newest(param->acl_conn_cmpl_stat.bda) == 0)
+            {
+                bluetooth_storage_sync_to_flash();
+                LOGI("%s update newest device %02x:%02x:%02x:%02x:%02x:%02x\n", __func__,
+                     param->acl_conn_cmpl_stat.bda[5],
+                     param->acl_conn_cmpl_stat.bda[4],
+                     param->acl_conn_cmpl_stat.bda[3],
+                     param->acl_conn_cmpl_stat.bda[2],
+                     param->acl_conn_cmpl_stat.bda[1],
+                     param->acl_conn_cmpl_stat.bda[0]);
+            }
+        }
+        break;
+
     case BK_BT_GAP_LINK_KEY_NOTIF_EVT:
         if (param)
         {
@@ -548,8 +578,9 @@ int a2dp_sink_demo_is_connected(void)
     return s_a2dp_connected ? 1 : 0;
 }
 
-/* Reconnect to the newest bonded device, or open pairing mode when no
- * linkkey exists yet. Called once after init while not connected. */
+/* Reconnect to the newest bonded device (the last connected one, see
+ * a2dp_sink_gap_event_cb), or open pairing mode when no linkkey exists yet.
+ * Called once after init while not connected. */
 static void a2dp_sink_start_pairing(void)
 {
     uint8_t recon_addr[6] = {0};
