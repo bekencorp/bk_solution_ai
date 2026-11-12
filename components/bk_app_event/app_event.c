@@ -628,7 +628,11 @@ static void app_event_thread(beken_thread_arg_t data)
                     indicates_state &= ~(1<<INDICATES_STANDBY);
                     s_active_tickets &= ~(1 << COUNTDOWN_TICKET_STANDBY);
                     LOGI("APP_EVT_ASR_WAKEUP\n");
-#if CONFIG_AE_SUPPORT_PROMPT_TONE
+#if CONFIG_AE_SUPPORT_PROMPT_TONE && !CONFIG_MUSE_GADGET
+                    /* beken_muse 不在此自动播唤醒应答音：此刻发声通路还挂在
+                     * 待机引擎上（pa_ctrl_en=false，PA 关着，播了也无声），
+                     * 且接下来的 PTT 引擎切换会立刻掐断播放。muse_voice 在
+                     * voice 引擎就绪后自行播放（pa_enable=true）。 */
                     app_play_prompt_tone(APP_EVT_ASR_WAKEUP);
 #endif
                     bk_pm_module_vote_cpu_freq(PM_DEV_ID_AUDIO, PM_CPU_FRQ_480M);

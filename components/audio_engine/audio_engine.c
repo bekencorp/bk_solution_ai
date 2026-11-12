@@ -2640,6 +2640,23 @@ static int audio_engine_start_inner(audio_engine_cfg_t *cfg)
         os_free(voice_cfg);
         voice_cfg = NULL;
     }
+#if CONFIG_AE_SUPPORT_PROMPT_TONE
+    /* The prompt tone player binds to the voice speaker stream, so it must
+     * be (re)built on EVERY engine start: audio_engine_stop() deinits and
+     * NULLs the handle, and the old init-time-only creation left every
+     * later engine restart (e.g. beken_muse's KWS-park -> voice-config
+     * switch) with a dead NULL handle — tones started but never played
+     * (field log 2026-11-05: wakeup ack tone silent). Failure only disables
+     * tones for this run; the engine itself is fine. */
+    if (g_audio_engine_prompt_tone == NULL) {
+        audio_engine_prompt_tone_cfg_t pt_cfg = DEFAULT_AUDIO_ENGINE_PROMPT_TONE_CONFIG();
+        bk_voice_get_spkstr(g_audio_engine.voice_handle, &pt_cfg.spk_stream);
+        g_audio_engine_prompt_tone = audio_engine_prompt_tone_init(&pt_cfg);
+        if (!g_audio_engine_prompt_tone) {
+            LOGE("prompt tone init failed; tones disabled until next start\n");
+        }
+    }
+#endif
     g_audio_engine.is_started = true;
     LOGI("Audio engine started successfully\n");
     return AUDIO_ENGINE_SUCCESS;
@@ -3080,15 +3097,8 @@ int audio_engine_init(void)
     }
 
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
-    audio_engine_prompt_tone_cfg_t prompt_tone_cfg = DEFAULT_AUDIO_ENGINE_PROMPT_TONE_CONFIG();
-    bk_voice_get_spkstr(g_audio_engine.voice_handle, &prompt_tone_cfg.spk_stream);
-    g_audio_engine_prompt_tone = audio_engine_prompt_tone_init(&prompt_tone_cfg);
-    if (!g_audio_engine_prompt_tone)
-    {
-        LOGE("Failed to init prompt tone\n");
-        return AUDIO_ENGINE_ERR_INIT_FAILED;
-    }
-
+    /* Prompt tone init moved into audio_engine_start_inner(): every engine
+     * (re)start rebuilds it against the fresh speaker stream. */
     bk_aud_engine_cli_init();
 #endif
 

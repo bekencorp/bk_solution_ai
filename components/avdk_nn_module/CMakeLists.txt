@@ -2,12 +2,18 @@ set(incs
     include
     ../../tflite_micro/gesture_detection/ap/ui/beken_generated
 )
-set(srcs
+# The whole module is a TFLite Micro consumer: with TFLITE_MICRO off (e.g.
+# beken_muse) the tensorflow headers are not on the include path and none of
+# these sources can compile. Register the component empty in that case.
+set(srcs "")
+if (CONFIG_TFLITE_MICRO)
+list(APPEND srcs
 	src/core/box.c
 	src/core/AvdkDetectionModel.cc
 	src/core/AvdkMultiModel.cc
 	src/core/AvdkVideoReatorOSD.cc
 )
+endif()
 
 if (CONFIG_TFLM_YOLOFACE_V1)
 	list(APPEND srcs
