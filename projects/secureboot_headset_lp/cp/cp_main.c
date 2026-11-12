@@ -20,7 +20,6 @@
 extern void rtos_set_user_app_entry(beken_thread_function_t entry);
 
 #define CP_KEY_WAKE_GPIO             ((gpio_id_t)28)
-#define CP_KEY_WAKE_DEBOUNCE_MS      (50)
 #define CP_KEY_VOTE_THREAD_STACK     (1024)
 
 static beken_semaphore_t s_key_vote_sema = NULL;
@@ -37,32 +36,50 @@ static bk_err_t ap_fast_boot_vote(pm_power_module_state_e state)
 
 /* The vote locks the CP-PM mutex and blocks for the whole AP fast-boot
  * handshake, so it must never run in the GPIO ISR. The ISR only signals this
- * thread; the debounce is a task-context delay, which also works right after a
- * Deep-LV wake where the software-timer service is not usable yet. */
+ * thread, which votes on the first falling edge while the AP is down. */
 static void cp_key_vote_thread(void *arg)
 {
 	(void)arg;
 
 	while (1) {
 		if (rtos_get_semaphore(&s_key_vote_sema, BEKEN_WAIT_FOREVER) != BK_OK) {
-			continue;
-		}
-
-		/* A real press keeps the pin low for the whole window; bounce or a
-		 * release expires with the pin already high and is dropped here. */
-		rtos_delay_milliseconds(CP_KEY_WAKE_DEBOUNCE_MS);
-
-		if (bk_gpio_get_input(CP_KEY_WAKE_GPIO)) {
-			continue;       /* released again: bounce, not a press */
+			break;
 		}
 		if (bk_pm_ap_boot_success_get()) {
-			continue;       /* AP is already up */
+			break;          /* BT or another wake source already started the AP */
 		}
 
 		bk_pm_module_vote_sleep_ctrl(PM_SLEEP_MODULE_NAME_APP, 0x0, 0x0);
 		ap_fast_boot_vote(PM_POWER_MODULE_STATE_ON);
 		BK_LOGI(TAG, "key wake: vote AP ON\r\n");
+		break;
 	}
+
+	s_key_vote_thread = NULL;
+	rtos_delete_thread(NULL);
+}
+
+/* Called from the AP power-off callback, which runs in task context. The
+ * worker exists only while the AP is down, so normal AP/Wi-Fi operation does
+ * not carry its 1 KB stack. */
+static bk_err_t cp_key_vote_worker_start(void)
+{
+	bk_err_t ret;
+
+	if (s_key_vote_thread != NULL) {
+		return BK_OK;
+	}
+	if (s_key_vote_sema == NULL) {
+		return BK_ERR_STATE;
+	}
+
+	ret = rtos_create_thread(&s_key_vote_thread, BEKEN_DEFAULT_WORKER_PRIORITY,
+				 "cp_key_vote", cp_key_vote_thread,
+				 CP_KEY_VOTE_THREAD_STACK, NULL);
+	if (ret != BK_OK) {
+		BK_LOGE(TAG, "key vote thread create failed\r\n");
+	}
+	return ret;
 }
 
 /* AP is down: ADC4 is no longer being sampled, so turn the pad into a plain
@@ -91,6 +108,7 @@ static void cp_key_ap_power_off_cb(void *arg)
 	bk_gpio_enable_interrupt(CP_KEY_WAKE_GPIO);
 
 	BK_LOGI(TAG, "key wake armed: gpio=%d level=%d\r\n", CP_KEY_WAKE_GPIO, bk_gpio_get_input(CP_KEY_WAKE_GPIO));
+	(void)cp_key_vote_worker_start();
 }
 
 /* AP is back: close the interrupt and return the pad to the high-impedance
@@ -107,14 +125,20 @@ static void cp_key_ap_power_on_cb(void *arg)
 
 	(void)bk_gpio_disable_interrupt(CP_KEY_WAKE_GPIO);
 	(void)bk_gpio_set_config(CP_KEY_WAKE_GPIO, &high_z);
+
+	/* If the AP was started by BT or another source, wake the one-shot key
+	 * worker so it can observe the AP state and clean itself up. */
+	if (s_key_vote_sema != NULL) {
+		(void)rtos_set_semaphore(&s_key_vote_sema);
+	}
 }
 
 static void cp_key_wake_isr(gpio_id_t gpio_id)
 {
 	(void)gpio_id;
 
-	/* Interrupt context: only wake the vote thread. Debounce runs there, so
-	 * this path does not depend on the software-timer service being ready. */
+	/* Interrupt context: only wake the vote thread; the AP vote runs later in
+	 * task context and does not depend on the software-timer service. */
 	if (s_key_vote_sema != NULL) {
 		(void)rtos_set_semaphore(&s_key_vote_sema);
 	}
@@ -124,13 +148,6 @@ static void cp_key_wake_start(void)
 {
 	if (rtos_init_semaphore_ex(&s_key_vote_sema, 1, 0) != BK_OK) {
 		BK_LOGE(TAG, "key vote sem init failed\r\n");
-		return;
-	}
-
-	if (rtos_create_thread(&s_key_vote_thread, BEKEN_DEFAULT_WORKER_PRIORITY,
-			       "cp_key_vote", cp_key_vote_thread,
-			       CP_KEY_VOTE_THREAD_STACK, NULL) != BK_OK) {
-		BK_LOGE(TAG, "key vote thread create failed\r\n");
 		return;
 	}
 
