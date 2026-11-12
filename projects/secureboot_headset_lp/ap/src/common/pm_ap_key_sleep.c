@@ -35,6 +35,10 @@
 #include "ap_key.h"
 #include "pm_ap_key_sleep.h"
 
+#if CONFIG_AUDIO_PLAY
+#include "spk_service.h"
+#endif
+
 #if CONFIG_LVGL
 extern void bk_robot_display_power_off(void);
 extern bk_err_t bk_robot_display_resume(void *arg);
@@ -97,6 +101,18 @@ static void apks_wake_isr(gpio_id_t gpio_id)
 static bk_err_t apks_power_off_prepare(void)
 {
 	bk_err_t ret = BK_OK;
+
+#if CONFIG_AUDIO_PLAY
+	/* Tear the speaker/DAC down now instead of waiting for the idle-linger
+	 * timer: the DAC DMA channels are still busy at the PM fast-suspend
+	 * quiesce otherwise and the whole power-off is aborted ("AP fast suspend:
+	 * DMA still busy"). A2DP/HFP lazily re-init the speaker on the next
+	 * stream, so nothing needs to be restored on the resume path. */
+	if (spk_service_is_running()) {
+		LOGI("speaker active, deinit before AP off\r\n");
+		(void)spk_service_deinit();
+	}
+#endif
 
 #if CONFIG_LVGL
 	/* Stop LVGL and tear down the display hardware while retaining the current

@@ -24,6 +24,7 @@ extern void rtos_set_user_app_entry(beken_thread_function_t entry);
 
 static beken_semaphore_t s_key_vote_sema = NULL;
 static beken_thread_t s_key_vote_thread = NULL;
+static volatile uint8_t s_key_vote_voted = 0;
 
 static void cp_key_wake_isr(gpio_id_t gpio_id);
 
@@ -49,9 +50,12 @@ static void cp_key_vote_thread(void *arg)
 			break;          /* BT or another wake source already started the AP */
 		}
 
-		bk_pm_module_vote_sleep_ctrl(PM_SLEEP_MODULE_NAME_APP, 0x0, 0x0);
-		ap_fast_boot_vote(PM_POWER_MODULE_STATE_ON);
-		BK_LOGI(TAG, "key wake: vote AP ON\r\n");
+		/* this cycle was woken by the key */
+		if(s_key_vote_voted){
+			bk_pm_module_vote_sleep_ctrl(PM_SLEEP_MODULE_NAME_APP, 0x0, 0x0);
+			ap_fast_boot_vote(PM_POWER_MODULE_STATE_ON);
+			BK_LOGI(TAG, "key wake: vote AP ON\r\n");
+		}
 		break;
 	}
 
@@ -108,6 +112,10 @@ static void cp_key_ap_power_off_cb(void *arg)
 	bk_gpio_enable_interrupt(CP_KEY_WAKE_GPIO);
 
 	BK_LOGI(TAG, "key wake armed: gpio=%d level=%d\r\n", CP_KEY_WAKE_GPIO, bk_gpio_get_input(CP_KEY_WAKE_GPIO));
+
+	/* Fresh cycle: clear the key-wake flag before the worker starts. */
+	s_key_vote_voted = 0;
+
 	(void)cp_key_vote_worker_start();
 }
 
@@ -128,7 +136,7 @@ static void cp_key_ap_power_on_cb(void *arg)
 
 	/* If the AP was started by BT or another source, wake the one-shot key
 	 * worker so it can observe the AP state and clean itself up. */
-	if (s_key_vote_sema != NULL) {
+	if (s_key_vote_sema != NULL && !s_key_vote_voted) {
 		(void)rtos_set_semaphore(&s_key_vote_sema);
 	}
 }
@@ -137,6 +145,7 @@ static void cp_key_wake_isr(gpio_id_t gpio_id)
 {
 	(void)gpio_id;
 
+	s_key_vote_voted = 1;
 	/* Interrupt context: only wake the vote thread; the AP vote runs later in
 	 * task context and does not depend on the software-timer service. */
 	if (s_key_vote_sema != NULL) {
