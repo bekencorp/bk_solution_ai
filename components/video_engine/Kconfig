@@ -55,6 +55,35 @@ menu "video_engine"
 	help
 		Set the size of the resolution height, The recommended value is 720 .
 
+	config VIDEO_ENGINE_MIPI_CAM_SCL
+	int "MIPI camera I2C SCL GPIO"
+	depends on VIDEO_ENGINE_USE_MIPI_CAMERA
+	range 0 71
+	default 70
+	help
+		GPIO used as the MIPI camera I2C SCL.
+		The default is the Robot V2 pin (GPIO70); override it in the
+		project defconfig when the board uses different pins.
+
+	config VIDEO_ENGINE_MIPI_CAM_SDA
+	int "MIPI camera I2C SDA GPIO"
+	depends on VIDEO_ENGINE_USE_MIPI_CAMERA
+	range 0 71
+	default 71
+	help
+		GPIO used as the MIPI camera I2C SDA.
+		The default is the Robot V2 pin (GPIO71); override it in the
+		project defconfig when the board uses different pins.
+
+	config VIDEO_ENGINE_MIPI_CAM_I2C_ID
+	int "MIPI camera I2C controller ID"
+	depends on VIDEO_ENGINE_USE_MIPI_CAMERA
+	range 0 2
+	default 1
+	help
+		I2C controller the MIPI camera is attached to.
+		The default follows Robot V2 (I2C ID 1).
+
 	config VIDEO_ENGINE_MIPI_SENSOR_WIDTH
 	int "MIPI sensor width"
 	depends on VIDEO_ENGINE_USE_MIPI_CAMERA
