@@ -13,13 +13,17 @@
  *   the CP, the CP fast-boots the AP, and the latched GPIO replay lands in
  *   apks_wake_isr() which restores the votes.
  *
- * No RTC wake source is registered: the key is the only way back.
+ *   "apks rtc <ms> [cnt]" takes the same power-off path but swaps the GPIO
+ *   wake source for a periodic RTC wake source through
+ *   bk_pm_ap_rtc_regsiter_wakeup(); the RTC expiry fast-boots the AP and the
+ *   wakeup callback restores the votes.
  */
 #include <common/sys_config.h>
 
 #include "bk_private/bk_init.h"
 #include <components/system.h>
 #include <os/os.h>
+#include <os/str.h>
 #include <components/shell_task.h>
 #include <driver/gpio.h>
 #include <driver/gpio_types.h>
@@ -51,24 +55,34 @@ extern bk_err_t bk_robot_display_resume(void *arg);
 typedef enum {
 	APKS_MSG_ENTER = 0,
 	APKS_MSG_WAKE,
+	APKS_MSG_RTC_ENTER,
 } apks_msg_e;
 
 typedef struct {
 	apks_msg_e event;
+	uint32_t param1;
+	uint32_t param2;
 } apks_msg_t;
 
 static beken_thread_t s_thd = NULL;
 static beken_queue_t s_queue = NULL;
 
-static bk_err_t apks_send(apks_msg_e event)
+static bk_err_t apks_send_ex(apks_msg_e event, uint32_t param1, uint32_t param2)
 {
 	apks_msg_t msg;
 	msg.event = event;
+	msg.param1 = param1;
+	msg.param2 = param2;
 
 	if (s_queue == NULL) {
 		return BK_FAIL;
 	}
 	return rtos_push_to_queue(&s_queue, &msg, BEKEN_NO_WAIT);
+}
+
+static bk_err_t apks_send(apks_msg_e event)
+{
+	return apks_send_ex(event, 0, 0);
 }
 
 /* Runs in GPIO interrupt context; only queue the restore work. */
@@ -78,9 +92,11 @@ static void apks_wake_isr(gpio_id_t gpio_id)
 	(void)apks_send(APKS_MSG_WAKE);
 }
 
-static void apks_enter_low_voltage(void)
+/* Common teardown before arming a wake source and voting the AP off.
+ * Returns BK_OK when it is safe to proceed to the vote sequence. */
+static bk_err_t apks_power_off_prepare(void)
 {
-	bk_err_t ret;
+	bk_err_t ret = BK_OK;
 
 #if CONFIG_LVGL
 	/* Stop LVGL and tear down the display hardware while retaining the current
@@ -97,9 +113,29 @@ static void apks_enter_low_voltage(void)
 #if CONFIG_LVGL
 		(void)bk_robot_display_resume(NULL);
 #endif
-		return;
 	}
 #endif
+
+	return ret;
+}
+
+/* Undo apks_power_off_prepare() when the AP could not be powered off. */
+static void apks_power_off_abort(void)
+{
+	(void)ap_key_restore();
+#if CONFIG_LVGL
+	(void)bk_robot_display_resume(NULL);
+#endif
+}
+
+static void apks_enter_low_voltage(void)
+{
+	bk_err_t ret;
+
+	ret = apks_power_off_prepare();
+	if (ret != BK_OK) {
+		return;
+	}
 
 	ret = bk_gpio_register_isr(APKS_WAKE_GPIO, apks_wake_isr);
 	LOGI("gpio%d isr ret=%d level=%d\r\n", APKS_WAKE_GPIO, ret,
@@ -117,10 +153,62 @@ static void apks_enter_low_voltage(void)
 
 	if (ret != BK_OK) {
 		/* The AP stays up: restore the ADC keys and restart the display. */
-		(void)ap_key_restore();
-#if CONFIG_LVGL
-		(void)bk_robot_display_resume(NULL);
-#endif
+		apks_power_off_abort();
+	}
+}
+
+/* Runs in the PM wakeup path after the RTC fast-boots the AP; queue the
+ * restore work just like the GPIO replay does. */
+static bk_err_t apks_rtc_wakeup_callback(pm_sleep_mode_e sleep_mode,
+					 pm_wakeup_source_e wake_source, void *param_p)
+{
+	(void)sleep_mode;
+	(void)wake_source;
+	(void)param_p;
+	(void)apks_send(APKS_MSG_WAKE);
+	return BK_OK;
+}
+
+static void apks_enter_low_voltage_rtc(uint32_t sleep_ms, uint32_t repeat_cnt)
+{
+	bk_err_t ret;
+	pm_ap_rtc_info_t rtc_info = {0};
+
+	if (sleep_ms == 0) {
+		sleep_ms = 50 * 1000;
+	}
+	if (repeat_cnt == 0) {
+		repeat_cnt = 1;
+	}
+
+	ret = apks_power_off_prepare();
+	if (ret != BK_OK) {
+		return;
+	}
+
+	/* RTC periodic wake replaces the GPIO wake source: no ISR is registered
+	 * and GPIO28 stays with the ADC key manager on the AP side. */
+	rtc_info.period_tick = sleep_ms;
+	rtc_info.period_cnt  = repeat_cnt;
+	rtc_info.callback    = apks_rtc_wakeup_callback;
+	rtc_info.param_p     = NULL;
+	ret = bk_pm_ap_rtc_regsiter_wakeup(PM_MODE_LOW_VOLTAGE, &rtc_info);
+	LOGI("rtc wake register ret=%d period=%ums cnt=%u\r\n", ret, sleep_ms,
+	     repeat_cnt);
+	if (ret != BK_OK) {
+		apks_power_off_abort();
+		return;
+	}
+
+	ret = bk_pm_module_vote_sleep_ctrl(PM_SLEEP_MODULE_NAME_APP, 0x1, 0x0);
+	LOGI("cp sleep vote ret=%d\r\n", ret);
+
+	ret = bk_pm_module_vote_boot_ap_ctrl(PM_BOOT_AP_MODULE_NAME_APP,
+					     PM_POWER_MODULE_STATE_OFF);
+	LOGI("ap power off vote ret=%d\r\n", ret);
+
+	if (ret != BK_OK) {
+		apks_power_off_abort();
 	}
 }
 
@@ -146,6 +234,9 @@ static void apks_thread(void *arg)
 		case APKS_MSG_ENTER:
 			apks_enter_low_voltage();
 			break;
+		case APKS_MSG_RTC_ENTER:
+			apks_enter_low_voltage_rtc(msg.param1, msg.param2);
+			break;
 		case APKS_MSG_WAKE:
 			apks_handle_wake();
 			break;
@@ -168,10 +259,18 @@ static void cmd_apks(char *pcWriteBuffer, int xWriteBufferLen, int argc, char **
 		(void)apks_send(APKS_MSG_ENTER);
 	} else if ((argc >= 2) && (os_strcmp(argv[1], "wake") == 0)) {
 		(void)apks_send(APKS_MSG_WAKE);
+	} else if ((argc >= 3) && (os_strcmp(argv[1], "rtc") == 0)) {
+		uint32_t sleep_ms = (uint32_t)os_strtoul(argv[2], NULL, 10);
+		uint32_t repeat_cnt = (argc >= 4) ?
+				      (uint32_t)os_strtoul(argv[3], NULL, 10) : 1;
+		(void)apks_send_ex(APKS_MSG_RTC_ENTER, sleep_ms, repeat_cnt);
 	} else {
 		CLI_LOGI("Usage:\r\n"
-			 " apks enter  - power off AP, CP enters low voltage, GPIO28 wakes\r\n"
-			 " apks wake   - restore the sleep votes manually\r\n");
+			 " apks enter        - power off AP, CP enters low voltage, GPIO28 wakes\r\n"
+			 " apks rtc <ms> [n] - power off AP, CP enters low voltage, RTC wakes\r\n"
+			 "                     ms: wake period in milliseconds (0 = default 50s)\r\n"
+			 "                     n:  repeat count (0 = default 1, 0xffffffff = forever)\r\n"
+			 " apks wake         - restore the sleep votes manually\r\n");
 		msg = CLI_CMD_RSP_ERROR;
 		os_memcpy(pcWriteBuffer, msg, os_strlen(msg));
 		return;
@@ -182,7 +281,7 @@ static void cmd_apks(char *pcWriteBuffer, int xWriteBufferLen, int argc, char **
 }
 
 static const struct cli_command s_apks_commands[] = {
-	{"apks", "apks {enter|wake}", cmd_apks},
+	{"apks", "apks {enter|wake|rtc <ms> [cnt]}", cmd_apks},
 };
 
 int ap_key_sleep_init(void)

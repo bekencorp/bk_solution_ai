@@ -31,6 +31,7 @@ enum
     BT_AUDIO_A2DP_STOP_MSG,
     BT_AUDIO_A2DP_DATA_IND_MSG,
     BT_AUDIO_USER_START_MSG,
+    BT_AUDIO_USER_PAIRING_MSG,
     BT_AUDIO_VOLUME_UPDATE_MSG,
     BT_AUDIO_AVRCP_PLAY_STATUS_CHANGED_MSG,
     BT_AUDIO_AVRCP_ELEM_ATTR_RSP_MSG,
@@ -230,12 +231,22 @@ static void a2dp_sink_gap_event_cb(bk_gap_bt_cb_event_t event, bk_bt_gap_cb_para
     }
 }
 
+static void a2dp_sink_reconnect_fail_cb(void)
+{
+    /* Active reconnect exhausted its retries (e.g. phone is off or out of
+     * range). Go back to connectable+discoverable so the phone can still
+     * connect later instead of getting stuck in RECONNECTING. */
+    LOGW("%s reconnect failed, back to pairing mode\n", __func__);
+    bk_bt_enter_pairing_mode(1);
+}
+
 static void a2dp_sink_bt_manager_callback_register(void)
 {
     if (s_bt_manager_index == 0xFF)
     {
         btm_callback_s btm_cb = {
             .gap_cb = a2dp_sink_gap_event_cb,
+            .reconnect_fail_cb = a2dp_sink_reconnect_fail_cb,
         };
         s_bt_manager_index = bt_manager_register_callback(&btm_cb);
     }
@@ -319,6 +330,12 @@ static void a2dp_sink_demo_task(void *arg)
             {
                 rtos_set_semaphore(&s_audio_player_en_sema);
             }
+            break;
+
+        case BT_AUDIO_USER_PAIRING_MSG:
+            /* Disconnect current link (if any) and open connectable+discoverable. */
+            LOGI("BT_AUDIO_USER_PAIRING_MSG\n");
+            bk_bt_enter_pairing_mode(1);
             break;
 
         case BT_AUDIO_VOLUME_UPDATE_MSG:
@@ -531,13 +548,43 @@ int a2dp_sink_demo_is_connected(void)
     return s_a2dp_connected ? 1 : 0;
 }
 
+/* Reconnect to the newest bonded device, or open pairing mode when no
+ * linkkey exists yet. Called once after init while not connected. */
+static void a2dp_sink_start_pairing(void)
+{
+    uint8_t recon_addr[6] = {0};
+
+    if (bluetooth_storage_get_newest_linkkey_info(recon_addr, NULL) >= 0)
+    {
+        LOGI("%s reconnect %02x:%02x:%02x:%02x:%02x:%02x\n", __func__,
+             recon_addr[5], recon_addr[4], recon_addr[3],
+             recon_addr[2], recon_addr[1], recon_addr[0]);
+        bt_manager_start_reconnect(recon_addr, 1);
+    }
+    else
+    {
+        (void)bk_bt_enter_pairing_mode(1);
+    }
+}
+
 void a2dp_sink_demo_vol_up(void)        { bk_avrcp_ct_vol_up(); }
 void a2dp_sink_demo_vol_down(void)      { bk_avrcp_ct_vol_down(); }
 void a2dp_sink_demo_prev(void)          { bk_avrcp_ct_prev(); }
 void a2dp_sink_demo_next(void)          { bk_avrcp_ct_next(); }
 void a2dp_sink_demo_play(void)          { bk_avrcp_ct_play(); }
 void a2dp_sink_demo_pause(void)         { bk_avrcp_ct_pause(); }
-void a2dp_sink_demo_enter_pairing(void) { (void)a2dp_sink_demo_try_connect(); }
+
+/* UI pairing button: run inside the demo task so the GAP disconnect and
+ * scan-mode switch stay serialized with the other BT operations. */
+void a2dp_sink_demo_enter_pairing(void)
+{
+    if (!s_a2dp_sink_inited)
+    {
+        return;
+    }
+
+    (void)a2dp_sink_queue_push(BT_AUDIO_USER_PAIRING_MSG, NULL, 0, BEKEN_NO_WAIT);
+}
 
 void a2dp_sink_demo_set_playback_listener(void (*on_start)(void), void (*on_stop)(void))
 {
@@ -789,6 +836,14 @@ int a2dp_sink_demo_init(uint8_t aac_supported, uint8_t auto_accept_conn)
 
     LOGI("%s initial volume %d\n", __func__, a2dp_sink_get_local_volume());
     s_a2dp_sink_inited = 1;
+
+    /* Power-on policy: auto reconnect the newest bonded phone; fall back to
+     * pairing mode when nothing was bonded before. */
+    if (!s_a2dp_connected)
+    {
+        a2dp_sink_start_pairing();
+    }
+
     LOGI("%s end\n", __func__);
     return BK_OK;
 }
