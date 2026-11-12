@@ -178,6 +178,8 @@ void bk_robot_display_power_off(void)
     start_ms = rtos_get_time();
     lv_vendor_stop();
 #if (CONFIG_TP)
+    drv_tp_suspend();
+    rtos_delay_milliseconds(20);
     drv_tp_close();
 #endif
 #if CONFIG_GPU
