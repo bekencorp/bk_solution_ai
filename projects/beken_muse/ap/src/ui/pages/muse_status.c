@@ -29,7 +29,11 @@
 #include "ui_i18n.h"
 #include "ui_nav_router.h"
 #include "muse_service.h"
+#if CONFIG_MUSE_GADGET_VOICE
+#include "muse_chat.h"    /* chat 会话状态：语音走 chat，link 正常也不代表能说话 */
+#endif
 #include "muse_display.h"     /* muse_cjk_font: full-CJK text rendering */
+#include "ui/voice_chat_page.h"  /* 连上云端后自动跳转的目标页 */
 
 #define TAG "muse_status"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -44,6 +48,23 @@ static lv_obj_t  *s_net_value;
 static lv_obj_t  *s_node_value;
 static lv_obj_t  *s_hint_label;
 static lv_timer_t *s_refresh_timer;
+/* 进入本页时未连接才置真：刷新检测到 CONNECTED 即自动跳到语音页。
+ * 从 home 手动进本页且已连接时不武装，留着看状态/清除配对。 */
+static bool       s_jump_armed;
+/* 连续两次刷新都"两条会话都通"才跳页：否则 chat 短暂重连会让页面在
+ * 状态页和语音页之间来回弹。 */
+static uint8_t    s_jump_hits;
+
+/* 语音走 chat 会话，link 只承载控制指令；只看 link 会出现"状态页已连接
+ * 但唤醒提示网络连接中"的两个真相（2026-11-13 field）。 */
+static bool chat_connected(void)
+{
+#if CONFIG_MUSE_GADGET_VOICE
+    return muse_chat_is_connected();
+#else
+    return true;
+#endif
+}
 
 static const char *const s_title_txt[UI_LANG_COUNT]  = { "Muse 助手", "Muse" };
 static const char *const s_lbl_state[UI_LANG_COUNT]  = { "状态", "State" };
@@ -91,6 +112,31 @@ static int state_idx(muse_service_state_t state)
     }
 }
 
+/* 连上云端后把舞台交给语音页：先让语音屏成为活动屏，再删本屏
+ * （与返回键 teardown 同一顺序，只是目标是 voice_chat 而非 page_top）。 */
+static void muse_status_jump_to_voice(void)
+{
+    lv_obj_t *scr = s_screen;
+    s_screen = NULL;
+    s_state_value = NULL;
+    s_pair_value = NULL;
+    s_net_value = NULL;
+    s_node_value = NULL;
+    s_hint_label = NULL;
+    if (s_refresh_timer != NULL) {
+        lv_timer_delete(s_refresh_timer);
+        s_refresh_timer = NULL;
+    }
+    if (scr != NULL && lv_obj_is_valid(scr)) {
+        ui_nav_unregister_screen(scr);
+    }
+    (void)voice_chat_page_enter();  /* switch active screen first */
+    if (scr != NULL && lv_obj_is_valid(scr)) {
+        lv_obj_del(scr);
+    }
+    LOGI("link up, jumped to voice chat page\r\n");
+}
+
 static void muse_status_refresh(void)
 {
     if (s_screen == NULL || !lv_obj_is_valid(s_screen)) {
@@ -98,8 +144,26 @@ static void muse_status_refresh(void)
     }
     muse_service_status_t st;
     muse_service_get_status(&st);
+
+    const bool link_up = st.state == MUSE_SERVICE_CONNECTED;
+    const bool chat_up = chat_connected();
+    const bool cloud_up = link_up && chat_up;
+
+    if (s_jump_armed) {
+        s_jump_hits = cloud_up ? (uint8_t)(s_jump_hits + 1U) : 0U;
+        if (s_jump_hits >= 2U) {   /* 500 ms x2：抖动的 chat 不会来回跳页 */
+            s_jump_hits = 0U;
+            s_jump_armed = false;
+            muse_status_jump_to_voice();
+            return;
+        }
+    }
+
     ui_lang_t lang = ms_lang();
-    int idx = state_idx(st.state);
+    /* link 通了但 chat 还没起来时仍显示"连接中"：语音此刻不可用，显示
+     * 已连接会让用户以为唤醒没响应是设备坏了。 */
+    int idx = state_idx(link_up && !chat_up ? MUSE_SERVICE_CONNECTING
+                                            : st.state);
 
     lv_label_set_text(s_state_value, s_state_txt[lang][idx]);
     lv_label_set_text(s_pair_value, st.paired ? s_paired_yes[lang] : s_paired_no[lang]);
@@ -107,7 +171,7 @@ static void muse_status_refresh(void)
     char net_buf[40];
     snprintf(net_buf, sizeof(net_buf), "%s / %s",
              st.network_ready ? s_ready_yes[lang] : s_ready_no[lang],
-             st.noise_connected ? s_ready_yes[lang] : s_ready_no[lang]);
+             cloud_up ? s_ready_yes[lang] : s_ready_no[lang]);
     lv_label_set_text(s_net_value, net_buf);
 
     const char *node = muse_service_node_id();
@@ -197,8 +261,15 @@ static const ui_page_nav_ops_t s_muse_status_nav_ops = {
 
 int muse_status_enter(void)
 {
+    /* 武装跳转：进页这一刻还没连上，连上的瞬间自动去语音页。 */
+    muse_service_status_t st;
+    muse_service_get_status(&st);
+    s_jump_armed = !(st.state == MUSE_SERVICE_CONNECTED && chat_connected());
+    s_jump_hits = 0U;
+
     if (s_screen != NULL && lv_obj_is_valid(s_screen)) {
         lv_screen_load(s_screen);
+        muse_status_refresh();   /* 顺手补一次刷新；已连上会当场跳走 */
         return 0;
     }
 

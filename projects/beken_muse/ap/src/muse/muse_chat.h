@@ -14,6 +14,7 @@
 #ifndef __BK_MUSE_CHAT_H__
 #define __BK_MUSE_CHAT_H__
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #ifdef __cplusplus
@@ -32,6 +33,11 @@ typedef struct {
  * already running. Copies the config. */
 int  muse_chat_start(const muse_chat_config_t *config);
 void muse_chat_stop(void);
+
+/* True while the chat Noise connection is handshaken and serving voice
+ * turns. Only the chat connection carries /chat/stream, so voice is
+ * unusable whenever this is false even if the link session is up. */
+bool muse_chat_is_connected(void);
 
 #ifdef __cplusplus
 }

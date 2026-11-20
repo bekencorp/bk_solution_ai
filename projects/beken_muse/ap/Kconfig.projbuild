@@ -61,6 +61,65 @@ menu "BEKEN GENIE demo Configuration"
                 panel. The wire format is an assumption pending protocol
                 confirmation (docs/muse_voice_design.md section 2.2).
 
+        config MUSE_ASR_VOLC
+            bool "Volcano streaming ASR (v3 SAUC) voice turns"
+            default n
+            depends on MUSE_GADGET_VOICE
+            help
+                Route mic PCM to the Volcano bigmodel streaming recognizer
+                and send the final transcript to Muse as a text note
+                (bypasses Muse's server-side ASR). Requires the speech
+                service activated in the volc console and its runtime
+                credentials via `muse volcappid/asrkey` -- never bake
+                credentials into the build.
+
+        config MUSE_ASR_VOLC_RESOURCE_ID
+            string "Volcano ASR resource id (model/edition)"
+            default "volc.bigasr.sauc.duration"
+            depends on MUSE_ASR_VOLC
+            help
+                2.0 duration edition: volc.seedasr.sauc.duration;
+                1.0: volc.bigasr.sauc.duration. Concurrent editions use
+                *.concurrent. Must match an activated service on the key.
+
+        config MUSE_TTS_VOLC
+            bool "Volcano TTS for assistant replies"
+            default n
+            depends on MUSE_GADGET_VOICE
+            help
+                Synthesize each assistant reply via the Volcano TTS
+                bidirectional-streaming websocket (v3, 豆包语音合成大模型)
+                to an MP3 on the SD-NAND and play it through the
+                prompt-tone mix port (16 kHz matches the voice engine
+                rate). Uses the runtime `muse ttskey` credential (X-Api-Key
+                or old-console token), never baked into the build.
+
+        config MUSE_TTS_VOLC_RESOURCE_ID
+            string "Volcano TTS resource id (model/edition)"
+            default "seed-tts-2.0"
+            depends on MUSE_TTS_VOLC
+            help
+                2.0: seed-tts-2.0; 1.0 char edition: volc.service_type.10029;
+                voice-clone: seed-icl-2.0 / seed-icl-1.0. Must match the
+                service activated in the volc console -- a 1.0 id against a
+                2.0-only account gets 403 at the upgrade (2026-11-12).
+
+        config MUSE_TTS_VOLC_VOICE
+            string "Volcano TTS speaker id (see console voice library)"
+            default "zh_female_xiaohe_uranus_bigtts"
+            depends on MUSE_TTS_VOLC
+            help
+                Must belong to the same model generation as the resource id:
+                seed-tts-2.0 only accepts 2.0 voices (*_uranus_bigtts); the
+                jupiter/moon families are 1.0 and get rejected with
+                "resource ID is mismatched with speaker related resource"
+                (field 2026-11-12). Runtime override: `muse ttsvoice <id>`.
+
+        config MUSE_TTS_VOLC_OUT_PATH
+            string "TTS output MP3 path (must be on a mounted volume)"
+            default "/sd0/tts_volc.mp3"
+            depends on MUSE_TTS_VOLC
+
         config MUSE_VOICE_MAX_RECORD_MS
             int "Voice max record duration (ms)"
             default 30000
@@ -78,7 +137,7 @@ menu "BEKEN GENIE demo Configuration"
 
         config MUSE_NOTE_REPLY_HINT
             string "In-band hint sent in every note's message field"
-            default "请通过 display.draw_text 把回复发到设备屏幕上"
+            default "请通过 display.draw_text 把文字回复发到设备屏幕上；用户要图片时用 display.draw_url 把图片发到设备屏幕上，图片按 385x320 横屏尺寸生成，直接生成发送无需向我确认"
             depends on MUSE_GADGET_VOICE
             help
                 Muse pushes a reply to the board via device.invoke only

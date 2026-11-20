@@ -76,6 +76,17 @@ constexpr uint32_t kHandshakeTimeoutMs = 15000;
 constexpr uint32_t kRegisterAckTimeoutMs = 8000;
 constexpr uint32_t kSendTimeoutMs = 10000;
 constexpr uint32_t kCloseTimeoutMs = 12000;
+/* 对端主动关闭（UNAUTHENTICATED 踢人）后等 SDK 任务自己收尾的窗口，理由
+ * 同 muse_chat.cpp：destroy 与任务 free_client 并发会 unlock 已 deinit
+ * 的递归互斥量而 assert。 */
+/* 临时关闭（A/B 复现实验）：0 = 不做对端关闭宽限，被踢后立即 destroy，
+ * 行为回到 2026-11-13 dump 之前。验证完改回 3000。 */
+constexpr uint32_t kPeerCloseGraceMs = 0;
+/* 收尾后等 CLOSED 的上限：SDK 的 ws 任务在部分路径上自己 free_client 后
+ * 不再派发关闭事件，无限等会让 worker 永久停在收尾里、link 再也不重连
+ * （2026-11-14：板子显示已连接、服务端认为设备离线，voice note 被 ack 但
+ * 助手回复不投递）。超时按普通错误回到重连循环。 */
+constexpr uint32_t kCloseWaitMaxMs = 12000;
 constexpr uint32_t kReconnectMinMs = 1000;
 constexpr uint32_t kReconnectMaxMs = 15000;
 constexpr uint8_t kWorkerPriority = 7;
@@ -148,6 +159,13 @@ struct SessionContext {
     std::atomic<bool> connected{false};
     std::atomic<bool> callback_fault{false};
     std::atomic<bool> callback_closed{false};
+    /* DISCONNECTED 已派发：auto_reconnect=false 时 ws 客户端任务随后必定
+     * 自行退出并 free_client（含 deinit mutex），owner 再 destroy 就会和
+     * 任务自清理并发（2026-11-11 dump：connect 失败后 close_websocket 的
+     * destroy->stop 持锁期间锁被 free_client 销毁，unlock NULL 触发
+     * xQueueGiveMutexRecursive assert）。置位后 close_websocket 只等
+     * CLOSED，不再碰 client。 */
+    std::atomic<bool> callback_disconnected{false};
     std::atomic<muse_session_state_t> state{MUSE_SESSION_STOPPED};
 
     char node_id[kNodeIdSize];
@@ -269,6 +287,7 @@ void websocket_event(void *, char *, int32_t event_id, void *event_data)
         queue_event(EventKind::Connected);
         return;
     case WEBSOCKET_EVENT_DISCONNECTED:
+        s_session.callback_disconnected.store(true);
         queue_event(EventKind::Disconnected);
         return;
     case WEBSOCKET_EVENT_CLOSED:
@@ -437,6 +456,15 @@ bool receive_frame(uint8_t *out, size_t capacity, size_t &written,
 
 bool send_binary(transport client, const uint8_t *data, size_t size)
 {
+    /* 同 muse_chat.cpp: DISCONNECTED/CLOSED 已派发 = 客户端任务正在或已经
+     * 收尸（free_client 释放 tx_buffer/销毁 mutex，不收发送锁保护），
+     * 此时再碰 client 会撞上释放。失败走上层重连。 */
+    if (s_session.callback_disconnected.load() ||
+        s_session.callback_closed.load()) {
+        BK_LOGW(TAG, "session ws tearing down, drop send (%u bytes)\r\n",
+                (unsigned)size);
+        return false;
+    }
     return size <= static_cast<size_t>(INT_MAX) &&
            websocket_client_send_binary(
                client, reinterpret_cast<const char *>(data),
@@ -921,6 +949,8 @@ int run_noise_session(transport client, SessionBuffers &buffers, bool &closed)
 
     s_session.connected.store(true);
     set_state(MUSE_SESSION_CONNECTED, MUSE_SESSION_OK);
+    /* 开启 draw_text 补发宽限窗：离线期间积攒的推送会随即补发过来。 */
+    muse_commands_note_connected();
 
     while (s_session.running.load()) {
         const int poll = poll_inbound_once(client, session, buffers, pending,
@@ -934,13 +964,46 @@ int run_noise_session(transport client, SessionBuffers &buffers, bool &closed)
     return MUSE_SESSION_OK;
 }
 
-void close_websocket(transport client, bool &closed)
+void close_websocket(transport client, bool &closed, bool peer_closing = false)
 {
     closed = closed || s_session.callback_closed.load();
     if (!client || closed) {
         return;
     }
-    (void)websocket_client_destroy(client);
+    if (peer_closing && !s_session.callback_disconnected.load()) {
+        /* 对端踢人后紧接 WS close：先让 SDK 任务自己走完 CLOSING→CLOSED
+         * （收不到再强制 destroy），避免和 free_client 并发。 */
+        uint32_t waited = 0;
+        while (!closed && waited < kPeerCloseGraceMs) {
+            if (s_session.callback_closed.load()) {
+                closed = true;
+                break;
+            }
+            SessionEvent event{};
+            if (!pop_event(event, kEventWaitMs)) {
+                waited += kEventWaitMs;
+                continue;
+            }
+            if (event.kind == EventKind::Closed) {
+                closed = true;
+            }
+            release_event(event);
+        }
+        if (closed) {
+            BK_LOGI(TAG, "ws closed by the peer; task reclaimed it\r\n");
+            return;
+        }
+        BK_LOGW(TAG, "ws peer close incomplete after %lu ms; destroying\r\n",
+                (unsigned long)kPeerCloseGraceMs);
+    }
+    if (s_session.callback_disconnected.load()) {
+        /* 客户端任务在 DISCONNECTED 后自行收尸（见 callback_disconnected
+         * 注释），这里 destroy 会与 free_client 并发；跳过，只在下面有界
+         * 等 CLOSED。 */
+        BK_LOGI(TAG, "ws task self-closing after disconnect, skip destroy\r\n");
+    } else {
+        (void)websocket_client_destroy(client);
+    }
 
     uint32_t waited = 0;
     while (!closed && waited < kCloseTimeoutMs) {
@@ -994,6 +1057,7 @@ int run_connection(SessionBuffers &buffers)
 
     s_session.callback_fault.store(false);
     s_session.callback_closed.store(false);
+    s_session.callback_disconnected.store(false);
     free(s_session.partial);
     s_session.partial = nullptr;
     s_session.partial_size = 0;
@@ -1034,10 +1098,21 @@ int run_connection(SessionBuffers &buffers)
 
     int result = run_noise_session(client, buffers, closed);
     s_session.connected.store(false);
-    close_websocket(client, closed);
+    /* 运行中判错多半是对端踢人后紧接 WS close，交给 SDK 任务自己收尾。 */
+    close_websocket(client, closed,
+                    result != MUSE_SESSION_OK && s_session.running.load());
     if (!closed) {
-        while (s_session.running.load() && !closed) {
+        /* CLOSED 可能永远不来（见 kCloseWaitMaxMs 注释），必须有上限，
+         * 否则 link 永久停摆而 chat 照常，界面显示已连接、服务端却判离线。 */
+        uint32_t waited = 0;
+        while (s_session.running.load() && !closed &&
+               waited < kCloseWaitMaxMs) {
             (void)wait_for(EventKind::Closed, kEventWaitMs, &closed);
+            waited += kEventWaitMs;
+        }
+        if (!closed && s_session.running.load()) {
+            BK_LOGW(TAG, "link close event not seen in %u ms; reconnecting\r\n",
+                    (unsigned)kCloseWaitMaxMs);
         }
     }
     free(s_session.partial);

@@ -52,6 +52,8 @@ if(CONFIG_MUSE_GADGET)
         src/muse/muse_tls_probe.c
         src/muse/muse_voice.c
         src/muse/muse_voice_proto.c
+        src/muse/muse_asr_volc.c
+        src/muse/muse_tts_volc.c
         src/muse/voice_history.c
         src/muse/muse_storage.c
         src/muse/muse_vm_api.c

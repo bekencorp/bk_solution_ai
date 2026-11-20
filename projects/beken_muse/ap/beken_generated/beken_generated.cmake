@@ -4,6 +4,12 @@
 get_filename_component(BEKEN_GENERATED_DIR "${CMAKE_CURRENT_LIST_FILE}" DIRECTORY)
 
 # Recursively find all .c source files
+# NOTE: plain GLOB expands at CONFIGURE time only — after ADDING a new .c
+# under beken_generated, force cmake to re-run (touch any .cmake or wipe
+# the build dir), otherwise the file is silently never compiled and the
+# link fails with "undefined reference". CONFIGURE_DEPENDS cannot fix it:
+# this file is also included in cmake -P script mode by
+# component_get_requirements, where CONFIGURE_DEPENDS is rejected.
 file(GLOB_RECURSE BEKEN_GENERATOR_SOURCES
     "${BEKEN_GENERATED_DIR}/*.c"
 )

@@ -69,6 +69,10 @@ static char s_mac[18];
  * service-owned static storage. Runtime value wins over the Kconfig default. */
 static char s_sdk_token[MUSE_VM_API_TOKEN_MAX];
 static bool s_sdk_report_attempted;
+/* chat 会话连续短命（被 UNAUTHENTICATED 踢）后请求刷新设备令牌。置位后
+ * worker 停掉两条 Noise 会话并走 fetch_and_start_session 的强制刷新路径。 */
+static bool s_token_refresh_requested;
+static bool s_force_token_refresh;
 static uint32_t s_auth_failed_ms;
 
 /* Active TLS trust anchor. A CA explicitly installed from an SD card via
@@ -347,7 +351,15 @@ static void session_status_cb(muse_session_state_t state, int error, void *user)
                 BK_LOGW(TAG, "MUSE ==> [6/6] Noise dropped (error=%d)\r\n",
                         error);
             }
-            set_state_locked(error ? MUSE_SERVICE_ERROR
+            /* 状态页的"出错了"只留给不会自愈的失败：凭据被拒、证书校验
+             * 失败、内存不足。传输层失败、对端 502（VM 尚未唤醒）等都由
+             * worker 按退避自动重连，期间显示"连接中"——否则开机等 VM
+             * 就绪的那几分钟里，状态页会每隔几秒闪一次"出错了 / 请清除
+             * 配对后重试"（field 2026-11-16）。 */
+            const bool fatal = (error == MUSE_SESSION_ERR_AUTH ||
+                                error == MUSE_SESSION_ERR_TLS_VERIFY ||
+                                error == MUSE_SESSION_ERR_NO_MEMORY);
+            set_state_locked(fatal ? MUSE_SERVICE_ERROR
                                    : MUSE_SERVICE_CONNECTING, error);
         }
     }
@@ -609,8 +621,10 @@ static int fetch_and_start_session(void)
      * re-reporting in a persistent 401 loop churns the VM binding once a
      * minute. On failure keep the stored tokens and continue, exactly like
      * upstream ("keeping the pairing"). */
-    if (effective_sdk_token() != NULL && !s_sdk_report_attempted) {
+    if (effective_sdk_token() != NULL &&
+        (!s_sdk_report_attempted || s_force_token_refresh)) {
         s_sdk_report_attempted = true;
+        s_force_token_refresh = false;
         tokens = (muse_vm_device_tokens_t *)calloc(1U, sizeof(*tokens));
         if (tokens != NULL) {
             /* Upstream sends the node_id ("homelink-xxx") as device_id in
@@ -786,12 +800,15 @@ static void service_worker(beken_thread_arg_t arg)
         bool clearing;
         bool paired;
         bool ready;
+        bool refresh_tokens;
         int result;
 
         rtos_lock_mutex(&s_lock);
         stopping = s_stop_requested;
         clearing = s_clear_requested;
         paired = s_status.paired;
+        refresh_tokens = s_token_refresh_requested;
+        s_token_refresh_requested = false;
         rtos_unlock_mutex(&s_lock);
 
         if (stopping) {
@@ -811,6 +828,25 @@ static void service_worker(beken_thread_arg_t arg)
             retry_deadline = 0U;
             backoff_ms = SERVICE_BACKOFF_MIN_MS;
             wifi_restore_attempted = false;
+            continue;
+        }
+
+        if (refresh_tokens && paired) {
+            /* chat 连续短命：设备侧 Noise 密钥已被浏览器验证流程替换，
+             * 重连永远被踢。停掉两条会话并强制重报 SDK token（服务端会
+             * 轮换设备令牌），随后正常路径重新 fetch_vms 并建链。 */
+            BK_LOGW(TAG, "chat requested a token refresh; rebuilding both "
+                    "Noise sessions\r\n");
+#if CONFIG_MUSE_GADGET_VOICE
+            muse_chat_stop();
+#endif
+            if (muse_session_is_running()) {
+                muse_session_stop();
+            }
+            s_force_token_refresh = true;
+            s_auth_failed_ms = 0U;
+            retry_deadline = 0U;
+            backoff_ms = SERVICE_BACKOFF_MIN_MS;
             continue;
         }
 
@@ -1170,6 +1206,22 @@ void muse_service_get_status(muse_service_status_t *status)
 const char *muse_service_node_id(void)
 {
     return s_node_id;
+}
+
+bool muse_service_request_token_refresh(void)
+{
+    bool accepted = false;
+
+    if (!s_initialized) {
+        return false;
+    }
+    rtos_lock_mutex(&s_lock);
+    if (s_worker_running && !s_stop_requested) {
+        s_token_refresh_requested = true;
+        accepted = true;
+    }
+    rtos_unlock_mutex(&s_lock);
+    return accepted;
 }
 
 const char *muse_service_state_name(muse_service_state_t state)

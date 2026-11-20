@@ -19,6 +19,7 @@
 #include <components/log.h>
 #include <os/os.h>
 #include <driver/psram.h>
+#include <components/bk_frame_buffer.h>
 
 #include "bk_ssl.h"
 #include "tjpgd.h"
@@ -42,6 +43,21 @@ extern const lv_font_t muse_font_cjk_16;
  * chained behind it as the rare-glyph fallback. */
 extern const lv_font_t muse_font_noto_16;
 
+/* General-Punctuation gap-fill (curly quotes, ellipsis, dashes, middle
+ * dot...): U+2010-203B is in NEITHER noto_16 nor the unifont ranges, so
+ * LLM replies showed blanks there. Same face/size/bpp as noto_16,
+ * generated locally (beken_generated/fonts/muse_font_punct_16.c).
+ * NON-const struct so .fallback can be written here. */
+extern lv_font_t muse_font_punct_16;
+
+/* Currency / Latin-1 gap-fill (¥ € £ ¢ © ® ° ±, U+00A0-00FF and the
+ * U+20A0-20BF currency block): likewise absent from noto_16/punct_16/
+ * unifont, so prices rendered as blanks (field 2026-11-11). Generated
+ * locally with Pillow from DejaVu Sans Bold, PLAIN 4bpp
+ * (beken_generated/fonts/muse_font_money_16.c). NON-const: .fallback is
+ * written here. */
+extern lv_font_t muse_font_money_16;
+
 /* 30 px title chain: lv_font_ali_30 (Latin + its CJK subset) with
  * muse_font_cjk_30 as fallback for the glyphs it lacks (助/记/...). */
 extern const lv_font_t lv_font_ali_30;
@@ -62,10 +78,12 @@ lv_font_t *muse_cjk_font(void)
 {
     if (!s_cjk_font_ready) {
         memcpy(&s_cjk_font, &muse_font_noto_16, sizeof(s_cjk_font));
-        /* unifont covers all of U+4E00-9FFF for rare glyphs; its own
-         * (flash-const) fallback is NULL, which is fine because noto_16
-         * already carries ASCII. */
-        s_cjk_font.fallback = &muse_font_cjk_16;
+        /* Chain: noto_16 -> punct_16 -> money_16 -> unifont. unifont
+         * covers all of U+4E00-9FFF for rare glyphs; its own (flash-const)
+         * fallback is NULL, fine because noto_16 already carries ASCII. */
+        muse_font_punct_16.fallback = &muse_font_money_16;
+        muse_font_money_16.fallback = &muse_font_cjk_16;
+        s_cjk_font.fallback = &muse_font_punct_16;
         s_cjk_font_ready = true;
     }
     return &s_cjk_font;
@@ -92,8 +110,11 @@ lv_font_t *muse_title_font(void)
 #define SCREEN_W            385
 #define SCREEN_H            320
 /* 512 KB is 5x the largest plausible panel JPEG (~100 KB) and over 2x the
- * raw-RGB565 ceiling (240 KB); with the 241 KB persistent frame it keeps the
- * draw-time PSRAM peak at ~790 KB of the 1432 KB heap. */
+ * raw-RGB565 ceiling (240 KB). Both big draw-time blocks come from the
+ * 16 MB UNCODED slab (same allocator as the Jolly video frames), NOT the
+ * 1432 KB PSRAM heap: a fragmented heap only has ~250 KB free under load
+ * and the 241 KB frame alloc failed in the field (2026-11-10: VM relayed
+ * "显存不够，分配失败"). The slab is nearly empty by design. */
 #define FETCH_BODY_CAP      (512U * 1024U)
 /* CDNs and signed file services stack CORS/cache/cookie headers well past
  * 4 KB; headers live in the 512 KB PSRAM body buffer, so the cap is free. */
@@ -585,6 +606,146 @@ static int http_get(const char *url, uint8_t *body, size_t body_cap,
     }
 }
 
+/* ---- shared HTTP POST (TTS and future API callers) -------------------------*/
+
+/* POST body (raw) with Content-Length; extra_headers are verbatim header
+ * lines (each must already end with \r\n). Response body is read with the
+ * same content-length/chunked/close-delimited handling as GET; on non-200
+ * the body (if any) is left in resp for the caller to log. */
+int muse_display_http_post(const char *url, const char *extra_headers,
+                           const uint8_t *body, size_t body_len,
+                           uint8_t *resp, size_t resp_cap, size_t *out_len,
+                           char *err, size_t err_cap)
+{
+    fetch_url_t u;
+    fetch_conn_t c;
+    char request[768];
+    int rl, n;
+    size_t used = 0U, body_off = 0U, have;
+    long content_length;
+    bool chunked;
+    int status = 0;
+
+    if (out_len != NULL) {
+        *out_len = 0;
+    }
+    if (parse_url(url, &u) != 0) {
+        snprintf(err, err_cap, "bad url");
+        return -1;
+    }
+    rl = snprintf(request, sizeof(request),
+                  "POST %s HTTP/1.1\r\nHost: %s\r\nAccept: */*\r\n"
+                  "Content-Type: application/json\r\n"
+                  "Content-Length: %u\r\nConnection: close\r\n%s\r\n",
+                  u.path, u.host_header, (unsigned)body_len,
+                  extra_headers != NULL ? extra_headers : "");
+    if (rl <= 0 || (size_t)rl >= sizeof(request)) {
+        snprintf(err, err_cap, "request too large");
+        return -1;
+    }
+    if (fetch_connect(&c, &u, err, err_cap) != 0) {
+        return -1;
+    }
+    if (fetch_write(&c, request, rl) != 0 ||
+        (body_len > 0 && fetch_write(&c, (const char *)body, (int)body_len) != 0)) {
+        snprintf(err, err_cap, "write failed");
+        goto fail;
+    }
+
+    for (;;) {
+        const char *end;
+        if (used >= FETCH_HEADER_CAP) {
+            snprintf(err, err_cap, "headers too large");
+            goto fail;
+        }
+        n = fetch_read(&c, (char *)resp + used, 1500);
+        if (n == -2) { snprintf(err, err_cap, "read timeout"); goto fail; }
+        if (n < 0)   { snprintf(err, err_cap, "read failed"); goto fail; }
+        if (n == 0)  { snprintf(err, err_cap, "closed during headers"); goto fail; }
+        used += (size_t)n;
+        end = find_header_end(resp, used);
+        if (end != NULL) {
+            body_off = (size_t)(end - (const char *)resp) + 4U;
+            break;
+        }
+    }
+    resp[used] = '\0';
+    if (sscanf((const char *)resp, "HTTP/%*s %d", &status) != 1) {
+        snprintf(err, err_cap, "bad status line");
+        goto fail;
+    }
+    {
+        char saved = (char)resp[body_off];
+        resp[body_off] = '\0';
+        content_length = header_content_length((const char *)resp);
+        chunked = header_is_chunked((const char *)resp);
+        resp[body_off] = (uint8_t)saved;
+    }
+    have = used - body_off;
+    if (have > 0U) {
+        memmove(resp, resp + body_off, have);
+    }
+    if (content_length >= 0L) {
+        size_t want = (size_t)content_length;
+        if (want > resp_cap) {
+            snprintf(err, err_cap, "response too large");
+            goto fail;
+        }
+        while (have < want) {
+            n = fetch_read(&c, (char *)resp + have, (int)(want - have));
+            if (n == -2) { snprintf(err, err_cap, "read timeout"); goto fail; }
+            if (n < 0)   { snprintf(err, err_cap, "read failed"); goto fail; }
+            if (n == 0)  { snprintf(err, err_cap, "truncated body"); goto fail; }
+            have += (size_t)n;
+        }
+    } else if (!chunked) {
+        for (;;) {
+            if (have >= resp_cap) break;
+            n = fetch_read(&c, (char *)resp + have, (int)(resp_cap - have));
+            if (n == -2) { snprintf(err, err_cap, "read timeout"); goto fail; }
+            if (n < 0)   { snprintf(err, err_cap, "read failed"); goto fail; }
+            if (n == 0)  break;
+            have += (size_t)n;
+        }
+    } else {
+        for (;;) {
+            if (have >= resp_cap) {
+                snprintf(err, err_cap, "response too large");
+                goto fail;
+            }
+            n = fetch_read(&c, (char *)resp + have, (int)(resp_cap - have));
+            if (n == -2) { snprintf(err, err_cap, "read timeout"); goto fail; }
+            if (n < 0)   { snprintf(err, err_cap, "read failed"); goto fail; }
+            if (n == 0)  break;
+            have += (size_t)n;
+        }
+        int payload = dechunk_inplace(resp, have, resp_cap);
+        if (payload < 0) {
+            snprintf(err, err_cap, "bad chunked body");
+            goto fail;
+        }
+        have = (size_t)payload;
+    }
+    fetch_close(&c);
+    if (status != 200) {
+        /* Keep the body for the caller to log (API error JSON). */
+        resp[have < resp_cap ? have : resp_cap - 1U] = '\0';
+        if (out_len != NULL) {
+            *out_len = have;
+        }
+        snprintf(err, err_cap, "http status %d", status);
+        return -2;
+    }
+    if (out_len != NULL) {
+        *out_len = have;
+    }
+    return 0;
+
+fail:
+    fetch_close(&c);
+    return -1;
+}
+
 /* ---- JPEG (classic ChaN TJpgDec, upstream esp32 image_fetch pattern) ------*/
 
 #define JPEG_POOL_BYTES     4096U
@@ -593,9 +754,11 @@ typedef struct {
     const uint8_t *src;
     size_t size;
     size_t pos;
-    uint16_t *frame;    /* cropped SCREEN_W*SCREEN_H RGB565 output */
+    uint16_t *frame;    /* letterboxed SCREEN_W*SCREEN_H RGB565 output */
     int cx;             /* crop window origin in decoded pixels */
     int cy;
+    int ox;             /* letterbox offset in the output frame */
+    int oy;
 } jpeg_draw_t;
 
 static size_t jpeg_in(JDEC *jd, uint8_t *buf, size_t len)
@@ -618,13 +781,14 @@ static int jpeg_out(JDEC *jd, void *bitmap, JRECT *rect)
     int h = (int)(rect->bottom - rect->top) + 1;
     int x, y;
 
-    /* Copy only the crop window, shifted to frame origin. */
+    /* Copy only the crop window, shifted to the letterbox slot in the
+     * full-panel frame. */
     for (y = 0; y < h; y++) {
-        int dy = (int)rect->top + y - f->cy;
+        int dy = (int)rect->top + y - f->cy + f->oy;
         if (dy < 0) continue;
         if (dy >= SCREEN_H) break;
         for (x = 0; x < w; x++) {
-            int dx = (int)rect->left + x - f->cx;
+            int dx = (int)rect->left + x - f->cx + f->ox;
             if (dx < 0) continue;
             if (dx >= SCREEN_W) break;
             f->frame[dy * SCREEN_W + dx] = src[y * w + x];
@@ -681,7 +845,16 @@ static int jpeg_decode_frame(const uint8_t *jpg, size_t jpg_size,
         }
         if ((int)(jd.width >> cover) >= SCREEN_W &&
             (int)(jd.height >> cover) >= SCREEN_H) {
+            /* Covers both axes: efficient downscale + centre-crop. */
             scale = cover;
+        } else if (cover == 0U &&
+                   ((int)jd.width >= SCREEN_W || (int)jd.height >= SCREEN_H)) {
+            /* One-axis cover (the VM's 320x384 portrait shot on the 385x320
+             * logical panel): shrinking to fit BOTH axes quarters the image
+             * for no reason (field 2026-11-10: Beken logo drawn 160x192).
+             * Keep native scale: centre-crop the overflowing axis,
+             * letterbox the other. */
+            scale = 0;
         } else {
             while (scale < 3U &&
                    ((int)(jd.width >> scale) > SCREEN_W ||
@@ -697,18 +870,21 @@ static int jpeg_decode_frame(const uint8_t *jpg, size_t jpg_size,
         snprintf(err, err_cap, "JPEG is too large even at 1/8 scale");
         return 2;
     }
+    /* Render letterboxed into a cleared full-panel frame and always report
+     * SCREEN_W x SCREEN_H: the overlay's LVGL image stride (w*2) then can
+     * never mismatch the frame's 385-px rows (small/one-axis images used
+     * to skew on the stale-row stride gap, and showed leftovers beside the
+     * crop window). */
+    memset(s_frame, 0, (size_t)SCREEN_W * SCREEN_H * 2U);
     f.frame = s_frame;
-    if (w >= SCREEN_W && h >= SCREEN_H) {
-        /* covering: centre-crop to the panel */
-        f.cx = (w - SCREEN_W) / 2;
-        f.cy = (h - SCREEN_H) / 2;
-        w = SCREEN_W;
-        h = SCREEN_H;
-    } else {
-        /* smaller than the panel: keep whole image, centre it later */
-        f.cx = 0;
-        f.cy = 0;
-    }
+    /* crop origin for axes that overflow the panel */
+    f.cx = (w > SCREEN_W) ? (w - SCREEN_W) / 2 : 0;
+    f.cy = (h > SCREEN_H) ? (h - SCREEN_H) / 2 : 0;
+    /* letterbox offset for axes that underflow it */
+    f.ox = (w < SCREEN_W) ? (SCREEN_W - w) / 2 : 0;
+    f.oy = (h < SCREEN_H) ? (SCREEN_H - h) / 2 : 0;
+    w = SCREEN_W;
+    h = SCREEN_H;
     rc = jd_decomp(&jd, jpeg_out, scale);
     psram_free(pool);
     if (rc != JDR_OK) {
@@ -805,10 +981,18 @@ int muse_display_show_animation(void)
          * either, so this is a safe no-op. */
         return 0;
     }
-    lv_vendor_disp_lock();
+    /* Same re-lock guard as show_voice_text: some callers run on the LVGL
+     * task (button callbacks already hold g_disp_mutex, non-recursive);
+     * re-locking there self-deadlocks. */
+    const bool on_disp_thread = ui_disp_is_lvgl_thread();
+    if (!on_disp_thread) {
+        lv_vendor_disp_lock();
+    }
     overlay_delete_locked();
     voice_overlay_delete_locked();
-    lv_vendor_disp_unlock();
+    if (!on_disp_thread) {
+        lv_vendor_disp_unlock();
+    }
     return 0;
 }
 
@@ -1015,17 +1199,21 @@ int muse_display_draw_url(const char *url, int row, muse_display_result_t *resul
         return -1;
     }
 
-    /* Grab the persistent frame first: ordering the two big PSRAM blocks
-     * this way keeps the 1 MB body alloc from taking the last contiguous
-     * chunk and starving the frame (the Meta CDN failure). */
+    /* Grab the persistent frame first: ordering the two big slab blocks
+     * this way keeps the body alloc from taking the last contiguous chunk
+     * and starving the frame (the Meta CDN failure). Both come from the
+     * UNCODED slab -- the 1432 KB PSRAM heap is too fragmented under load
+     * for 241 KB+ one-shots (field: "frame buffer alloc failed"). */
     if (s_frame == NULL) {
-        s_frame = (uint16_t *)psram_malloc((size_t)SCREEN_W * SCREEN_H * 2U);
+        s_frame = (uint16_t *)bk_frame_buffer_malloc(
+            MEM_SLAB_HEAP_UNCODED, (size_t)SCREEN_W * SCREEN_H * 2U);
         if (s_frame == NULL) {
             set_error(result, "out_of_memory", "frame buffer alloc failed");
             return -1;
         }
     }
-    body = (uint8_t *)psram_malloc(FETCH_BODY_CAP);
+    body = (uint8_t *)bk_frame_buffer_malloc(MEM_SLAB_HEAP_UNCODED,
+                                             FETCH_BODY_CAP);
     if (body == NULL) {
         set_error(result, "out_of_memory", "download buffer alloc failed");
         return -1;
@@ -1100,7 +1288,7 @@ int muse_display_draw_url(const char *url, int row, muse_display_result_t *resul
 
 done:
     (void)image;    /* points into the persistent s_frame; nothing to free */
-    psram_free(body);
+    bk_frame_buffer_free(body);
     LOGI("draw_url %s: %s\r\n", result->ok ? "done" : "failed",
          result->ok ? result->format : result->err_msg);
     return ret;

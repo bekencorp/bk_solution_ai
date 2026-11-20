@@ -1,5 +1,7 @@
 #include "bk_private/bk_init.h"
 #include <components/system.h>
+#include <components/log.h>
+#include <components/shell_task.h>
 #include <os/os.h>
 #include <os/mem.h>
 #include <driver/gpio.h>
@@ -78,6 +80,10 @@
 
 #if CONFIG_LVGL
 #include "wifi_status_ui.h"
+#endif
+
+#if CONFIG_MUSE_GADGET
+#include "ui/muse_status.h"
 #endif
 
 #if CONFIG_LED_BLINK
@@ -259,6 +265,14 @@ const struct factory_config_t s_user_config[] = {
     {"muse_setup", (void *)&s_muse_setup_default, 4, BK_TRUE, 4},
     {"muse_sdk_token", (void *)s_muse_empty, 1, BK_TRUE, 2048},
     {"muse_id_salt", (void *)&s_muse_setup_default, 4, BK_TRUE, 4},
+    /* Volcano speech credentials (bk_config_write only accepts
+     * pre-registered keys -- an unregistered key fails with
+     * "key not found inf cache"). */
+    {"muse_volc_asr", (void *)s_muse_empty, 1, BK_TRUE, 128},
+    {"muse_volc_tts", (void *)s_muse_empty, 1, BK_TRUE, 128},
+    {"muse_volc_appid", (void *)s_muse_empty, 1, BK_TRUE, 128},
+    {"muse_volc_asrres", (void *)s_muse_empty, 1, BK_TRUE, 128},
+    {"muse_volc_ttsvoice", (void *)s_muse_empty, 1, BK_TRUE, 96},
 #endif
 };
 #if CONFIG_BK_DECODER && CONFIG_BK_VIDEO_PLAYER_ENABLE_HW_H264_VIDEO_DECODER
@@ -294,6 +308,12 @@ static void h264_hw_decoder_prewarm(void)
 int main(void)
 {
     bk_init();
+
+    /* 默认日志级别从 DEBUG 降到 INFO：实测 D 级占了全部日志的一半以上，
+     * 且绝大多数来自音频/视频流水线内部（SPK STOP pending、元素链表、
+     * 统计计数），排障用不到。这个是运行时开关，串口 CLI 敲 "log 1 4"
+     * 随时可调回 DEBUG，不用重编。 */
+    shell_set_log_level(BK_LOG_INFO);
 
     media_service_init();
     bk_frame_buffer_init();
@@ -361,6 +381,16 @@ int main(void)
         ui_nav_router_cli_init();
         ui_screenshot_cli_init();
         (void)bk_demos_init_all();
+    #if CONFIG_MUSE_GADGET
+        /* 开机直进 Muse 配对/连接状态页（顶掉 splash，由 page_hooks 自动
+         * 释放）：连上云端该页自动跳语音页；语音页用着掉线也会跳回来。
+         * 想看 U盘/拍照按 S3 回 home，与现有按键映射一致，零改动。
+         * 必须拿 LVGL 锁：lv_vendor_start 之后渲染已在另一核上跑，main
+         * 线程裸调 lv_screen_load 会撞 lv_refr.c 的 rendering 断言。 */
+        lv_vendor_disp_lock();
+        (void)muse_status_enter();
+        lv_vendor_disp_unlock();
+    #endif
     #endif
 
     (void)board_usb_switch_init();

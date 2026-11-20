@@ -17,6 +17,7 @@
 #include <stdio.h>
 
 #include <components/log.h>
+#include <os/os.h>          /* rtos_get_time */
 
 #include "lvgl.h"
 #include "beken_ui.h"
@@ -26,6 +27,7 @@
 #include "ui_nav_router.h"
 #include "jolly/jolly_video.h"
 #include "muse_service.h"
+#include "ui/muse_status.h"   /* 断线自动回配对/连接状态页 */
 #include "muse_voice.h"
 #include "muse_display.h"     /* muse_cjk_font: full-CJK text rendering */
 #include "voice_history.h"
@@ -38,7 +40,23 @@ extern int page_top_enter(void);
 static lv_obj_t  *s_screen;
 static lv_obj_t  *s_bubble_label;   /* 视频 B 对话框里的回复文字 */
 static lv_timer_t *s_timer;
+/* 在本页里见过 CONNECTED 才置真：之后掉线 = "用着用着断了"，自动回
+ * 配对/连接状态页等重连（状态页连上后会再跳回来）。进页时就没连着
+ * （比如从 home 手动进）不触发，避免来回弹。 */
+static bool       s_had_connection;
 static char       s_bubble_last[VOICE_HISTORY_BODY_MAX];  /* 上次气泡文字（判变用） */
+/* 主动推送（无语音回合的 draw_text）的显示窗：窗内 want_bubble 为真，
+ * 页面切到 B 场景气泡，与回合回复同一展示通道。 */
+static uint32_t   s_push_show_until;
+
+void voice_chat_page_show_push(const char *text)
+{
+    if (text == NULL || text[0] == '\0') {
+        return;
+    }
+    voice_history_push("Muse", text);
+    s_push_show_until = rtos_get_time() + 30000U;
+}
 
 /* 气泡文字超出可视高度时的纵向自动滚动：顶部停 1.8s -> 平滑滚到底 ->
  * 底部停 2.4s -> 回顶，循环。由 300ms 页面定时器驱动。 */
@@ -109,6 +127,30 @@ static bool muse_connected(void)
     return st.state == MUSE_SERVICE_CONNECTED;
 }
 
+/* 掉线自动回配对/连接状态页：先切走活动屏再删本屏（同 S3 teardown
+ * 的顺序，只是目标是 muse_status 而非 page_top）。状态页检测到重连
+ * 成功会自己跳回本页。timer 在自身回调里删除对 LVGL 是安全的
+ * （handler 先取 next 再执行回调，回调返回后不再触碰本 timer）。 */
+static void voice_chat_leave_to_status(void)
+{
+    lv_obj_t *scr = s_screen;
+    s_screen = NULL;
+    s_bubble_label = NULL;
+    if (s_timer != NULL) {
+        lv_timer_delete(s_timer);
+        s_timer = NULL;
+    }
+    jolly_video_destroy();
+    if (scr != NULL && lv_obj_is_valid(scr)) {
+        ui_nav_unregister_screen(scr);
+    }
+    (void)muse_status_enter();  /* switch active screen first */
+    if (scr != NULL && lv_obj_is_valid(scr)) {
+        lv_obj_del(scr);
+    }
+    LOGI("link lost, back to muse status page\r\n");
+}
+
 static void voice_chat_refresh(void)
 {
     if (s_screen == NULL || !lv_obj_is_valid(s_screen)) {
@@ -123,7 +165,16 @@ static void voice_chat_refresh(void)
     char heard[192];
     bool interim = (phase == MUSE_VOICE_UI_WAITING) &&
                    muse_voice_heard(heard, sizeof(heard));
-    bool want_bubble = (phase == MUSE_VOICE_UI_SHOWING) || interim;
+    /* 本回合的状态/错误提示（如"请求被中断，请再说一次"）：SHOWING 时
+     * 优先于 voice_history 的历史回复显示。 */
+    char notice[96];
+    bool has_notice = (phase == MUSE_VOICE_UI_SHOWING) &&
+                      muse_voice_ui_notice(notice, sizeof(notice));
+    if (!has_notice) {
+        notice[0] = '\0';
+    }
+    bool want_bubble = (phase == MUSE_VOICE_UI_SHOWING) || interim ||
+                       (int32_t)(rtos_get_time() - s_push_show_until) < 0;
 
     /* 视频状态机：语音输入页(A) / 回复对话框页(B)；素材缺失时 jolly_video
      * 隐藏自己，页面只剩气泡文字。录音/空闲 = A，等回声与显示回复 = B。
@@ -131,8 +182,14 @@ static void voice_chat_refresh(void)
      * TCP 窗口修复后上行 ~80KB/s 有 2 倍余量，不再避让（2026-11-06 用户
      * 明确要求唤醒即回 A 场景）。 */
     if (connected) {
+        s_had_connection = true;
         (void)jolly_video_play(want_bubble ? JOLLY_CLIP_REPLY_BUBBLE
                                            : JOLLY_CLIP_VOICE_INPUT);
+    } else if (s_had_connection) {
+        /* 本页使用过程中掉线：回状态页等重连，别再停在黑屏语音页上。 */
+        s_had_connection = false;
+        voice_chat_leave_to_status();
+        return;
     } else {
         jolly_video_stop();
     }
@@ -145,6 +202,11 @@ static void voice_chat_refresh(void)
     if (interim) {
         snprintf(body, sizeof(body), "听到了：%s", heard);
         bubble = body;
+    } else if (notice[0] != '\0') {
+        /* 本回合以状态/错误提示收尾（不是助手回复）：必须显示提示本身。
+         * 气泡只认 voice_history 的话，这里会回放上一条回复——用户看到
+         * 的"又问一句却蹦出上一轮回答"就是这个（field 2026-11-13）。 */
+        bubble = notice;
     } else {
         bubble = voice_history_get(0, NULL, 0, body, sizeof(body))
                      ? body : "";
@@ -179,15 +241,7 @@ static void voice_chat_toggle_ptt(void)
     int rc = muse_voice_ptt_toggle();
     LOGI("voice page PTT toggle -> %d (recording=%u)\r\n", rc,
          (unsigned)muse_voice_recording());
-    if (rc == -2 || rc == -6) {
-        /* The link died silently while idle (no app-level ping) and the
-         * take was dropped; without feedback this looked like a dead
-         * button and the user hammered the mic. The keepalive makes the
-         * reconnect heal in the background — just say when to retry. */
-        ui_theme_create_popup(vc_lang() == UI_LANG_ZH ?
-                              "连接断开，重连后请再说一次" :
-                              "Link dropped, please speak again once reconnected");
-    } else if (rc != 0) {
+    if (rc != 0) {
         ui_theme_create_popup(vc_lang() == UI_LANG_ZH ?
                               "请稍后再试" : "Please try again");
     }
@@ -235,6 +289,7 @@ static const ui_page_nav_ops_t s_voice_chat_nav_ops = {
 
 int voice_chat_page_enter(void)
 {
+    s_had_connection = false;   /* 掉线自动回状态页只在"本页见过连接"后武装 */
     if (s_screen != NULL && lv_obj_is_valid(s_screen)) {
         lv_screen_load(s_screen);
         /* 再入页面时在返回前同步一次状态：渲染发生在之后的
@@ -253,7 +308,9 @@ int voice_chat_page_enter(void)
     lv_obj_set_pos(s_bubble_label, BUBBLE_TEXT_X, BUBBLE_TEXT_Y);
     lv_obj_set_size(s_bubble_label, BUBBLE_TEXT_W, BUBBLE_TEXT_H);
     lv_obj_set_style_text_font(s_bubble_label, muse_cjk_font(), LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_bubble_label, lv_color_hex(0xffffff), LV_PART_MAIN);
+    /* 新 b.mp4 的对话框是白底浅蓝边（实测框内 x31..352 / y184..307），
+     * 白字会糊成一片——用深灰字。 */
+    lv_obj_set_style_text_color(s_bubble_label, lv_color_hex(0x333333), LV_PART_MAIN);
     lv_obj_set_style_text_align(s_bubble_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_long_mode(s_bubble_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_scrollbar_mode(s_bubble_label, LV_SCROLLBAR_MODE_OFF);

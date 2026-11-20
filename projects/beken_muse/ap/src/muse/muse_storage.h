@@ -44,6 +44,19 @@ bool muse_storage_update_tokens(const char *access_token,
 /* SDK token is independent of pairing state and is not erased by clear(). */
 bool muse_storage_save_sdk_token(const char *token);
 bool muse_storage_load_sdk_token(char *out, size_t out_size);
+/* Volcano speech credentials (old-console: APP ID + per-service Access
+ * Token). Runtime-only: set via CLI (`muse volcappid/asrkey/ttskey`),
+ * never baked into source/defconfig. */
+bool muse_storage_save_volc_asr_key(const char *key);
+bool muse_storage_load_volc_asr_key(char *out, size_t out_size);
+bool muse_storage_save_volc_tts_key(const char *key);
+bool muse_storage_load_volc_tts_key(char *out, size_t out_size);
+bool muse_storage_save_volc_appid(const char *appid);
+bool muse_storage_load_volc_appid(char *out, size_t out_size);
+bool muse_storage_save_volc_asr_res(const char *res);
+bool muse_storage_load_volc_asr_res(char *out, size_t out_size);
+bool muse_storage_save_volc_tts_voice(const char *voice);
+bool muse_storage_load_volc_tts_voice(char *out, size_t out_size);
 /* Identity salt (24-bit, overrides the MAC tail in build_identity()).
  * Independent of pairing state and not erased by clear(). */
 bool muse_storage_save_id_salt(uint32_t salt);

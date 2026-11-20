@@ -20,6 +20,10 @@ int voice_chat_page_enter(void);
  * popping the fullscreen reply overlay on top of it. */
 bool voice_chat_page_is_active(void);
 
+/** Show a proactive (no-voice-turn) Muse push in the page's B-scene bubble:
+ * appended to voice history and pinned visible for 30 s. Any task may call. */
+void voice_chat_page_show_push(const char *text);
+
 #ifdef __cplusplus
 }
 #endif

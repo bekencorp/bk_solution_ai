@@ -29,8 +29,11 @@ CONFIG_BEKEN_KWS=y
 # KWS runs its tflite models on the TFLITE_MICRO runtime; beken_robot
 # enables it, beken_muse trimmed it -- restore it for voice wakeup.
 CONFIG_TFLITE_MICRO=y
-# Built-in model (stock "nihaobotong" wakeup) for now; no SD-NAND needed.
-# CONFIG_BEKEN_KWS_MODEL_FROM_UDISK is not set
+# KWS models loaded from SD-NAND at runtime (/sd0/kws_model/*.tflite) instead
+# of the stock model compiled into flash: both bk_kws_wakeup.tflite AND
+# bk_kws_commands.tflite must exist in that dir or the whole KWS init fails
+# (load is all-or-nothing; button PTT still works when it fails).
+CONFIG_BEKEN_KWS_MODEL_FROM_UDISK=y
 CONFIG_BEKEN_KWS_MODEL_BUFFER_USE_PSRAM=y
 CONFIG_BEKEN_KWS_ARENA_USE_PSRAM=y
 CONFIG_BEKEN_KWS_SCRATCH_USE_PSRAM=y
@@ -173,6 +176,11 @@ CONFIG_LWIP_TCP_SND_BUF=32850
 CONFIG_LWIP_TCP_WND=32850
 CONFIG_LWIP_TCP_SND_QUEUELEN=48
 CONFIG_LWIP_MEMP_NUM_TCP_SEG=96
+# A send poll timeout is transient TX congestion, not a dead link: fail the
+# send only and let the volc ASR/TTS clients retry instead of losing the
+# whole voice turn on a ~1 s WiFi stall (field 2026-11-12). SDK default n
+# keeps every other solution's behaviour byte-identical.
+CONFIG_WEBSOCKET_KEEP_CONN_ON_SEND_TIMEOUT=y
 CONFIG_MEDIA_SERVICE=y
 CONFIG_WEBCLIENT=y
 CONFIG_AE_SEND_AUDIO_WITHOUT_ASR_RESULT=y
@@ -262,3 +270,14 @@ CONFIG_WEBSOCKET_UPGRADE_MINIMAL_HEADERS=y
 # session (e.g. display.draw_url image fetch beside the Noise link) fails
 # mbedtls_ssl_setup with -0x7F00 (ALLOC_FAILED).
 CONFIG_MBEDTLS_USE_PSRAM=y
+
+# Volcano speech (streaming ASR + reply TTS). Credentials are runtime-only
+# (old console: APP ID + per-service Access Token): set once on the CLI
+# (`muse volcappid <id>` / `muse asrkey <key>` / `muse ttskey <key>`,
+# persisted to easyflash); do NOT put credentials in this file.
+CONFIG_MUSE_ASR_VOLC=y
+CONFIG_MUSE_ASR_VOLC_RESOURCE_ID="volc.seedasr.sauc.duration"
+CONFIG_MUSE_TTS_VOLC=y
+CONFIG_MUSE_TTS_VOLC_RESOURCE_ID="seed-tts-2.0"
+CONFIG_MUSE_TTS_VOLC_VOICE="zh_female_xiaohe_uranus_bigtts"
+CONFIG_MUSE_TTS_VOLC_OUT_PATH="/sd0/tts_volc.mp3"

@@ -16,6 +16,7 @@
 #include "bk_cli.h"
 #include "cli.h"
 #include <components/log.h>
+#include <os/os.h>        /* rtos_get_psram_*_heap_size() for `muse mem` */
 
 #include "muse_commands.h"
 #include "muse_service.h"
@@ -136,6 +137,76 @@ static void muse_cli_handler(char *out, int out_len, int argc, char **argv)
             return;
         }
         rc = muse_service_set_sdk_token(argv[2]);
+    } else if (strcmp(argv[1], "asrkey") == 0) {
+#if CONFIG_MUSE_GADGET_VOICE
+        if (argc < 3 || argv[2][0] == '\0') {
+            snprintf(out, (size_t)out_len,
+                     "usage: muse asrkey <Access-Token>\r\n");
+            return;
+        }
+        rc = muse_voice_set_volc_asr_key(argv[2]);
+#else
+        snprintf(out, (size_t)out_len, "voice not enabled\r\n");
+        return;
+#endif
+    } else if (strcmp(argv[1], "ttskey") == 0) {
+#if CONFIG_MUSE_GADGET_VOICE
+        if (argc < 3 || argv[2][0] == '\0') {
+            snprintf(out, (size_t)out_len,
+                     "usage: muse ttskey <Access-Token>\r\n");
+            return;
+        }
+        rc = muse_voice_set_volc_tts_key(argv[2]);
+#else
+        snprintf(out, (size_t)out_len, "voice not enabled\r\n");
+        return;
+#endif
+    } else if (strcmp(argv[1], "volcappid") == 0) {
+#if CONFIG_MUSE_GADGET_VOICE
+        if (argc < 3 || argv[2][0] == '\0') {
+            snprintf(out, (size_t)out_len,
+                     "usage: muse volcappid <APP-ID>\r\n");
+            return;
+        }
+        rc = muse_voice_set_volc_appid(argv[2]);
+#else
+        snprintf(out, (size_t)out_len, "voice not enabled\r\n");
+        return;
+#endif
+    } else if (strcmp(argv[1], "asrres") == 0) {
+#if CONFIG_MUSE_GADGET_VOICE
+        if (argc < 3 || argv[2][0] == '\0') {
+            snprintf(out, (size_t)out_len,
+                     "usage: muse asrres <resource-id>\r\n");
+            return;
+        }
+        rc = muse_voice_set_volc_asr_res(argv[2]);
+#else
+        snprintf(out, (size_t)out_len, "voice not enabled\r\n");
+        return;
+#endif
+    } else if (strcmp(argv[1], "ttsvoice") == 0) {
+#if CONFIG_MUSE_GADGET_VOICE
+        if (argc < 3 || argv[2][0] == '\0') {
+            snprintf(out, (size_t)out_len,
+                     "usage: muse ttsvoice <speaker-id>\r\n");
+            return;
+        }
+        rc = muse_voice_set_volc_tts_voice(argv[2]);
+#else
+        snprintf(out, (size_t)out_len, "voice not enabled\r\n");
+        return;
+#endif
+    } else if (strcmp(argv[1], "mem") == 0) {
+        /* PSRAM heap watermarks: `free` is the current headroom of the
+         * 3.4 MB general heap (psram_malloc), `min` the worst level seen
+         * since boot -- the number that matters for alloc failures. */
+        snprintf(out, (size_t)out_len,
+                 "psram heap: total=%u free=%u min=%u (bytes)\r\n",
+                 (unsigned)rtos_get_psram_total_heap_size(),
+                 (unsigned)rtos_get_psram_free_heap_size(),
+                 (unsigned)rtos_get_psram_minimum_free_heap_size());
+        return;
     } else if (strcmp(argv[1], "register-json") == 0) {
         rc = muse_commands_build_register(
             "bk7259", "00000000-0000-4000-8000-000000000000",
@@ -209,14 +280,14 @@ static void muse_cli_handler(char *out, int out_len, int argc, char **argv)
         return;
     } else {
         snprintf(out, (size_t)out_len,
-                 "usage: muse [start|stop|status|confirm|clear|newid|ca-load [path]|token <mgst_...>|register-json|time|voice [start|stop|toggle]|probe [seconds]]\r\n");
+                 "usage: muse [start|stop|status|confirm|clear|newid|ca-load [path]|token <mgst_...>|volcappid <id>|asrkey <key>|ttskey <key>|asrres <rid>|ttsvoice <spk>|mem|register-json|time|voice [start|stop|toggle]|probe [seconds]]\r\n");
         return;
     }
     snprintf(out, (size_t)out_len, "%s\r\n", rc == 0 ? "OK" : "ERROR");
 }
 
 static const struct cli_command s_muse_commands[] = {
-    {"muse", "muse [start|stop|status|confirm|clear|newid|ca-load [path]|token <mgst_...>|register-json|time|voice [start|stop|toggle]|probe [seconds]]",
+    {"muse", "muse [start|stop|status|confirm|clear|newid|ca-load [path]|token <mgst_...>|volcappid <id>|asrres <rid>|ttsvoice <spk>|mem|register-json|time|voice [start|stop|toggle]|probe [seconds]]",
      muse_cli_handler},
 };
 

@@ -46,6 +46,14 @@ typedef struct {
 /* row < 0 centres the image vertically. Always fills *result. */
 int muse_display_draw_url(const char *url, int row, muse_display_result_t *result);
 
+/* Minimal HTTP POST with a JSON content type. extra_headers: verbatim
+ * header lines (each ending "\r\n"). On -2 (non-200) the response body is
+ * still in resp (NUL-terminated) for logging. Returns 0 on 200. */
+int muse_display_http_post(const char *url, const char *extra_headers,
+                           const uint8_t *body, size_t body_len,
+                           uint8_t *resp, size_t resp_cap, size_t *out_len,
+                           char *err, size_t err_cap);
+
 /* Clears the drawn overlay and returns to the normal UI. */
 int muse_display_show_animation(void);
 

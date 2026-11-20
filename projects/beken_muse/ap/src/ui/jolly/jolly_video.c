@@ -39,6 +39,7 @@
 
 #define TAG "jolly_video"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
+#define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 
@@ -51,7 +52,11 @@
 
 #define JV_SLOT_CNT      2          /* ping-pong：一块解码一块显示 */
 #define JV_RETRY_MS      2000       /* 素材缺失重试间隔 */
-#define JV_CTRL_STACK    3072
+/* 3072 会在首次起播时溢出：play_file → mp4 解析（mp4_stco_cache_get_rel
+ * 栈上 buf[512] + mp4_stco_cache_t rel[64]≈556B）→ VFS → FATFS → SDIO
+ * 的完整链条超过 3KB（2026-11-10 实机 UsageFault STKOF，内核报
+ * "Current Task stack overflow: jolly_vid"）。 */
+#define JV_CTRL_STACK    6144
 #define JV_CTRL_PRIO     5
 
 typedef enum {
@@ -278,7 +283,7 @@ static void jv_video_decode_complete_cb(void *user_data,
     s_cb_count++;
     bool verbose = (s_cb_count <= 5U) || ((s_cb_count % 48U) == 0U);
     if (verbose) {
-        LOGI("cb #%lu entry buf=%p data=%p user_data=%p len=%lu\r\n",
+        LOGD("cb #%lu entry buf=%p data=%p user_data=%p len=%lu\r\n",
              (unsigned long)s_cb_count, buffer, buffer ? buffer->data : NULL,
              buffer ? buffer->user_data : NULL,
              buffer ? (unsigned long)buffer->length : 0UL);
@@ -293,7 +298,7 @@ static void jv_video_decode_complete_cb(void *user_data,
 
     jv_disp_lock();
     if (verbose) {
-        LOGI("cb #%lu idx=%d got disp_lock canvas=%p\r\n",
+        LOGD("cb #%lu idx=%d got disp_lock canvas=%p\r\n",
              (unsigned long)s_cb_count, idx, s_jv.canvas);
     }
     if (s_jv.canvas != NULL && lv_obj_is_valid(s_jv.canvas)) {

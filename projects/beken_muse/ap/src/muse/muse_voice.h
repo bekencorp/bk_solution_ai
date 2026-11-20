@@ -47,6 +47,28 @@ int  muse_photo_send(const uint8_t *jpeg, size_t jpeg_len, const char *query);
  * is waiting (caller shows the text standalone). Any task may call. */
 bool muse_voice_on_reply_text(const char *text);
 
+/* An image reply (display.draw_url invoke) closes a waiting voice turn the
+ * same way a text reply does: restores KWS immediately and shortens the
+ * reply wait to a short caption grace. No-op when no turn is waiting. Any
+ * task may call. */
+void muse_voice_on_reply_image(void);
+
+/* Volcano speech credentials (old console: APP ID + per-service Access
+ * Token), runtime-only: `muse volcappid <id>` / `muse asrkey <key>` /
+ * `muse ttskey <key>` on the CLI persist them to easyflash. ASR/TTS each
+ * stay disabled until their own credential is set. Setters return 0 on
+ * success (<0: bad args / storage fail). */
+int  muse_voice_set_volc_asr_key(const char *key);
+int  muse_voice_set_volc_tts_key(const char *key);
+int  muse_voice_set_volc_appid(const char *appid);
+int  muse_voice_set_volc_asr_res(const char *res);
+int  muse_voice_set_volc_tts_voice(const char *voice);
+const char *muse_voice_volc_asr_key(void);
+const char *muse_voice_volc_tts_key(void);
+const char *muse_voice_volc_appid(void);
+const char *muse_voice_volc_asr_res(void);
+const char *muse_voice_volc_tts_voice(void);
+
 /* True while outbound voice work is in flight (recording, closing, or a
  * control transition pending); the session shortens its inbound wait then. */
 bool muse_voice_tx_active(void);
@@ -66,6 +88,14 @@ muse_voice_ui_phase_t muse_voice_ui_phase(void);
  * true only while a turn is closing/waiting AND the echo has arrived;
  * false otherwise (out[] = ""). For the UI's "heard it" interim display. */
 bool muse_voice_heard(char *out, size_t cap);
+
+/* Copy the current turn's status/error notice (e.g. "请求被中断，请再说一次")
+ * and return true while the turn is in SHOWING because of such a notice
+ * instead of an assistant reply. The voice-chat page uses this to show the
+ * notice in its bubble — its bubble otherwise mirrors voice_history and
+ * would replay the previous turn's reply. false when a real reply (or
+ * nothing) is on screen. */
+bool muse_voice_ui_notice(char *out, size_t cap);
 
 /* ---- chat worker glue (muse_chat.cpp only) ----------------------------- */
 

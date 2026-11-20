@@ -8,13 +8,39 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <components/log.h>
+#include <os/os.h>
+
 #include "bk_wifi.h"
 #include "bk_wifi_types.h"
 #include "cJSON.h"
 #include "muse_display.h"
 #if CONFIG_MUSE_GADGET_VOICE
 #include "muse_voice.h"
+#include "ui/voice_chat_page.h"
 #endif
+
+#define TAG "muse_cmd"
+#define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
+
+/* 重连宽限窗：会话刚建立时，服务器会补发设备离线期间积攒的 draw_text
+ *（2026-11-11 实机：多次重启后立刻收到上一轮语音回合的迟到回复上屏）。
+ * invoke 只带 text，无时间戳/关联 id，无法与真正的主动推送区分，故宽限
+ * 期内未被语音回合认领的 draw_text 一律不上屏（invoke 仍回 ok）。语音
+ * 回合回复不受影响——回合只可能属于本次启动。 */
+#define MUSE_COMMANDS_CONNECT_GRACE_MS 15000U
+
+static uint32_t s_connect_grace_until;
+
+void muse_commands_note_connected(void)
+{
+    s_connect_grace_until = rtos_get_time() + MUSE_COMMANDS_CONNECT_GRACE_MS;
+}
+
+static bool draw_text_in_connect_grace(void)
+{
+    return (int32_t)(rtos_get_time() - s_connect_grace_until) < 0;
+}
 
 static char *json_string(const cJSON *object, const char *name)
 {
@@ -35,12 +61,17 @@ static char *json_string(const cJSON *object, const char *name)
     "Report basic Link health, including battery level (percent), voltage, " \
     "and whether it is charging or on USB power; each is null when the " \
     "device has no battery or can't measure it"
-/* Adapted from upstream's display.draw_url description for this panel
- * (320x385 RGB565 colour screen, no e-paper). */
+/* Adapted from upstream's display.draw_url description. The panel is
+ * physically 320x385 portrait, but the user-visible UI runs through
+ * ROTATE_90, so the drawable screen is 385x320 LANDSCAPE -- advertise the
+ * logical orientation or the VM composes 320x384 portrait shots that can
+ * never fill the screen (field 2026-11-10: logo arrived 320x384). The raw
+ * row stride must match the code (SCREEN_W*2 = 770; the old 640-byte text
+ * made every raw upload fail the length check). */
 #define DRAW_URL_DESC \
-    "Download an image and draw it on the 320x385 colour screen. Takes a " \
+    "Download an image and draw it on the 385x320 colour screen. Takes a " \
     "baseline (not progressive) JPEG, shrunk 1/2, 1/4 or 1/8 on the device " \
-    "if needed and centred, or raw RGB565 (high byte first, 640 bytes per " \
+    "if needed and centred, or raw RGB565 (high byte first, 770 bytes per " \
     "row). Plain http:// uses the least device memory. Replies when the " \
     "image is drawn. Hides the image on display.show_animation."
 #define SHOW_ANIMATION_DESC \
@@ -155,6 +186,9 @@ int muse_commands_handle_invoke(const char *json, char *out, size_t out_size)
         muse_display_result_t r;
 
         (void)muse_display_draw_url(url, row, &r);
+        /* An image may BE the reply to an in-flight voice turn: close the
+         * turn's reply wait and restore KWS (no-op between turns). */
+        muse_voice_on_reply_image();
         if (r.ok) {
             n = snprintf(out, out_size,
                 "{\"jsonrpc\":\"2.0\",\"id\":\"%s\",\"result\":{\"ok\":true,"
@@ -195,6 +229,25 @@ int muse_commands_handle_invoke(const char *json, char *out, size_t out_size)
          * so the turn ends normally (no note Reset, no spurious
          * "no reply (timeout)" overwriting the answer). */
         if (muse_voice_on_reply_text(text)) {
+            n = snprintf(out, out_size,
+                "{\"jsonrpc\":\"2.0\",\"id\":\"%s\",\"result\":{\"ok\":true}}",
+                request_id);
+            goto done;
+        }
+        /* 重连宽限窗内的未认领 draw_text 按上一轮残留处理：不上屏。 */
+        if (draw_text_in_connect_grace()) {
+            LOGW("draw_text in connect grace (stale reply?) dropped: "
+                 "%.40s\r\n", text);
+            n = snprintf(out, out_size,
+                "{\"jsonrpc\":\"2.0\",\"id\":\"%s\",\"result\":{\"ok\":true}}",
+                request_id);
+            goto done;
+        }
+        /* Proactive push with the voice page on screen: show it in the
+         * page's B-scene bubble like a turn reply, not as a standalone
+         * black overlay that covers the video (field 2026-11-11). */
+        if (voice_chat_page_is_active()) {
+            voice_chat_page_show_push(text);
             n = snprintf(out, out_size,
                 "{\"jsonrpc\":\"2.0\",\"id\":\"%s\",\"result\":{\"ok\":true}}",
                 request_id);

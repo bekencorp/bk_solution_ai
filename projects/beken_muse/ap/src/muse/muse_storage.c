@@ -20,6 +20,11 @@
 #define KEY_NOISE   "muse_noise"
 #define KEY_SETUP   "muse_setup"
 #define KEY_SDK_TOKEN "muse_sdk_token"
+#define KEY_VOLC_ASR_KEY "muse_volc_asr"
+#define KEY_VOLC_TTS_KEY "muse_volc_tts"
+#define KEY_VOLC_APPID   "muse_volc_appid"
+#define KEY_VOLC_ASR_RES "muse_volc_asrres"
+#define KEY_VOLC_TTS_VOICE "muse_volc_ttsvoice"
 #define KEY_ID_SALT "muse_id_salt"
 
 static bool write_string(const char *key, const char *value, size_t max)
@@ -164,6 +169,75 @@ bool muse_storage_load_sdk_token(char *out, size_t out_size)
         return false;
     }
     return muse_storage_read(KEY_SDK_TOKEN, out, out_size);
+}
+
+static bool save_volc_key(const char *ef_key, const char *key)
+{
+    if (key == NULL || key[0] == '\0') {
+        return false;
+    }
+    if (!write_string(ef_key, key, 128)) {
+        return false;
+    }
+    return bk_config_sync_flash_safely() == BK_OK;
+}
+
+static bool load_volc_key(const char *ef_key, char *out, size_t out_size)
+{
+    if (out == NULL || out_size == 0) {
+        return false;
+    }
+    return muse_storage_read(ef_key, out, out_size);
+}
+
+bool muse_storage_save_volc_asr_key(const char *key)
+{
+    return save_volc_key(KEY_VOLC_ASR_KEY, key);
+}
+
+bool muse_storage_load_volc_asr_key(char *out, size_t out_size)
+{
+    return load_volc_key(KEY_VOLC_ASR_KEY, out, out_size);
+}
+
+bool muse_storage_save_volc_tts_key(const char *key)
+{
+    return save_volc_key(KEY_VOLC_TTS_KEY, key);
+}
+
+bool muse_storage_load_volc_tts_key(char *out, size_t out_size)
+{
+    return load_volc_key(KEY_VOLC_TTS_KEY, out, out_size);
+}
+
+bool muse_storage_save_volc_appid(const char *appid)
+{
+    return save_volc_key(KEY_VOLC_APPID, appid);
+}
+
+bool muse_storage_load_volc_appid(char *out, size_t out_size)
+{
+    return load_volc_key(KEY_VOLC_APPID, out, out_size);
+}
+
+bool muse_storage_save_volc_asr_res(const char *res)
+{
+    return save_volc_key(KEY_VOLC_ASR_RES, res);
+}
+
+bool muse_storage_load_volc_asr_res(char *out, size_t out_size)
+{
+    return load_volc_key(KEY_VOLC_ASR_RES, out, out_size);
+}
+
+bool muse_storage_save_volc_tts_voice(const char *voice)
+{
+    return save_volc_key(KEY_VOLC_TTS_VOICE, voice);
+}
+
+bool muse_storage_load_volc_tts_voice(char *out, size_t out_size)
+{
+    return load_volc_key(KEY_VOLC_TTS_VOICE, out, out_size);
 }
 
 bool muse_storage_save_id_salt(uint32_t salt)

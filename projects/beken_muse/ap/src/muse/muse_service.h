@@ -69,6 +69,12 @@ const char *muse_service_state_name(muse_service_state_t state);
  * without it the note lands in the account main chat). */
 const char *muse_service_node_id(void);
 
+/* 由 chat 会话调用：连续短命会话说明浏览器验证流程替换了设备侧 Noise
+ * 密钥，单靠重连永远被踢。请求受理后 service worker 会停掉两条 Noise
+ * 会话、重新拉取设备令牌并重建（等价于重启设备的恢复路径）。任意任务
+ * 可调用；返回 false 表示 service 未运行、请求未被受理。 */
+bool muse_service_request_token_refresh(void);
+
 /* Unit-test and port callbacks; all are safe to call from event callbacks. */
 void muse_service_on_pairing_started(void);
 void muse_service_on_pairing_complete(void);

@@ -18,15 +18,23 @@
 #   buffers, with the bulk of its 13 MB idle, so giving 512 KB back is
 #   safe headroom-wise. Revisit when adding heavy NN models or a second
 #   H.264 stream that pushes CODED peak past ~11 MB.
+#
+# AP_PSRAM_HEAP sizing note (2026-11-10):
+#   Field log with Muse voice active: PTT watermark sank to min=66 KB
+#   (469 KB at chat-worker start -> 66 KB after a few turns). Grow the
+#   heap by +0x200000 (2 MB) to 0x366000 (3.4 MB), funded from the CODED
+#   slab again. CODED's live peak is ~2 MB (LVGL ARGB8888 framebuffer
+#   481 KB + jolly video packet buffers), so the reduced 0xA27000
+#   (~10 MB) keeps ample headroom for future NN models / bigger streams.
 #Name,                   Type,     Offset,     Size
 CP_RAM,                  SRAM, 0x28000000, 0x05F000
 SWAP,                    SRAM,           , 0x001000
 AP_HSRAM_HEAP,           SRAM, 0x28100000, 0x080000
 AP_RAM,                  SRAM,           , 0x060000
 PSRAM_MEM_SLAB_UNCODED, PSRAM, 0x60000000, 0x1000000
-PSRAM_MEM_SLAB_CODED,   PSRAM, 0x64000000, 0xC27000
+PSRAM_MEM_SLAB_CODED,   PSRAM, 0x64000000, 0xA27000
 CP_PSRAM_HEAP,          PSRAM,           , 0x010000
 AP_PSRAM_DATA_SECTION,  PSRAM,           , 0x017C00
-AP_PSRAM_HEAP,          PSRAM,           , 0x166000
+AP_PSRAM_HEAP,          PSRAM,           , 0x366000
 AP_PSRAM_CACHE_HEAP,    PSRAM,           , 0x040000
 AP_PSRAM_CODE_SECTION,  PSRAM,           , 0x22B800
