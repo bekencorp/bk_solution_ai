@@ -52,6 +52,7 @@ set(_robot_app_rel_srcs
     src/demo/edge_ai/yoloface_tracking.cc
     src/demo/edge_ai/car_tracking.cc
     src/demo/edge_ai/hand_gesture.cc
+    src/demo/edge_ai/pet_detection.cc
     src/demo/camera_preview.c
     src/demo/udisk.c
     src/demo/robot_video.c

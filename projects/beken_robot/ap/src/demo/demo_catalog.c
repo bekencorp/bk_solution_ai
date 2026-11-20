@@ -35,6 +35,7 @@
 #include "demo/yoloface_tracking.h"
 #include "demo/car_tracking.h"
 #include "demo/hand_gesture.h"
+#include "demo/pet_detection.h"
 #include "demo/camera_preview_demo.h"
 #include "demo/udisk.h"
 #include "demo/robot_video.h"
@@ -77,7 +78,7 @@ static int home_enter(void)
     return 0;
 }
 
-#define DEMO_CENTER_MAX_ITEMS 7
+#define DEMO_CENTER_MAX_ITEMS 8
 
 /*
  * Two-zone key focus: the list rows use focus indices 0..item_count-1, while
@@ -103,13 +104,13 @@ static void demo_center_switch_tab(int delta);
 /* ------------------------------------------------------------------ */
 /* End-side AI sub-menu.                                               */
 /* ------------------------------------------------------------------ */
-static const char *const s_edge_items[UI_LANG_COUNT][7] = {
-    { "命令词识别", "声源定位", "手掌跟随", "人脸检测", "手势识别", "小车跟随", "人脸识别" },
-    { "Keyword ASR", "Sound Localization", "Palm Tracking", "Face Detection", "Gesture", "Car Tracking", "Face Recognition" },
+static const char *const s_edge_items[UI_LANG_COUNT][8] = {
+    { "命令词识别", "声源定位", "手掌跟随", "人脸检测", "手势识别", "小车跟随", "人脸识别", "猫狗识别" },
+    { "Keyword ASR", "Sound Localization", "Palm Tracking", "Face Detection", "Gesture", "Car Tracking", "Face Recognition", "Pet Detection" },
 };
-static const char *const s_edge_descs[UI_LANG_COUNT][7] = {
-    { "语音控制", "方向定位", "摄像头跟随", "人脸检测", "手势识别", "小车跟随", "人脸识别" },
-    { "Voice control", "Direction locating", "Camera follow", "Face detection", "Gesture recognition", "Car following", "Face recognition" },
+static const char *const s_edge_descs[UI_LANG_COUNT][8] = {
+    { "语音控制", "方向定位", "摄像头跟随", "人脸检测", "手势识别", "小车跟随", "人脸识别", "猫狗识别" },
+    { "Voice control", "Direction locating", "Camera follow", "Face detection", "Gesture recognition", "Car following", "Face recognition", "Cat & dog detect" },
 };
 static const ui_theme_icon_kind_t s_edge_icons[] = {
     UI_THEME_ICON_ASR,
@@ -119,6 +120,7 @@ static const ui_theme_icon_kind_t s_edge_icons[] = {
     UI_THEME_ICON_GESTURE,
     UI_THEME_ICON_CAR,
     UI_THEME_ICON_CAMERA,
+    UI_THEME_ICON_VISION,
 };
 #define EDGE_ITEM_COUNT ((int)(sizeof(s_edge_items[0]) / sizeof(s_edge_items[0][0])))
 
@@ -161,6 +163,15 @@ static void edge_on_select(int index, void *user_data)
         } else {
             ui_theme_create_popup(demo_lang() == UI_LANG_ZH ?
                                   "操作中,  请稍后" : "Busy, please wait");
+        }
+        break;
+    case 7:
+        pet_detection_set_return_to_edge_ai(true);
+        if (pet_detection_start() != 0) {
+            /* Most likely the SD-card model is missing; tell the user instead
+             * of returning silently to the menu. */
+            ui_theme_create_popup(demo_lang() == UI_LANG_ZH ?
+                                  "缺少模型文件" : "Model file missing");
         }
         break;
     default:
