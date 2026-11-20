@@ -103,14 +103,13 @@ static bk_err_t apks_power_off_prepare(void)
 	bk_err_t ret = BK_OK;
 
 #if CONFIG_AUDIO_PLAY
-	/* Tear the speaker/DAC down now instead of waiting for the idle-linger
-	 * timer: the DAC DMA channels are still busy at the PM fast-suspend
-	 * quiesce otherwise and the whole power-off is aborted ("AP fast suspend:
-	 * DMA still busy"). A2DP/HFP lazily re-init the speaker on the next
-	 * stream, so nothing needs to be restored on the resume path. */
+	/* Refuse to power off while audio is playing: stopping the stream and
+	 * tearing the speaker down locally would desync from the phone's A2DP
+	 * state and leave "playing but silent" after wake-up. It also guards
+	 * against accidental S4 long-press during playback. */
 	if (spk_service_is_running()) {
-		LOGI("speaker active, deinit before AP off\r\n");
-		(void)spk_service_deinit();
+		LOGW("audio playing, skip AP power off\r\n");
+		return BK_FAIL;
 	}
 #endif
 
