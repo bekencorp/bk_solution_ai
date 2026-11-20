@@ -2,7 +2,7 @@
  * @file jolly_video.c
  * @brief SD-NAND MP4 (H.264) 动画播放器（bk_video_player 引擎版）。
  *
- * 播放 1:/jolly/{a,b}.mp4（320x320 H.264，无音轨）：
+ * 播放 1:/jolly/{a,b,question}.mp4（H.264，无音轨）：
  * - 容器解析走 mp4 parser，解码走 HW H264 frame decoder，PP 直接输出
  *   RGB565，免色彩转换；
  * - 两块 320x320 RGB565 帧缓冲来自 16MB UNCODED slab（不占 1.4MB PSRAM
@@ -101,13 +101,22 @@ static jv_ctx_t s_jv;
 /* 极小占位帧：destroy 时把 canvas 从 slab 帧上解绑，避免悬空指针。 */
 static uint16_t s_dummy_fb[4 * 4];
 
+/* clip -> 文件名。question.mp4 不是单字母命名，所以不能再用 %c。 */
+static const char *const kJvClipFile[] = {
+    "a.mp4",          /* JOLLY_CLIP_VOICE_INPUT */
+    "b.mp4",          /* JOLLY_CLIP_REPLY_BUBBLE */
+    "question.mp4",   /* JOLLY_CLIP_QUESTION */
+};
+
 static void jv_clip_path(char *out, size_t cap, jolly_clip_t clip)
 {
     /* mp4lib 经 VFS open() 访问（video_osi_wrapper），必须用 VFS 挂载
      * 路径 /sd0，不是 FatFS 盘符 1:（field: f_opendir 能列出文件但
      * f_open "1:/jolly/a.mp4" 失败，换 /sd0 后正常）。 */
-    snprintf(out, cap, "/sd0/jolly/%c.mp4",
-             clip == JOLLY_CLIP_VOICE_INPUT ? 'a' : 'b');
+    if ((int)clip < 0 || (size_t)clip >= sizeof(kJvClipFile) / sizeof(kJvClipFile[0])) {
+        clip = JOLLY_CLIP_VOICE_INPUT;
+    }
+    snprintf(out, cap, "/sd0/jolly/%s", kJvClipFile[clip]);
 }
 
 /* ---- SD-NAND ----------------------------------------------------------------*/
@@ -261,8 +270,8 @@ static void jv_frame_free_cb(void *user_data, video_player_buffer_t *buffer)
              buffer, buffer ? buffer->user_data : NULL);
         return;
     }
-    int idx = (int)(uintptr_t)buffer->user_data - 1;   /* alloc 存的是 idx+1 */
-    LOGW("frame_free_cb: idx=%d state=%d\r\n",
+    int idx = (int)(uintptr_t)buffer->user_data - 1;   
+    LOGD("frame_free_cb: idx=%d state=%d\r\n",
          idx, (idx >= 0 && idx < JV_SLOT_CNT) ? (int)s_jv.slots[idx].state : -1);
     if (idx >= 0 && idx < JV_SLOT_CNT &&
         s_jv.slots[idx].state == JV_SLOT_DECODING) {

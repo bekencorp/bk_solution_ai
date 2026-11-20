@@ -69,6 +69,9 @@ constexpr size_t kServiceScratchSize = 32 * 1024;
 constexpr size_t kOutboundScratchSize = 4096;
 constexpr size_t kControlBodySize = 8192;
 constexpr uint32_t kEventWaitMs = 250;
+/* 下行观测打点周期（同 muse_chat.cpp）：每 30s 打印一次"距上次收到数据
+ * 多久"，用来量服务端空闲期到底有没有心跳、节奏是多少。只观测。 */
+constexpr uint32_t kRxIdleReportMs = 30000;
 constexpr uint32_t kConnectTimeoutMs = 15000;
 constexpr uint32_t kHandshakeTimeoutMs = 15000;
 /* Upstream waits for the link.register reply before calling the session up;
@@ -76,16 +79,17 @@ constexpr uint32_t kHandshakeTimeoutMs = 15000;
 constexpr uint32_t kRegisterAckTimeoutMs = 8000;
 constexpr uint32_t kSendTimeoutMs = 10000;
 constexpr uint32_t kCloseTimeoutMs = 12000;
-/* 对端主动关闭（UNAUTHENTICATED 踢人）后等 SDK 任务自己收尾的窗口，理由
- * 同 muse_chat.cpp：destroy 与任务 free_client 并发会 unlock 已 deinit
- * 的递归互斥量而 assert。 */
-/* 临时关闭（A/B 复现实验）：0 = 不做对端关闭宽限，被踢后立即 destroy，
- * 行为回到 2026-11-13 dump 之前。验证完改回 3000。 */
-constexpr uint32_t kPeerCloseGraceMs = 0;
-/* 收尾后等 CLOSED 的上限：SDK 的 ws 任务在部分路径上自己 free_client 后
- * 不再派发关闭事件，无限等会让 worker 永久停在收尾里、link 再也不重连
- * （2026-11-14：板子显示已连接、服务端认为设备离线，voice note 被 ack 但
- * 助手回复不投递）。超时按普通错误回到重连循环。 */
+/* After a peer-initiated close (UNAUTHENTICATED kick) wait for the SDK task
+ * to clean up itself, for the same reason as muse_chat.cpp: a destroy racing
+ * with the task's free_client would unlock an already deinited recursive
+ * mutex and assert. */
+/* Upper bound for waiting CLOSED after teardown: on some paths the SDK ws
+ * task frees the client without dispatching a close event, and waiting
+ * unbounded would leave the worker stuck in teardown forever with no link
+ * reconnect (2026-11-14: board showed connected, server considered the
+ * device offline, voice notes were acked but assistant replies never
+ * arrived). On timeout treat it as a normal error and return to the
+ * reconnect loop. */
 constexpr uint32_t kCloseWaitMaxMs = 12000;
 constexpr uint32_t kReconnectMinMs = 1000;
 constexpr uint32_t kReconnectMaxMs = 15000;
@@ -159,12 +163,13 @@ struct SessionContext {
     std::atomic<bool> connected{false};
     std::atomic<bool> callback_fault{false};
     std::atomic<bool> callback_closed{false};
-    /* DISCONNECTED 已派发：auto_reconnect=false 时 ws 客户端任务随后必定
-     * 自行退出并 free_client（含 deinit mutex），owner 再 destroy 就会和
-     * 任务自清理并发（2026-11-11 dump：connect 失败后 close_websocket 的
-     * destroy->stop 持锁期间锁被 free_client 销毁，unlock NULL 触发
-     * xQueueGiveMutexRecursive assert）。置位后 close_websocket 只等
-     * CLOSED，不再碰 client。 */
+    /* DISCONNECTED has been dispatched: with auto_reconnect=false the ws
+     * client task will exit and free_client itself (including mutex deinit).
+     * An owner destroy then races with that self-cleanup (2026-11-11 dump:
+     * after a failed connect, close_websocket's destroy->stop held the lock
+     * while free_client destroyed it, and unlocking NULL triggered the
+     * xQueueGiveMutexRecursive assert). Once set, close_websocket only waits
+     * for CLOSED and never touches client again. */
     std::atomic<bool> callback_disconnected{false};
     std::atomic<muse_session_state_t> state{MUSE_SESSION_STOPPED};
 
@@ -186,6 +191,12 @@ struct SessionContext {
     uint8_t *partial;
     size_t partial_size;
     size_t partial_used;
+
+    /* 下行观测（2026-11-17）：最近一次收到 WS 数据的时刻。2026-11-17 field
+     * 现象是"Muse 侧显示设备下线，板子仍显示已连接"——服务端清会话时不发
+     * FIN/RST，设备侧只能靠"多久没有下行数据"判断链路是否已死。先只打点，
+     * 量出空闲期心跳节奏后再定断链阈值。 */
+    std::atomic<uint32_t> last_rx_ms{0};
 };
 
 SessionContext s_session{};
@@ -307,6 +318,11 @@ void websocket_event(void *, char *, int32_t event_id, void *event_data)
         data->op_code == WS_TRANSPORT_OPCODES_PONG) {
         return;
     }
+
+    /* 只统计业务下行：SDK 连 PONG 也会当 DATA 事件派发，不过滤的话
+     * idle 永远在 0~10s 之间打转（10s 是 SDK 自己的 ping 周期），
+     * 测不出服务端真正的业务空闲。 */
+    s_session.last_rx_ms.store(rtos_get_time());
     if (data->op_code != WS_TRANSPORT_OPCODES_BINARY) {
         /*
          * In particular, CONT cannot be accepted because BK does not expose
@@ -949,9 +965,11 @@ int run_noise_session(transport client, SessionBuffers &buffers, bool &closed)
 
     s_session.connected.store(true);
     set_state(MUSE_SESSION_CONNECTED, MUSE_SESSION_OK);
+    s_session.last_rx_ms.store(rtos_get_time());
     /* 开启 draw_text 补发宽限窗：离线期间积攒的推送会随即补发过来。 */
     muse_commands_note_connected();
 
+    uint32_t idle_report_at = rtos_get_time() + kRxIdleReportMs;
     while (s_session.running.load()) {
         const int poll = poll_inbound_once(client, session, buffers, pending,
                                            pending_size, headers,
@@ -960,51 +978,27 @@ int run_noise_session(transport client, SessionBuffers &buffers, bool &closed)
         if (poll < 0) {
             return poll;
         }
+        const uint32_t now = rtos_get_time();
+        if ((int32_t)(now - idle_report_at) >= 0) {
+            const uint32_t rx = s_session.last_rx_ms.load();
+            BK_LOGD(TAG, "link rx idle %lu ms\r\n",
+                    (unsigned long)(rx ? now - rx : 0));
+            idle_report_at = now + kRxIdleReportMs;
+        }
     }
     return MUSE_SESSION_OK;
 }
 
-void close_websocket(transport client, bool &closed, bool peer_closing = false)
+/* Only consume events until CLOSED; never touch client.
+ *
+ * The SDK ws task calls free_client itself when it exits (which deinits the
+ * recursive mutex). An owner websocket_client_destroy -> stop would then
+ * unlock an already deinited lock and trip the
+ * xQueueGiveMutexRecursive:797 assert (2026-11-18 dump: connect-timeout
+ * teardown racing with task self-cleanup). Therefore the application never
+ * destroys the client after a successful start. */
+void wait_for_client_closed(bool &closed)
 {
-    closed = closed || s_session.callback_closed.load();
-    if (!client || closed) {
-        return;
-    }
-    if (peer_closing && !s_session.callback_disconnected.load()) {
-        /* 对端踢人后紧接 WS close：先让 SDK 任务自己走完 CLOSING→CLOSED
-         * （收不到再强制 destroy），避免和 free_client 并发。 */
-        uint32_t waited = 0;
-        while (!closed && waited < kPeerCloseGraceMs) {
-            if (s_session.callback_closed.load()) {
-                closed = true;
-                break;
-            }
-            SessionEvent event{};
-            if (!pop_event(event, kEventWaitMs)) {
-                waited += kEventWaitMs;
-                continue;
-            }
-            if (event.kind == EventKind::Closed) {
-                closed = true;
-            }
-            release_event(event);
-        }
-        if (closed) {
-            BK_LOGI(TAG, "ws closed by the peer; task reclaimed it\r\n");
-            return;
-        }
-        BK_LOGW(TAG, "ws peer close incomplete after %lu ms; destroying\r\n",
-                (unsigned long)kPeerCloseGraceMs);
-    }
-    if (s_session.callback_disconnected.load()) {
-        /* 客户端任务在 DISCONNECTED 后自行收尸（见 callback_disconnected
-         * 注释），这里 destroy 会与 free_client 并发；跳过，只在下面有界
-         * 等 CLOSED。 */
-        BK_LOGI(TAG, "ws task self-closing after disconnect, skip destroy\r\n");
-    } else {
-        (void)websocket_client_destroy(client);
-    }
-
     uint32_t waited = 0;
     while (!closed && waited < kCloseTimeoutMs) {
         if (s_session.callback_closed.load()) {
@@ -1029,6 +1023,35 @@ void close_websocket(transport client, bool &closed, bool peer_closing = false)
          */
         BK_LOGE(TAG, "WebSocket close callback timed out\r\n");
     }
+}
+
+void close_websocket(transport client, bool &closed)
+{
+    closed = closed || s_session.callback_closed.load();
+    if (!client || closed) {
+        return;
+    }
+
+    if (s_session.callback_disconnected.load()) {
+        /* The task is already cleaning up after a connect failure / peer
+         * kick: just wait for CLOSED and leave client alone. */
+        BK_LOGI(TAG, "ws task self-closing, wait for CLOSED\r\n");
+    } else if (websocket_client_is_connected(client)) {
+        /* Connection is still healthy (local stop): send a WS close frame
+         * first, then set run=false so the task walks CLOSED -> free_client
+         * itself. Do not use destroy: it would contend with the task's
+         * free_client on the same recursive mutex. */
+        (void)websocket_client_send_with_opcode(
+            client, WS_TRANSPORT_OPCODES_CLOSE, (const uint8_t *)"", 0,
+            kSendTimeoutMs);
+        client->run = false;
+        BK_LOGI(TAG, "ws stop requested, wait for CLOSED\r\n");
+    } else {
+        /* Not connected (INIT/CLOSING/WAIT_TIMEOUT): the task exits on its
+         * own; do not touch it. */
+        BK_LOGI(TAG, "ws not connected, wait for CLOSED\r\n");
+    }
+    wait_for_client_closed(closed);
 }
 
 int run_connection(SessionBuffers &buffers)
@@ -1087,7 +1110,10 @@ int run_connection(SessionBuffers &buffers)
          * status, so a 401/403 token rejection is indistinguishable from
          * a transport failure here; it is reported as TRANSPORT and the
          * reconnect loop keeps retrying. */
-        close_websocket(client, closed);
+        /* The connection never came up: after a failed ws_connect the SDK
+         * task exits and free_client itself; only wait for CLOSED here and
+         * never destroy. */
+        wait_for_client_closed(closed);
         return MUSE_SESSION_ERR_TRANSPORT;
     }
     if (!client->bk_ssl->tls ||
@@ -1098,12 +1124,14 @@ int run_connection(SessionBuffers &buffers)
 
     int result = run_noise_session(client, buffers, closed);
     s_session.connected.store(false);
-    /* 运行中判错多半是对端踢人后紧接 WS close，交给 SDK 任务自己收尾。 */
-    close_websocket(client, closed,
-                    result != MUSE_SESSION_OK && s_session.running.load());
+    /* A mid-session error is usually a peer kick followed by WS close; let
+     * the SDK task clean up itself. */
+    close_websocket(client, closed);
     if (!closed) {
-        /* CLOSED 可能永远不来（见 kCloseWaitMaxMs 注释），必须有上限，
-         * 否则 link 永久停摆而 chat 照常，界面显示已连接、服务端却判离线。 */
+        /* CLOSED may never arrive (see the kCloseWaitMaxMs comment); this
+         * must be bounded, otherwise link stays dead while chat keeps
+         * running and the UI shows connected while the server sees the
+         * device offline. */
         uint32_t waited = 0;
         while (s_session.running.load() && !closed &&
                waited < kCloseWaitMaxMs) {

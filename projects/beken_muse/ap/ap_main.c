@@ -192,6 +192,14 @@ static bk_err_t bk_robot_lvgl_init(bk_display_ctlr_handle_t dpu_handle)
     return BK_OK;
 }
 
+#if CONFIG_MUSE_GADGET
+static void bk_robot_lvgl_prepare_pages(void)
+{
+    lv_vendor_disp_lock();
+    init_page_page_1(&bk_lv_tool_ui);
+    lv_vendor_disp_unlock();
+}
+#else
 static void bk_robot_lvgl_load_first_page(void)
 {
     lv_vendor_disp_lock();
@@ -202,6 +210,7 @@ static void bk_robot_lvgl_load_first_page(void)
 
     LOGI("LVGL started, page_1 loaded\n");
 }
+#endif
 
 bk_err_t bk_robot_lvgl_resume_display(void)
 {
@@ -370,27 +379,16 @@ int main(void)
          *      init hook first, so it always runs ahead of the menu
          *      hook (which would otherwise overwrite the icon state).
          *   2) bk_pages_init_all_hooks() registers all per-page UI
-         *      callbacks defined under beken_generated/page_<feature>/.
-         *   3) bk_robot_lvgl_load_first_page() materializes page_1
-         *      (splash) AFTER hooks are in place, so the splash hook
-         *      actually fires and its nav_ops gets registered.
-         *   4) bk_demos_init_all() wires the LVGL-free demo backends
-         *      (CLI registration, app_event subscriptions, etc.). */
+         *      callbacks defined under beken_generated/page_<feature>/.*/
         bk_pages_init_all_hooks();
+    #if CONFIG_MUSE_GADGET
+        bk_robot_lvgl_prepare_pages();
+    #else
         bk_robot_lvgl_load_first_page();
+    #endif
         ui_nav_router_cli_init();
         ui_screenshot_cli_init();
         (void)bk_demos_init_all();
-    #if CONFIG_MUSE_GADGET
-        /* 开机直进 Muse 配对/连接状态页（顶掉 splash，由 page_hooks 自动
-         * 释放）：连上云端该页自动跳语音页；语音页用着掉线也会跳回来。
-         * 想看 U盘/拍照按 S3 回 home，与现有按键映射一致，零改动。
-         * 必须拿 LVGL 锁：lv_vendor_start 之后渲染已在另一核上跑，main
-         * 线程裸调 lv_screen_load 会撞 lv_refr.c 的 rendering 断言。 */
-        lv_vendor_disp_lock();
-        (void)muse_status_enter();
-        lv_vendor_disp_unlock();
-    #endif
     #endif
 
     (void)board_usb_switch_init();
@@ -404,6 +402,15 @@ int main(void)
      * regression that drove this decision. Toggle off in defconfig
      * (CONFIG_CAM_PREVIEW_SDNAND_DEBUG=0) for production builds. */
     (void)camera_preview_sdnand_debug_init();
+
+    #if CONFIG_LVGL
+    #if CONFIG_MUSE_GADGET
+        lv_vendor_disp_lock();
+        (void)muse_status_enter();
+        lv_vendor_disp_unlock();
+        lv_vendor_start();
+    #endif
+    #endif
 
     #if CONFIG_BK_SMART_CONFIG
         bk_sconf_init();

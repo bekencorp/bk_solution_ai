@@ -48,15 +48,12 @@ static lv_obj_t  *s_net_value;
 static lv_obj_t  *s_node_value;
 static lv_obj_t  *s_hint_label;
 static lv_timer_t *s_refresh_timer;
-/* 进入本页时未连接才置真：刷新检测到 CONNECTED 即自动跳到语音页。
- * 从 home 手动进本页且已连接时不武装，留着看状态/清除配对。 */
-static bool       s_jump_armed;
-/* 连续两次刷新都"两条会话都通"才跳页：否则 chat 短暂重连会让页面在
- * 状态页和语音页之间来回弹。 */
-static uint8_t    s_jump_hits;
 
-/* 语音走 chat 会话，link 只承载控制指令；只看 link 会出现"状态页已连接
- * 但唤醒提示网络连接中"的两个真相（2026-11-13 field）。 */
+static bool       s_jump_armed;
+
+static uint8_t    s_jump_hits;
+static bool       s_boot_entry = true;
+
 static bool chat_connected(void)
 {
 #if CONFIG_MUSE_GADGET_VOICE
@@ -112,8 +109,6 @@ static int state_idx(muse_service_state_t state)
     }
 }
 
-/* 连上云端后把舞台交给语音页：先让语音屏成为活动屏，再删本屏
- * （与返回键 teardown 同一顺序，只是目标是 voice_chat 而非 page_top）。 */
 static void muse_status_jump_to_voice(void)
 {
     lv_obj_t *scr = s_screen;
@@ -160,8 +155,6 @@ static void muse_status_refresh(void)
     }
 
     ui_lang_t lang = ms_lang();
-    /* link 通了但 chat 还没起来时仍显示"连接中"：语音此刻不可用，显示
-     * 已连接会让用户以为唤醒没响应是设备坏了。 */
     int idx = state_idx(link_up && !chat_up ? MUSE_SERVICE_CONNECTING
                                             : st.state);
 
@@ -266,6 +259,17 @@ int muse_status_enter(void)
     muse_service_get_status(&st);
     s_jump_armed = !(st.state == MUSE_SERVICE_CONNECTED && chat_connected());
     s_jump_hits = 0U;
+
+    /* 开机首次进入且已配网：不显示状态卡片，直接进语音页（a.mp4），连接
+     * 期间由语音页显示"正在连接…"（用户 2026-11-17 要求）。之后从 home
+     * 手动进入仍显示状态页，保证随时能清除配对。 */
+    if (s_boot_entry) {
+        s_boot_entry = false;
+        if (st.paired) {
+            LOGI("provisioned: enter voice page directly\r\n");
+            return voice_chat_page_enter();
+        }
+    }
 
     if (s_screen != NULL && lv_obj_is_valid(s_screen)) {
         lv_screen_load(s_screen);

@@ -39,8 +39,8 @@ int muse_tts_volc_synthesize_stream(const char *text,
 
 /* Pre-establish the TTS websocket (TCP+TLS+upgrade+StartConnection) and
  * park it (<=20 s) so a later synthesize_stream only needs StartSession.
- * Call at voice-turn start; no-op without a configured key or while a
- * warm connection already exists. */
+ * Call once the turn's audio uplink is finished (ASR final / PTT stop);
+ * no-op without a configured key or while a warm connection exists. */
 void muse_tts_volc_prewarm(void);
 
 /* True while a synthesis is in flight. */

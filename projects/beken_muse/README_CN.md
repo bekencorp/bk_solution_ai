@@ -1,29 +1,64 @@
-# BK7259 机器人示例工程
+# BK7259 Muse Gadget 示例工程
 
 - [English](./README.md)
 
 ## 1. 工程简介
 
-`beken_robot` 是面向 BK7259 机器人开发套件的综合示例工程，提供 LCD 触控界面、网络连接、本地 AI、云端 AI、音视频和外设控制等可直接体验的 Demo。本文只介绍开始使用该工程所需的步骤；方案代码与 Armino SMP SDK 应使用相同的发布版本。
+`beken_muse` 是面向 BK7259 的独立 Muse Gadget 产品工程。它在
+[`facebookincubator/muse-gadget-sdk`](https://github.com/facebookincubator/muse-gadget-sdk)
+（pinned commit `812c46f9fe42b69d916613a9dc702cbac5ff7b54`）的协议基础上，
+实现"AI 语音伴侣"的完整链路：
 
-本工程是应用底座。安全工程 [`secureboot_ai`](../secureboot_ai/) 编译时通过 `ap/ap_sources.cmake` 直接引用本目录的 Demo / UI 源码，只覆盖必须不同的文件（当前仅 USB 切换）。日常请在本工程改功能，不要再复制一份到安全工程。详见下文「与 secureboot_ai 的关系」和 [代码复用说明](../CODE_SHARE_GUIDE_CN.md)。
+BLE 配对 / Wi-Fi 配网 → Noise 加密建链 → 唤醒与免提语音 → 云端理解与回复
+→ 屏幕文本 + 语音播报。
 
-## 2. 主要配置
+工程由 `beken_robot` 应用底座裁剪而来，只保留 Muse 所需的 UI、音频与 demo，
+可独立编译，不依赖 `secureboot_ai`。
 
-- **目标芯片**：BK7259，编译目标为 `bk7259`。
-- **显示与输入**：LVGL 图形界面、CST9217 触摸屏，以及 S2～S5 实体按键。
-- **SD-NAND**：板载 SD-NAND 连接到 **SDIO1**，使用 GPIO14～GPIO19 的 CLK、CMD 和 DATA0～DATA3；设备侧 FatFS 盘符为 `1:`，VFS 挂载点为 `/sd0`。
-- **Type-C 接口**：可在串口日志模式与 USB U 盘模式之间切换。U 盘模式用于从 PC 访问板载 SD-NAND；切换到 U 盘模式后，串口日志会暂时断开。
-- **摄像头与音频**：工程包含摄像头、麦克风、扬声器及相关音视频处理示例。
+- 协议契约（已实现范围、命令、语音线上格式）：[docs/muse_protocol_contract.md](docs/muse_protocol_contract.md)
+- 语音功能设计：[docs/muse_voice_design.md](docs/muse_voice_design.md)
 
-需要修改功能配置时，请使用 SDK 的 `menuconfig`，并确认工程所需的 SD-NAND、LVGL、按键、KWS 和提示音文件系统加载等选项已启用。
+## 2. 主要特性
 
-## 3. 编译工程
+- **BLE community pairing v5**：P-256 ECDH + HKDF-SHA256 + AES-256-GCM，
+  加密记录传输 Wi-Fi / 账号信息，物理按键（S4）确认。
+- **Noise 加密会话**：`Noise_XX_25519_AESGCM_SHA256` over WSS；控制会话负责
+  `link.register` / `link.invoke`，独立 chat 会话负责
+  `POST /chat/stream` + `POST /chat/subscribe`。
+- **免提语音回合**：KWS 唤醒 + VAD 自动断句，录音后上传语音 note。
+- **可选火山语音**：流式 ASR（`CONFIG_MUSE_ASR_VOLC`）与流式 TTS
+  （`CONFIG_MUSE_TTS_VOLC`）。
+- **LVGL 语音界面**：`/sd0/jolly/{a,b,question}.mp4` 背景视频 + 回复气泡 +
+  配对/连接状态页；开机/重连期间原地显示"正在连接…"。
+- **云端显示指令**：`display.draw_url`、`display.draw_text`、
+  `display.show_animation`。
+- **SD-NAND 资源**：KWS 模型、提示音、视频素材、TTS 输出。
+
+## 3. 主要配置
+
+- **目标芯片**：BK7259，编译目标 `bk7259`。
+- **显示与输入**：LVGL v9、CST9217 触摸屏、S2～S5 实体按键。
+- **SD-NAND**：板载 SD-NAND 接 **SDIO1**（GPIO14～GPIO19），电源门控
+  GPIO53；FatFS 盘符 `1:`，VFS 挂载点 `/sd0`。
+- **Type-C**：UART 日志 / USB U 盘模式切换（GPIO54）。
+- **音频**：麦克风 + 扬声器，语音回合使用 16 kHz mono PCM16。
+- **Muse 开关**（`menuconfig`，本工程 defconfig 默认已开启）：
+
+  ```text
+  CONFIG_MUSE_GADGET=y
+  CONFIG_MUSE_GADGET_VOICE=y
+  CONFIG_MUSE_ASR_VOLC=y
+  CONFIG_MUSE_TTS_VOLC=y
+  CONFIG_BEKEN_KWS=y
+  CONFIG_BOARD_SD_NAND_ENABLE=y
+  ```
+
+## 4. 编译工程
 
 先安装 Armino SMP 编译环境，并准备与方案代码版本一致的 `bk_avdk_smp` SDK。
 
 ```bash
-cd ~/armino/bk_solution_ai/projects/beken_robot
+cd ~/armino/bk_solution_ai/projects/beken_muse
 make bk7259 SDK_DIR=~/armino/bk_avdk_smp
 ```
 
@@ -34,7 +69,7 @@ make clean SDK_DIR=~/armino/bk_avdk_smp
 make bk7259 SDK_DIR=~/armino/bk_avdk_smp
 ```
 
-也可以使用仓库提供的 Docker 编译脚本：
+也可以使用仓库的 Docker 编译脚本：
 
 ```bash
 export SDK_DIR=~/armino/bk_avdk_smp
@@ -44,77 +79,102 @@ export SDK_DIR=~/armino/bk_avdk_smp
 编译成功后的烧录文件为：
 
 ```text
-build/bk7259/beken_robot/package/all-app.bin
+build/bk7259/beken_muse/package/all-app.bin
 ```
 
-烧录方法及编译环境安装请参考仓库根目录的[中文说明](../../README_CN.md)。
+烧录方法与编译环境安装请参考仓库根目录的[中文说明](../../README_CN.md)。
 
-## 4. 使用前准备
+## 5. 使用前准备
 
-1. 编译并烧录 `all-app.bin`，连接 LCD、触摸屏、摄像头、麦克风、扬声器和其他需要体验的外设。
-2. 将配套 `resources` 资源目录中的**内容**复制到 SD-NAND 根目录，不要在磁盘中再套一层 `resources`：
+1. 编译并烧录 `all-app.bin`，连接 LCD、触摸屏、麦克风、扬声器。
+2. 将 `resources` 目录中的**内容**复制到 SD-NAND 根目录（不要多套一层
+   `resources`）：
 
    ```text
    /sd0/
    ├── kws_model/
    │   ├── bk_kws_wakeup.tflite
    │   └── bk_kws_commands.tflite
-   ├── tflite/
-   │   ├── palm_detection_builtin_256_integer_quant_vela.tflite
-   │   ├── yoloface_int8_vela.tflite
-   │   ├── hand_gesture_detection_vela.tflite
-   │   ├── face_detection_int8_vela.tflite
-   │   └── face_verify_int8_vela.tflite
    ├── asr_wakeup_16k_mono_16bit_en.mp3
    ├── asr_standby_16k_mono_16bit_en.mp3
    └── ...其他提示音
    ```
 
-   `kws_model/` 供命令词识别使用，`tflite/` 供手掌跟随、人脸检测、手势识别、小车跟随和方案示例使用。请使用与当前固件版本配套的模型文件并保持文件名不变。
-3. 推荐在设备 UI 中进入“设备设置 > U盘 > USB”后，通过 PC 复制资源。安全弹出磁盘，再切回“UART”并重启设备。
-4. 如需体验音乐播放，在 SD-NAND 中创建 `/sd0/music`（FatFS：`1:/music`），放入 MP3、AAC 或 WAV 文件。
-5. 进入“连接设置”完成 Wi-Fi/BLE 配网后，再使用需要联网的云端 Demo。
+   KWS 模型与提示音的文件名、目录要求见
+   [资源使用说明](resources/kws_model_and_prompt_tone_user_mannual.md)。
 
-KWS 模型、提示音文件名及目录要求详见[资源文件使用说明](./resources/kws_model_and_prompt_tone_user_mannual.md)。
+3. 放入 Jolly 视频素材（H.264、无音轨）：`a.mp4`（语音输入）、`b.mp4`
+   （回复气泡，320x320）、`question.mp4`（等待回复，384x320）：
 
-## 5. UI 操作
+   ```text
+   /sd0/jolly/a.mp4
+   /sd0/jolly/b.mp4
+   /sd0/jolly/question.mp4
+   ```
 
-### 触屏
+   素材缺失时页面会自动落回普通文字布局。
 
-- 欢迎页：点击屏幕进入主页。
-- 菜单页：点击条目进入；列表较长时可上下滑动。
-- 返回：从屏幕左边缘向右滑动。
-- AI 相机：点击屏幕可在拍照与恢复实时预览之间切换，右滑退出。
+4. 放入 Muse TLS 信任锚（PEM）。默认路径：
+
+   ```text
+   /sd0/muse_ca.pem
+   ```
+
+   也可在运行时用 `muse ca-load <path>` 指定。未配置信任锚时 TLS 会直接
+   失败关闭（不会降级为不校验）。
+
+5. 配置火山语音凭据（仅运行期，写入 easyflash，不进入固件）：
+
+   ```text
+   muse volcappid <APP-ID>
+   muse asrkey <Access-Token>
+   muse ttskey <Access-Token>
+   # 可选：muse asrres <resource-id> / muse ttsvoice <speaker-id>
+   ```
+
+6. 通过 Muse App 完成 BLE 配对与 Wi-Fi 配网。
+
+## 6. 运行与操作
+
+- 开机时工程会自动调用 `muse_service_start()` 启动 Muse 服务；也可在串口 CLI
+  手动 `muse start`。
+- **已配网设备**：开机直接进入语音页（`a.mp4`），连接中显示"正在连接…"，
+  连上后自动进入免提语音回合。
+- **未配网设备**：停在 Muse 状态页等待配对。
 
 ### 实体按键
 
-- **S2 短按**：上一个条目/焦点；AI 相机实时预览时用于拍照。
-- **S5 短按**：下一个条目/焦点；AI 相机照片停留时恢复实时预览。
-- **S3 短按**：返回上一级；在全屏视觉 Demo 中用于退出。
-- **S4 短按**：确认或进入当前条目。
-- **S4 长按**：页面相关的长按确认操作；未实现该操作的页面会忽略。
+- **S2 / S5 短按**：上一个 / 下一个条目。
+- **S3 短按**：返回上一级；语音页按 S3 回主页。
+- **S4 短按**：确认 / 进入当前条目；配对等待时确认 Muse 配对。
+- **S4 长按**：语音页内切换录音（PTT，需 `CONFIG_ROBOT_V2_ADC_KEYS`）。
 
-主页提供“连接设置”“Demo中心”和“设备设置”。“设备设置”中可调节音量、切换 Type-C 的 UART/USB 模式、切换中英文以及恢复出厂设置。
+### 触屏
 
-## 6. 主要 Demo
+- 点击进入；列表可上下滑动；从左边缘右滑返回。
 
-- **端侧 AI**：命令词识别、声源定位、手掌跟随、人脸检测、手势识别、小车跟随和摄像头方案示例。
-- **云端 AI**：AI 对话、视觉识别和 AI 相机。
-- **娱乐互动**：本地音乐播放、实时图传和蓝牙音乐。
-- **系统功能**：Wi-Fi/BLE 配网、音量设置、SD-NAND/U 盘访问和中英文界面切换。
+### 常用 CLI
 
-部分 Demo 依赖对应的摄像头、舵机、机械手、机器人底盘、网络服务或资源文件；未连接相关硬件时，该 Demo 可能无法完整运行。
+```text
+muse start | stop | status | confirm | clear | newid
+muse ca-load [path]
+muse volcappid <id> | asrkey <key> | ttskey <key>
+muse asrres <rid> | ttsvoice <spk>
+muse voice [start|stop|toggle]
+muse register-json | mem | time
+```
 
-## 7. 与 secureboot_ai 的关系
+## 7. 相关文档
 
-`secureboot_ai` 不是第二份机器人应用，而是同一套应用加上安全启动链（BL1 / BL2 / TF-M / 签名 / Flash AES）。
+- [Muse 协议契约](docs/muse_protocol_contract.md)：已实现范围、控制/聊天会话、
+  命令表、语音/图片 note 线上格式、安全与重连。
+- [Muse 语音设计](docs/muse_voice_design.md)：语音回合状态机与最初的设计依据。
+- [KWS 模型与提示音使用说明](resources/kws_model_and_prompt_tone_user_mannual.md)
 
-**改已有 `.c` / `.h`：** 只改本工程 `ap/`、`cp/`。安全镜像下次编译会用到同一文件。不要往 `secureboot_ai/ap/src` 再放同名文件，那会变成意外 overlay，两边再次分叉。
+## 8. 说明
 
-**新增 / 删除 / 重命名编译单元：** 把文件放在本工程 `ap/` 下，并更新 `ap/ap_sources.cmake` 里的 `_robot_app_rel_srcs`。只改已有文件内容时不必动这个 cmake。
-
-**不要对齐的文件：** 安全工程的分区表、密钥、`security.csv`、`usr_gpio`、`cp_main.c`、defconfig 是它自己的身份，不要为了“复用”去和本工程合并。
-
-**唯一允许的应用 overlay：** `secureboot_ai/ap/src/common/board_usb_switch.c`（NS + secure boot 下 USB 二次初始化路径不同）。不要把漏同步的功能补丁做成 overlay。
-
-`resources/` 和 `ap/lv_conf_custom.h` 仍是各工程一份；改资源或 LVGL 工程级开关时两边都要看。完整规则见 [代码复用说明](../CODE_SHARE_GUIDE_CN.md)。
+- `CONFIG_MUSE_GADGET_SDK_TOKEN` 仅用于构建期加密配对与 token mint/refresh，
+  不要提交真实 token，日志也只打印短前缀。
+- 语音凭据、CA 证书都按运行时配置处理，不烧进固件。
+- KWS 模型、提示音或 Jolly 视频缺失时，对应能力会降级（KWS 初始化失败或
+  页面回退文字布局），不影响其余功能。

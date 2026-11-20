@@ -1,6 +1,9 @@
 # Muse 语音（Push-to-Talk）功能设计书
 
-- 状态：草稿（未实施）
+- 状态：已实施（一期 PTT 已落地；实际实现扩展为 KWS 唤醒 + VAD 免提、
+  火山流式 ASR/TTS，线上格式见 `muse_protocol_contract.md` 第 7–8 节。
+  本文保留为最初的设计依据，与代码不一致处以 `muse_protocol_contract.md`
+  和 `ap/src/muse/` 为准）
 - 上游：`facebookincubator/muse-gadget-sdk`，pinned commit `812c46f9fe42b69d916613a9dc702cbac5ff7b54`
 - 相关文档：[muse_protocol_contract.md](muse_protocol_contract.md)
 

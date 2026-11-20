@@ -53,6 +53,13 @@ bool muse_voice_on_reply_text(const char *text);
  * task may call. */
 void muse_voice_on_reply_image(void);
 
+/* Muse-initiated push (display.draw_text that no voice turn claimed): show
+ * it and speak it, but NEVER interrupt a conversation. While a voice turn
+ * is recording/closing/awaiting a reply, or a previous TTS is still
+ * playing, the text is parked (latest wins) and flushed by the voice tick
+ * once the device is idle again. Any task may call. */
+void muse_voice_push_text(const char *text);
+
 /* Volcano speech credentials (old console: APP ID + per-service Access
  * Token), runtime-only: `muse volcappid <id>` / `muse asrkey <key>` /
  * `muse ttskey <key>` on the CLI persist them to easyflash. ASR/TTS each
@@ -96,6 +103,12 @@ bool muse_voice_heard(char *out, size_t cap);
  * would replay the previous turn's reply. false when a real reply (or
  * nothing) is on screen. */
 bool muse_voice_ui_notice(char *out, size_t cap);
+
+/* True while the turn's reply text is held back waiting for the first TTS
+ * sentence to actually start (see VOICE_REPLY_SHOW_DELAY_MS). The page
+ * must not fall back to the previous turn's history bubble in this window;
+ * it shows a "speaking soon" hint instead. Any task may call. */
+bool muse_voice_ui_holding(void);
 
 /* ---- chat worker glue (muse_chat.cpp only) ----------------------------- */
 

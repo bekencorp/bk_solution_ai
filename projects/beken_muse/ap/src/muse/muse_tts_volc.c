@@ -45,6 +45,7 @@
 
 #define TAG "muse_tts_volc"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
+#define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 
@@ -543,7 +544,7 @@ static void tts_on_message(const uint8_t *p, size_t len)
                  (int)(plen > 200U ? 200U : plen), (const char *)payload);
             tts_fail("server session event");
         } else {
-            LOGI("resp event %lu (%u B)\r\n", (unsigned long)event,
+            LOGD("resp event %lu (%u B)\r\n", (unsigned long)event,
                  (unsigned)plen);
         }
         break;
@@ -964,6 +965,10 @@ int muse_tts_volc_synthesize_stream(const char *text,
             }
         }
         s_tts.active = false;
+        /* Signal end-of-stream before the slow teardown below (TLS close /
+         * select) so the caller can restore KWS standby earlier. The tail
+         * call site still fires again; the voice side is idempotent. */
+        cb(user, delivered, NULL, true);
         (void)websocket_client_destroy(s_tts.client);
         s_tts.client = NULL;
 

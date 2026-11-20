@@ -30,6 +30,7 @@
 
 #define TAG "muse_asr_volc"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
+#define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 
@@ -45,15 +46,11 @@
 #define VOLC_FRAME_CAP    (VOLC_PCM_PER_SEND + 16U)
 #define VOLC_TEXT_MAX     512U
 #define VOLC_SEND_MS      192U
-/* 服务器静默判负时限：ring 里还有没发完的音频，而服务器 >10s 没回任何
- * 包（健康流 partial 每 200-600ms 一到）——说明包根本没到对端：RF 死亡
- * 时 lwip send 成功只是进了 TCP 重传队列，服务器实际一直收不到。等下去
- * 只会撞上服务端 ~15-20s 的"等下一包"超时（45000081）再被拒——本地
- * 先判负，用户早 15 秒得到反馈（2026-11-12 实机：25s 静默尾包被拒）。
- * 必须带 ring 非空条件：用户长停顿期间服务器本就不发 partial。 */
 #define VOLC_BACKLOG_TIMEOUT_MS 10000U
-#define VOLC_FINAL_WAIT_MS 10000U
-#define VOLC_TEARDOWN_GRACE_MS 200U
+#define VOLC_FINAL_WAIT_MS 12000U
+#define VOLC_SEND_TIMEOUT_MS  500
+#define VOLC_TEARDOWN_WAIT_MS 3000U
+#define VOLC_TRANSPORT_FAIL_MS 1500U
 
 /* Frame header byte 1: message type (high nibble) + flags (low nibble). */
 #define F_TYPE_CONFIG  0x1U
@@ -67,14 +64,14 @@ typedef struct {
     /* Lifecycle */
     bool        active;
     bool        dead;        /* teardown started: events/feed are ignored */
+    volatile bool sender_alive;
     bool        cb_fired;    /* exactly-one callback guarantee */
-    uint32_t    last_rx;     /* 最近一次收到服务器任何帧的时刻 */
+    uint32_t    last_rx;
+    uint32_t    connect_started;
     bool        config_sent;
     bool        finishing;
     bool        done;        /* final text received (or session failed) */
-    /* CLOSED 已由 ws 任务派发：SDK 随后会 free_client（销毁 mutex、释放
-     * client），此时 abort 再 destroy 就是 use-after-free（2026-11-13
-     * dump：xQueueSemaphoreTake:1797，abort 拿到 sockfd=0 的野 client）。 */
+    bool        empty_final;
     bool        ws_closed;
     bool        tail_sent;
     bool        audio_started; /* first audio frame out (liveness marker) */
@@ -118,8 +115,6 @@ typedef struct {
 } volc_ctx_t;
 
 static volc_ctx_t s_volc;
-/* 独立于 s_volc：abort 末尾会 memset(&s_volc)，而 ws 任务可能在之后才
- * 派发 CLOSED，所以这把锁必须活过整个模块生命周期（只 init 不解构）。 */
 static beken_mutex_t s_volc_ws_lock;
 
 static void volc_fire_text(const char *text)
@@ -128,13 +123,16 @@ static void volc_fire_text(const char *text)
     if (s_volc.cb_fired) {
         return;
     }
+    if (text == NULL || text[0] == '\0') {
+        s_volc.empty_final = true;
+        s_volc.done = true;
+        return;
+    }
     s_volc.cb_fired = true;
     s_volc.done = true;
     cb = s_volc.on_text;
-    if (cb != NULL && text != NULL && text[0] != '\0') {
+    if (cb != NULL) {
         cb(text);
-    } else if (!s_volc.cb_fired) {
-        s_volc.cb_fired = true;
     }
 }
 
@@ -196,7 +194,8 @@ static int volc_send_frame(uint8_t type, uint8_t flags, int32_t seq,
         off += len;
     }
     rtos_lock_mutex(&s_volc.send_lock);
-    rc = websocket_client_send_binary(s_volc.client, (char *)f, (int)off, 2000);
+    rc = websocket_client_send_binary(s_volc.client, (char *)f, (int)off,
+                                      VOLC_SEND_TIMEOUT_MS);
     rtos_unlock_mutex(&s_volc.send_lock);
     if (rc != (int)off) {
         LOGE("ws send failed (%d != %u)\r\n", rc, (unsigned)off);
@@ -205,11 +204,7 @@ static int volc_send_frame(uint8_t type, uint8_t flags, int32_t seq,
     return 0;
 }
 
-/* 瞬时拥塞（SDK 在 KEEP_CONN_ON_SEND_TIMEOUT 下只报失败不杀连接）不等于
- * 回合死亡：每 200ms 重发同一帧，最多 ~3 秒。ring 里本就有 ~3 秒音频，
- * WiFi 停顿短于此就能原地恢复（2026-11-12：~1.5 秒停顿曾整回合丢失，
- * "asr error -5"）。真断线时 volc_send_frame 内部立即失败，3 秒后放弃，
- * 不会卡死发送线程。 */
+#define VOLC_SEND_RETRY_MS 6000U
 static int volc_send_frame_retry(uint8_t type, uint8_t flags, int32_t seq,
                                  const uint8_t *payload, size_t len)
 {
@@ -221,7 +216,7 @@ static int volc_send_frame_retry(uint8_t type, uint8_t flags, int32_t seq,
         if (rc == 0 || !s_volc.active || s_volc.cb_fired) {
             return rc;
         }
-        if ((int32_t)(rtos_get_time() - start) >= 3000) {
+        if ((int32_t)(rtos_get_time() - start) >= VOLC_SEND_RETRY_MS) {
             return rc;
         }
         rtos_delay_milliseconds(200);
@@ -297,7 +292,7 @@ static void volc_on_frame(uint8_t type, uint8_t flags,
             if (used + add < sizeof(s_volc.text) - 1U) {
                 memcpy(s_volc.text + used, t->valuestring, add + 1U);
             }
-            LOGI("asr partial: %s\r\n", s_volc.text);
+            LOGD("asr partial: %s\r\n", s_volc.text);
         }
         if (cJSON_IsBool(e)) {
             last = last || cJSON_IsTrue(e);
@@ -314,7 +309,7 @@ static void volc_on_frame(uint8_t type, uint8_t flags,
                 t->valuestring[0] != '\0') {
                 snprintf(s_volc.text, sizeof(s_volc.text), "%s",
                          t->valuestring);
-                LOGI("asr partial: %s\r\n", s_volc.text);
+                LOGD("asr partial: %s\r\n", s_volc.text);
             }
         }
     }
@@ -359,7 +354,13 @@ static void volc_ws_event(void *, char *, int32_t event_id, void *event_data)
         /* A refused handshake (the volc 403) lands here before CONNECTED. */
         LOGE("ws event %ld before/without session end\r\n", (long)event_id);
         if (!s_volc.config_sent) {
-            volc_fire_error(-4, "handshake refused (403? service not activated)");
+            uint32_t dt = rtos_get_time() - s_volc.connect_started;
+            if (dt < VOLC_TRANSPORT_FAIL_MS) {
+                volc_fire_error(MUSE_ASR_ERR_TRANSPORT,
+                                "tcp/tls reset before handshake (network blocked)");
+            } else {
+                volc_fire_error(-4, "handshake refused (403? service not activated)");
+            }
         } else if (!s_volc.cb_fired) {
             volc_fire_error(-5, "connection dropped");
         }
@@ -419,16 +420,13 @@ static void volc_ws_event(void *, char *, int32_t event_id, void *event_data)
 static void volc_sender_main(void *arg)
 {
     (void)arg;
+    s_volc.sender_alive = true;
     while (s_volc.active && !s_volc.dead) {
         (void)rtos_get_semaphore(&s_volc.kick, VOLC_SEND_MS);
 
         if (!s_volc.config_sent || s_volc.cb_fired) {
             continue;
         }
-        /* 服务器静默判负：ring 还有音频没发完，而服务器 >10s 没回任何
-         * 帧——我们的包根本没到对端（RF 死亡时 lwip send 成功只是进了
-         * TCP 重传队列）。继续渗发只会撞上服务端"等下一包"超时再被拒，
-         * 本地先判负（2026-11-12：25s 静默后尾包被 45000081 拒收）。 */
         if (s_volc.ring_r != s_volc.ring_w &&
             (int32_t)(rtos_get_time() - s_volc.last_rx) >=
                 (int32_t)VOLC_BACKLOG_TIMEOUT_MS) {
@@ -462,6 +460,17 @@ static void volc_sender_main(void *arg)
             }
             if (volc_send_frame_retry(F_TYPE_AUDIO, F_FLAG_SEQ, s_volc.seq,
                                       s_volc.chunk, n) != 0) {
+                if (s_volc.finishing) {
+                    rtos_lock_mutex(&s_volc.ring_lock);
+                    size_t backlog = (s_volc.ring_w + VOLC_RING_BYTES -
+                                      s_volc.ring_r) % VOLC_RING_BYTES;
+                    s_volc.ring_r = s_volc.ring_w;
+                    s_volc.dropped += (uint32_t)backlog;
+                    rtos_unlock_mutex(&s_volc.ring_lock);
+                    LOGW("tx stuck while finishing; dropped %u B backlog\r\n",
+                         (unsigned)backlog);
+                    break;
+                }
                 volc_fire_error(-7, "audio send failed");
                 break;
             }
@@ -491,6 +500,7 @@ static void volc_sender_main(void *arg)
             }
         }
     }
+    s_volc.sender_alive = false;
     rtos_delete_thread(NULL);
 }
 
@@ -653,6 +663,7 @@ int muse_asr_volc_start(void)
         (void)websocket_client_destroy(s_volc.client);
         goto fail_sync;
     }
+    s_volc.connect_started = rtos_get_time();
     if (websocket_client_start(s_volc.client) != BK_OK) {
         muse_asr_volc_abort();
         return -3;
@@ -729,7 +740,12 @@ void muse_asr_volc_finish(void)
         rtos_delay_milliseconds(20);
     }
     if (!s_volc.cb_fired) {
-        volc_fire_error(-8, "final transcript timeout");
+        if (s_volc.empty_final) {
+            /* final 到了但没有转写：按"没听到声音"结束，而不是识别失败。 */
+            volc_fire_error(MUSE_ASR_ERR_EMPTY_TEXT, "empty transcript");
+        } else {
+            volc_fire_error(-8, "final transcript timeout");
+        }
     }
     muse_asr_volc_abort();
 }
@@ -748,10 +764,6 @@ void muse_asr_volc_abort(void)
     s_volc.active = false;
     rtos_set_semaphore(&s_volc.kick);   /* wake the sender so it exits */
     if (client != NULL) {
-        /* 与 CLOSED 回调互斥：SDK 的 ws 任务派发 CLOSED 后会自己
-         * free_client（销毁 mutex、释放 client），那时再 destroy 就是
-         * use-after-free（2026-11-13 dump: xQueueSemaphoreTake:1797）。
-         * 持锁判断，任务若正在派发 CLOSED 会等我们放锁后再收尸。 */
         rtos_lock_mutex(&s_volc_ws_lock);
         if (!s_volc.ws_closed) {
             /* Serialize destroy against an in-flight volc_send_frame: the
@@ -768,10 +780,20 @@ void muse_asr_volc_abort(void)
         s_volc.client = NULL;
         rtos_unlock_mutex(&s_volc_ws_lock);
     }
-    /* The sender task and the ws client both finish on their own tasks
-     * after the wake/destroy signals; wait past the send cadence and the
-     * ws grace before freeing buffers they may still touch. */
-    rtos_delay_milliseconds(VOLC_SEND_MS + VOLC_TEARDOWN_GRACE_MS);
+    if (sender != NULL && !rtos_is_current_thread(&sender)) {
+        uint32_t waited = 0U;
+        while (s_volc.sender_alive && waited < VOLC_TEARDOWN_WAIT_MS) {
+            rtos_delay_milliseconds(20U);
+            waited += 20U;
+        }
+        if (s_volc.sender_alive) {
+            /* 只有发送真卡死才会走到：宁可漏这 4 块，也不冒 UAF 砸堆。 */
+            LOGW("asr sender still busy, keep buffers\r\n");
+            return;
+        }
+    }
+    rtos_lock_mutex(&s_volc.ring_lock);
+    rtos_unlock_mutex(&s_volc.ring_lock);
     if (s_volc.ring != NULL) {
         psram_free(s_volc.ring);
     }

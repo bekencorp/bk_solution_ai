@@ -11,6 +11,7 @@
  * (2048 chars), mirroring the pinned upstream muse_chat_link.c turn flow.
  */
 #include "muse_voice.h"
+#include "muse_chat.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -29,6 +30,7 @@
 #include "muse_display.h"
 #include "muse_service.h"   /* muse_service_node_id() */
 #include "muse_storage.h"   /* muse_storage_save/load_volc_asr/tts/appid() */
+#include "muse_tts_volc.h"  /* muse_tts_volc_prewarm() */
 #include "muse_voice_proto.h"
 #include "ui/voice_chat_page.h" /* voice_chat_page_is_active() */
 
@@ -73,26 +75,20 @@
 /* The wakeup word's own VAD tail fires one more AI_THINKING right after the
  * take starts ("你好博通" alone passes the engine's 1 s MIN_LISTENING gate);
  * without this guard the event stops the just-started recording and an
- * almost-empty note goes out (field log 2026-11-05: server answered "这条语
- * 音只有5毫秒，里面没有声音"). The same window also absorbs the ack tone's
+ * almost-empty note goes out (field log 2026-11-05: server answered  The same window also absorbs the ack tone's
  * own VAD edges (the tone plays over the voice engine right at take start).
  * Real speech-end edges arrive later and are unaffected. */
 #define CONFIG_MUSE_VOICE_WAKEUP_RESIDUE_MS 1200
 #endif
 #ifndef CONFIG_MUSE_VOICE_ACK_TONE_MAX_MS
-/* 应答音 VAD 抑制窗：应答音经 mic 漏回被 VAD 当成"用户在说话"，其尾音
- * 边沿会把真正的录音提前停掉（2026-11-06 实机：用户答完"在的"稍一停顿，
- * 发出去的是 1.5s 应答音+静音，服务器转写为空）。播放开始起 MAX_MS 内
- * （FINISH 未到的兜底）及播完后 TAIL_MS 内，两条自动停止路径都屏蔽。 */
+
 #define CONFIG_MUSE_VOICE_ACK_TONE_MAX_MS 3000
 #endif
 #ifndef CONFIG_MUSE_VOICE_ACK_TONE_TAIL_MS
 #define CONFIG_MUSE_VOICE_ACK_TONE_TAIL_MS 800
 #endif
 #ifndef CONFIG_MUSE_VOICE_ACK_TONE_PLAY_TAIL_MS
-/* 可听窗口的余量（比 VAD 抑制窗的 800ms 短）：FINISH 后 PCM 丢弃只延续
- * 这么长。窗内用户若开口会丢开头几个字——等价于"听到应答音后再说话"
- * 的常规交互。 */
+
 #define CONFIG_MUSE_VOICE_ACK_TONE_PLAY_TAIL_MS 200
 #endif
 #ifndef CONFIG_MUSE_VOICE_REPLY_TIMEOUT_MS
@@ -107,6 +103,10 @@
 /* How long the reply page stays up before the normal UI returns. 10 s
  * felt instant to users watching a reply land; 30 s gives reading room. */
 #define CONFIG_MUSE_VOICE_REPLY_SHOW_MS 30000
+#endif
+#ifndef CONFIG_MUSE_VOICE_CLOSING_TIMEOUT_MS
+
+#define CONFIG_MUSE_VOICE_CLOSING_TIMEOUT_MS 15000
 #endif
 #ifndef CONFIG_MUSE_PHOTO_MAX_JPEG_BYTES
 /* Hard cap on one photo note: the chunk pool is 256 x 1536 raw bytes
@@ -207,6 +207,10 @@ typedef struct {
     uint32_t record_deadline;
     uint32_t reply_deadline;
     uint32_t show_deadline;
+    /* CLOSING 进入时刻（tick 懒置位，离开 CLOSING 即清零）：该状态只在
+     * 等外部回调（END ack / 火山 final），没有任何自带超时，丢回调就会
+     * 永久停住。见 CONFIG_MUSE_VOICE_CLOSING_TIMEOUT_MS。 */
+    uint32_t closing_since;
 
     /* VAD auto-end bookkeeping for the current take (tick-driven):
      * speech accumulates while audio_engine_get_mic_active() is 1,
@@ -255,12 +259,12 @@ typedef struct {
      * order deadlocks both tasks (field log: tp queue full, keys dead).
      *
      * engine_busy/stop_while_busy serve the same rule for the audio
-     * engine: voice_engine_acquire()/release() run audio_engine_start/
-     * stop + KWS park/restore (hundreds of ms, and they take audio-side
-     * locks whose owners also touch disp_lock). ptt_start sets engine_busy
-     * under the lock, does the acquire lock-free, then commits the new
-     * state; ptt_stop arriving in between is deferred via
-     * stop_while_busy. */
+     * engine: voice_engine_acquire()/release() touch the audio engine
+     * (KWS park/restore, PA on/off, and a full start only when the
+     * engine is not running; they take audio-side locks whose owners
+     * also touch disp_lock). ptt_start sets engine_busy under the lock,
+     * does the acquire lock-free, then commits the new state; ptt_stop
+     * arriving in between is deferred via stop_while_busy. */
     bool pending_show;
     bool pending_hide;
     bool pending_dismiss_image; /* 新回合退役 draw_url 图片罩（锁外执行） */
@@ -292,12 +296,17 @@ static char s_parent_id[80] __attribute__((section(".psram.bss")));
 static char s_heard[VOICE_HEARD_MAX] __attribute__((section(".psram.bss")));
 static char s_reply[VOICE_REPLY_MAX] __attribute__((section(".psram.bss")));
 
-/* 回复正文延迟上屏（2026-11-12 用户拍板）：回复到达即 kick TTS，但
- * 正文文字等 ~3s（声音就位时间：建连 ~1s + 首句合成 ~2s）才显示，
- * 消除"文字先到、声音后到"的观感错位。第一句提前出声或 TTS 失败时
- * 立即放行（voice_reply_hold_release）。0 = 未挂起。 */
-#define VOICE_REPLY_SHOW_DELAY_MS 3000U
+/* 回复正文延迟上屏：回复到达即 kick TTS，正文先显示 "..."，等"第一句
+ * 真正出声"再一起上屏，消除"文字先到、声音后到"的观感错位。放行条件：
+ * 首句出声 / TTS 结束且一句都没播 / 下面的兜底超时。0 = 未挂起。
+ *
+ * 兜底只防 TTS 线程卡死：以前是 3s，会在首句音频稍晚（3~5s）时抢先
+ * 放行，正是错位的来源；改成 15s 后正常路径不再被它干扰。 */
+#define VOICE_REPLY_SHOW_DELAY_MS 15000U
 static uint32_t s_reply_hold_until;
+/* 本轮 TTS 是否真的播出过声音：用于"合成结束但一句都没播"时立即放行
+ * 正文，而不是等 15s 兜底。 */
+static bool s_tts_ever_played;
 /* 本回合的状态/错误提示（不是助手回复）。语音页的气泡只认 voice_history，
  * 出错时不记提示就会一直显示上一条回复；muse_voice_ui_notice() 把它交给
  * 页面按当前回合展示。新回合或真实回复到达时清空。 */
@@ -381,6 +390,7 @@ static void voice_show_locked(const char *title, const char *body);
 static void voice_notice_locked(const char *body);
 static void voice_display_flush(void);
 static void voice_reply_hold_release(void);
+static void voice_push_hold_release(void);
 static void voice_abort_locked(bool send_reset);
 static bool chunk_push(const void *data, size_t len, bool end);
 static void voice_show_turn(void);
@@ -601,6 +611,16 @@ static void voice_asr_on_text(const char *text)
          * 会话幂等），与 tick 的 VAD-end 收尾同路。 */
         voice_asr_finish_kick();
     }
+#if CONFIG_MUSE_TTS_VOLC
+    /* TTS prewarm now that the ASR uplink is finished (final transcript in
+     * hand and the note queued). Starting it earlier - right after the ack
+     * tone - put the prewarm TLS handshake on top of the ASR audio upload;
+     * the uplink then hit ws_tcp_poll_write timeouts (errno=115) and the
+     * turn died with "server silent" although speech had been recognized
+     * (field 2026-11-19). The reply's own thinking pause is still long
+     * enough for the handshake to park. */
+    muse_tts_volc_prewarm();
+#endif
     voice_display_flush();
 }
 
@@ -618,7 +638,25 @@ static void voice_asr_on_error(int err, const char *msg)
          s_voice.state == VOICE_STATE_CLOSING)) {
         voice_abort_locked(false);
         s_voice.engine_had_ours = s_voice.engine_ours;
-        voice_notice_locked("语音识别失败，请重试");
+        /* 空转写不是识别故障：宽限窗后只有噪声时 VAD 仍可能判出一段
+         * "语音"，火山回空 final。按"没听到声音"提示，与本地静音收尾
+         * 一致（2026-11-17 实机：唤醒后没说话，用户只看到唤醒无响应）。
+         * 传输层被 reset 也与凭据无关（2026-11-17：openspeech 域名整条
+         * 链路 RST），提示用户查网络而不是以为识别坏了。 */
+        if (err == MUSE_ASR_ERR_EMPTY_TEXT) {
+            voice_notice_locked("没听到声音，请再试一次");
+        } else if (err == MUSE_ASR_ERR_TRANSPORT) {
+            voice_notice_locked("网络连接失败，请检查网络");
+        } else if (err == -7) {
+            /* 上行音频发不出去（现场日志里都是 WiFi 拥塞导致 ws poll
+             * 超时），不是识别模型听错，提示用户重说而不是以为设备坏了。 */
+            voice_notice_locked("网络卡顿，请再说一次");
+        } else if (err == -8) {
+            /* 音频没有及时送到，服务端出不了 final。 */
+            voice_notice_locked("没听清，请再说一次");
+        } else {
+            voice_notice_locked("语音识别失败，请重试");
+        }
     }
     s_voice.asr_turn = false;
     rtos_unlock_mutex(&s_voice.lock);
@@ -627,8 +665,6 @@ static void voice_asr_on_error(int err, const char *msg)
 #endif /* CONFIG_MUSE_ASR_VOLC */
 
 #if CONFIG_MUSE_TTS_VOLC
-#include "muse_tts_volc.h"
-
 #define VOICE_TTS_TEXT_MAX 400
 static char s_tts_text[VOICE_TTS_TEXT_MAX];
 static bool s_tts_busy;
@@ -649,7 +685,14 @@ static void voice_tts_seg_cb(void *user, unsigned seg, const char *path,
     uint32_t deadline;
 
     if (path == NULL) {
-        return;   /* 流结束标记 */
+        /* End of stream: restore KWS standby now instead of waiting for the
+         * TTS websocket teardown. The tail call site fires again, but
+         * s_tts_engine_held is already cleared so the release runs once. */
+        if (s_tts_engine_held) {
+            voice_engine_release();
+            s_tts_engine_held = false;
+        }
+        return;   /* end-of-stream marker */
     }
     if (s_tts_chain_stop || muse_voice_recording()) {
         s_tts_chain_stop = true;
@@ -673,7 +716,9 @@ static void voice_tts_seg_cb(void *user, unsigned seg, const char *path,
     s_tts_playing = true;
     if (audio_engine_prompt_tone_start(g_audio_engine_prompt_tone,
                                        &info) == BK_OK) {
+        s_tts_ever_played = true;
         voice_reply_hold_release();   /* 已出声：正文同步上屏 */
+        voice_push_hold_release();    /* same rule for a Muse-initiated push */
         deadline = rtos_get_time() + 60000U;
         while (s_tts_playing &&
                (int32_t)(rtos_get_time() - deadline) < 0) {
@@ -688,9 +733,16 @@ static void voice_tts_main(void *arg)
     (void)arg;
     s_tts_chain_stop = false;
     s_tts_engine_held = false;
+    s_tts_ever_played = false;
     if (muse_tts_volc_synthesize_stream(s_tts_text, voice_tts_seg_cb,
                                         NULL) != 0) {
         voice_reply_hold_release();   /* TTS 失败：正文立即放行，不跟着等 */
+        voice_push_hold_release();    /* same for pushes: never stay held */
+    } else if (!s_tts_ever_played) {
+        /* 合成结束却一句都没播（录音抢占引擎、链被 stop、或全部句子
+         * 合成失败）：正文不能一直停在 "..." 等 15s 兜底。 */
+        voice_reply_hold_release();
+        voice_push_hold_release();
     }
     if (s_tts_engine_held) {
         voice_engine_release();   /* 恢复 KWS 待机 */
@@ -719,6 +771,121 @@ static void voice_tts_kick(const char *reply)
     }
 }
 #endif /* CONFIG_MUSE_TTS_VOLC */
+
+/* ---- Muse-initiated push (display.draw_text outside a voice turn) -------- */
+/* 主动推送绝不打断对话：语音回合进行中（录音/收尾/等回复）或上一段 TTS 还在
+ * 播时先挂起，等回到空闲再由 tick 上屏+播报。只保留最新一条——推送表达的是
+ * "当前该提醒的事"，积压多条只会连续叨叨。 */
+static char s_push_text[VOICE_REPLY_MAX];
+static bool s_push_pending;
+/* Pushed text is held until the first TTS sentence actually starts playing,
+ * exactly like a reply: showing it at kick time puts the bubble on screen
+ * seconds before the voice (synthesis needs a network round trip). */
+static bool s_push_hold;
+static uint32_t s_push_hold_until;
+static char s_push_hold_text[VOICE_REPLY_MAX];
+
+/* Lock held. */
+static bool voice_push_busy_locked(void)
+{
+    if (s_voice.state == VOICE_STATE_RECORDING ||
+        s_voice.state == VOICE_STATE_CLOSING ||
+        s_voice.state == VOICE_STATE_WAIT_REPLY) {
+        return true;
+    }
+#if CONFIG_MUSE_TTS_VOLC
+    if (s_tts_busy) {
+        return true;
+    }
+#endif
+    return false;
+}
+
+/* 上屏：语音页在前台用页面气泡（field 2026-11-11，避免黑底覆盖视频），
+ * 否则用常规文字浮层。Never called under s_voice.lock (LVGL lock order). */
+static void voice_push_show(const char *text)
+{
+    if (voice_chat_page_is_active()) {
+        voice_chat_page_show_push(text);
+    } else {
+        (void)muse_display_show_voice_text("Muse", text);
+    }
+}
+
+/* Lock held. Start the push TTS and hold the text until the first sentence is
+ * actually on the speaker; returns true when the caller must NOT show the text
+ * yet (voice_push_hold_release() will, once the voice starts). */
+static bool voice_push_begin_locked(const char *text)
+{
+#if CONFIG_MUSE_TTS_VOLC
+    if (s_tts_busy) {
+        return false;   /* another TTS run owns the speaker */
+    }
+    if (s_volc_tts_key[0] != '\0') {
+        /* Arm the hold before the task starts: the first sentence can be on
+         * the speaker before voice_tts_kick() returns on a fast network. */
+        snprintf(s_push_hold_text, sizeof(s_push_hold_text), "%s", text);
+        s_push_hold = true;
+        s_push_hold_until = rtos_get_time() + VOICE_REPLY_SHOW_DELAY_MS;
+        voice_tts_kick(text);
+        if (s_tts_busy) {
+            return true;
+        }
+        s_push_hold = false;
+        s_push_hold_until = 0U;
+        return false;
+    }
+    voice_tts_kick(text);   /* no TTS key: kick fails fast, show right away */
+#else
+    (void)text;
+#endif
+    return false;
+}
+
+/* Show a held push as soon as its first sentence starts, or when TTS failed
+ * without playing anything. No-op when nothing is held. */
+static void voice_push_hold_release(void)
+{
+    static char show[VOICE_REPLY_MAX];
+    bool do_show = false;
+
+    rtos_lock_mutex(&s_voice.lock);
+    if (s_push_hold) {
+        s_push_hold = false;
+        s_push_hold_until = 0U;
+        snprintf(show, sizeof(show), "%s", s_push_hold_text);
+        do_show = true;
+    }
+    rtos_unlock_mutex(&s_voice.lock);
+    if (do_show) {
+        LOGI("push shown with voice: %.40s\r\n", show);
+        voice_push_show(show);
+    }
+}
+
+void muse_voice_push_text(const char *text)
+{
+    bool held = false;
+    if (!s_voice_inited || text == NULL || text[0] == '\0') {
+        return;
+    }
+    rtos_lock_mutex(&s_voice.lock);
+    if (voice_push_busy_locked()) {
+        if (s_push_pending) {
+            LOGI("push replaced, still busy: %.40s\r\n", s_push_text);
+        }
+        snprintf(s_push_text, sizeof(s_push_text), "%s", text);
+        s_push_pending = true;
+        rtos_unlock_mutex(&s_voice.lock);
+        LOGI("push deferred until idle: %.40s\r\n", text);
+        return;
+    }
+    held = voice_push_begin_locked(text);
+    rtos_unlock_mutex(&s_voice.lock);
+    if (!held) {
+        voice_push_show(text);
+    }
+}
 
 static bool deadline_passed(uint32_t deadline)
 {
@@ -851,6 +1018,34 @@ static void voice_engine_cfg_init(audio_engine_cfg_t *cfg, bool standby)
 #endif
 }
 
+/* Rebuild the standby engine after a turn: fresh mic/AEC/speaker elements,
+ * KWS model and ASR. */
+static void voice_rebuild_standby_engine(void)
+{
+    if (!s_voice.engine_inited) {
+        if (audio_engine_init() != AUDIO_ENGINE_SUCCESS) {
+            LOGW("standby rebuild: audio_engine_init failed\r\n");
+            return;
+        }
+        s_voice.engine_inited = true;
+    }
+    s_voice.engine_ours = false;
+    (void)audio_engine_stop();
+    audio_engine_cfg_t sb_cfg;
+    voice_engine_cfg_init(&sb_cfg, true);
+    if (audio_engine_start(&sb_cfg) != AUDIO_ENGINE_SUCCESS) {
+        LOGW("standby rebuild: engine start failed\r\n");
+        return;
+    }
+    s_voice.engine_ours = true;
+    (void)audio_engine_asr_switch_model(AUDIO_ENGINE_KWS_MODEL_WAKEUP);
+    if (audio_engine_asr_start() != AUDIO_ENGINE_SUCCESS) {
+        LOGW("KWS ASR restart failed; standby is off\r\n");
+    } else {
+        LOGI("KWS voice-wakeup standby restored\r\n");
+    }
+}
+
 /* Keyword voice-wakeup standby, mirroring beken_robot's
  * sound_localization_start_service(): keep the engine resident with the
  * WAKEUP model so the KWS library fires APP_EVT_ASR_WAKEUP; the handler
@@ -915,14 +1110,16 @@ extern audio_engine_prompt_tone_handle_t g_audio_engine_prompt_tone;
  * voice-mix 口。voice 引擎 pa_enable=true，PA 真正打开才出声。AEC 对它
  * 的消除并不完全（实机：泄漏触发 mic VAD），所以起播同时打开 VAD 抑制
  * 窗（见 s_ack_tone_suppress_until），播完由 FINISH 收紧。 */
-static void voice_wakeup_tone_play(void)
+/* Returns 0: playback started; 1: tone disabled or file missing (skip it,
+ * do not block the wakeup); -1: playback failed to start. */
+static int voice_wakeup_tone_play(void)
 {
 #if CONFIG_AE_SUPPORT_PROMPT_TONE
     struct stat st;
 
     if (g_audio_engine_prompt_tone == NULL ||
         stat(VOICE_WAKEUP_TONE_PATH, &st) != 0) {
-        return;
+        return 1;
     }
     prompt_tone_uri_info_t info;
     memset(&info, 0, sizeof(info));
@@ -930,11 +1127,14 @@ static void voice_wakeup_tone_play(void)
     if (audio_engine_prompt_tone_start(g_audio_engine_prompt_tone, &info) !=
         BK_OK) {
         LOGW("wakeup ack tone start failed\r\n");
-        return;
+        return -1;
     }
     s_ack_tone_suppress_until = rtos_get_time() +
                                 CONFIG_MUSE_VOICE_ACK_TONE_MAX_MS;
     s_ack_tone_playing_until = s_ack_tone_suppress_until;
+    return 0;
+#else
+    return 1;
 #endif
 }
 
@@ -956,19 +1156,21 @@ static void voice_prompt_tone_finish_handler(app_evt_msg_t *msg,
     }
 }
 
+static int voice_ptt_start_common(bool ack_tone);
+
 /* KWS hit -> start a voice turn, exactly as if the mic button were tapped.
  * Runs on the app-event task; ptt_start takes its own locks and its engine
  * acquire completes before it returns. If a turn is already in flight
  * (RECORDING/CLOSING) ptt_start refuses it, which is the right behaviour
- * for a double-hit. The ack tone plays only on a successful start. */
+ * for a double-hit. On the wake path the ack tone plays before the ASR
+ * connection is created: if it fails to start, the wake is cancelled (a
+ * user who hears no prompt must not start talking). */
 static void voice_kws_wakeup_handler(app_evt_msg_t *msg, void *user_data)
 {
     (void)msg;
     (void)user_data;
     LOGI("KWS wakeup word hit -> PTT\r\n");
-    if (muse_voice_ptt_start() == 0) {
-        voice_wakeup_tone_play();
-    }
+    (void)voice_ptt_start_common(true);
 }
 #endif /* CONFIG_BEKEN_KWS */
 
@@ -1040,8 +1242,12 @@ static void voice_ai_thinking_handler(app_evt_msg_t *msg, void *user_data)
 }
 
 /* Park a running KWS/ASR standby so the mic is free for the voice turn.
- * beken_muse has no ASR demo; this is the former asr_stop_service() inlined
- * (stop the engine, then put the KWS model back to WAKEUP). */
+ * This stops the whole engine on purpose: stopping only the ASR element and
+ * reusing the engine does not work (measured 2026-11-19). ASR is the
+ * downstream consumer of the mic element; once stopped, nothing reads the
+ * mic port and PCM stalls within 1-2 s. The turn then receives only a few
+ * hundred ms of silence, and asr_start cannot revive it afterwards: the
+ * symptom is "no audio after wakeup, never wakes up again". */
 static int voice_park_kws_standby(void)
 {
 #if (CONFIG_ASR_SERVICE)
@@ -1108,59 +1314,15 @@ static int voice_engine_acquire(void)
 
 static void voice_engine_release(void)
 {
-    /* The engine stays resident across turns: audio_engine_stop/start
-     * racing wedged the third consecutive PTT in the field (voice note
-     * head logged, "PTT start" never followed, UI dead). The mic keeps
-     * running; voice_mic_read_cb consumes and drops frames while the
-     * state is not RECORDING. Only the KWS standby restore remains
-     * meaningful here. */
+    /* End of turn: rebuild the standby engine from scratch (stop + start +
+     * asr_start). Switching model and calling asr_start on the resident
+     * engine is not enough: after ASR is stopped the mic element may stay in
+     * a "no downstream" state with PCM stalled, and restarting ASR alone
+     * cannot recover it. Rebuilding guarantees fresh mic/AEC elements.
+     * Runs on ptt_stop / TTS end, where this cost is not user-visible. */
     if (s_voice.had_kws) {
 #if CONFIG_BEKEN_KWS
-        /* 本回合 read_cb 一帧都没进：引擎的采集链路已经死了（实机：唤醒
-         * 后引擎重建，DMA 计数在涨但 mic/AEC 元素不出帧，回合以"没听到
-         * 声音"结束，之后只切 KWS 模型永远唤不醒）。这种状态只重开模型
-         * 救不回来，整机重启一次待机引擎。 */
-        if (s_voice.mic_rx_frames == 0U) {
-            LOGW("no mic frames this turn; rebuilding standby engine\r\n");
-            if (!s_voice.engine_inited) {
-                if (audio_engine_init() != AUDIO_ENGINE_SUCCESS) {
-                    LOGW("standby rebuild: audio_engine_init failed\r\n");
-                    s_voice.had_kws = false;
-                    return;
-                }
-                s_voice.engine_inited = true;
-            }
-            (void)audio_engine_stop();
-            audio_engine_cfg_t sb_cfg;
-            voice_engine_cfg_init(&sb_cfg, true);
-            if (audio_engine_start(&sb_cfg) != AUDIO_ENGINE_SUCCESS) {
-                LOGW("standby rebuild: engine start failed\r\n");
-                s_voice.engine_ours = false;
-                s_voice.had_kws = false;
-                return;
-            }
-            s_voice.engine_ours = true;
-            (void)audio_engine_asr_switch_model(AUDIO_ENGINE_KWS_MODEL_WAKEUP);
-            if (audio_engine_asr_start() != AUDIO_ENGINE_SUCCESS) {
-                LOGW("KWS ASR restart failed; standby is off\r\n");
-            } else {
-                LOGI("KWS voice-wakeup standby restored\r\n");
-            }
-            s_voice.had_kws = false;
-            return;
-        }
-        /* Restore the KWS standby exactly as the demo layer builds it:
-         * engine running with the WAKEUP model (sound_localization path). */
-        if (!audio_engine_is_running() &&
-            audio_engine_init() != AUDIO_ENGINE_SUCCESS) {
-            LOGW("KWS restore failed; standby is off\r\n");
-            s_voice.had_kws = false;
-            return;
-        }
-        (void)audio_engine_asr_switch_model(AUDIO_ENGINE_KWS_MODEL_WAKEUP);
-        if (audio_engine_asr_start() != AUDIO_ENGINE_SUCCESS) {
-            LOGW("KWS ASR restart failed; standby is off\r\n");
-        }
+        voice_rebuild_standby_engine();
 #else
         /* KWS not built (beken_muse trims TFLITE_MICRO); nothing to restore. */
         LOGW("had_kws set but KWS not built; standby stays off\r\n");
@@ -1202,13 +1364,11 @@ static int voice_mic_read_cb(unsigned char *data, unsigned int len, void *args)
         return 0;
     }
 
-    /* The engine is resident across turns (see voice_engine_release):
-     * while not recording, consume and drop the mic frames. The lock
-     * also serialises this callback against stage_emit — stopping the
-     * engine used to provide that implicitly, it no longer does.
-     * mic_rx_frames counts every delivered frame (silence included), so
-     * the release path can tell "user said nothing" from "capture path
-     * is dead". */
+    /* The engine is rebuilt per turn (see voice_engine_release): while not
+     * recording, consume and drop the mic frames. The lock also serialises
+     * this callback against stage_emit (engine stop/start can overlap the
+     * callback). mic_rx_frames counts every delivered frame (silence
+     * included). */
     rtos_lock_mutex(&s_voice.lock);
     s_voice.mic_rx_frames++;
     if (s_voice.state != VOICE_STATE_RECORDING) {
@@ -1348,9 +1508,8 @@ static void voice_show_locked(const char *title, const char *body)
     if (!s_voice.tts_done && s_reply[0] != '\0' &&
         s_volc_tts_key[0] != '\0') {
         s_voice.tts_done = true;
-        /* kick TTS 的同时挂起正文显示，3s 后（或第一句出声/TTS 失败时）
-         * 再放行——只影响文字，不延迟合成。 */
-        s_reply_hold_until = rtos_get_time() + VOICE_REPLY_SHOW_DELAY_MS;
+        /* 正文挂起在 voice_show_turn() 组装 body 之前就置位了（否则首次
+         * 渲染会整段先出）；这里只负责合成。 */
         voice_tts_kick(s_reply);
     }
 #endif
@@ -1438,6 +1597,16 @@ static void voice_show_turn(void)
 {
     char body[VOICE_HEARD_MAX + VOICE_REPLY_MAX + 24];
     s_turn_notice[0] = '\0';   /* 真实回合内容上屏，撤掉错误提示 */
+#if CONFIG_MUSE_TTS_VOLC
+    /* 本回合第一次拿到回复：先挂起正文，等第一句真正出声再一起上屏。
+     * 必须在下面算 hold_reply 之前置位——之前这句放在 voice_show_locked()
+     * 里，而 body 是按"无挂起"先组好的，首次渲染照样整段文字先出，延迟窗
+     * 形同虚设（正是"文字先到、声音后到"的来源）。 */
+    if (!s_voice.tts_done && s_reply[0] != '\0' &&
+        s_volc_tts_key[0] != '\0') {
+        s_reply_hold_until = rtos_get_time() + VOICE_REPLY_SHOW_DELAY_MS;
+    }
+#endif
     /* 延迟窗内正文先显示 "..."（问题和状态照常，不装死）。 */
     bool hold_reply = s_reply[0] != '\0' && s_reply_hold_until != 0U &&
                       !deadline_passed(s_reply_hold_until);
@@ -1450,8 +1619,10 @@ static void voice_show_turn(void)
         snprintf(body, sizeof(body), "%s", reply_text);
     }
     /* Archive the turn once (first time the reply text exists); heard text
-     * may arrive later and only affects the live overlay, not history. */
-    if (!s_voice.history_pushed && s_reply[0] != '\0') {
+     * may arrive later and only affects the live overlay, not history.
+     * 延迟窗内先不写：语音页的气泡是定时从 history 刷新的，提前写进去会
+     * 绕过上面的 "..." 挂起，造成页面文字先于声音。放行时再写。 */
+    if (!hold_reply && !s_voice.history_pushed && s_reply[0] != '\0') {
         voice_history_push(voice_turn_title(), s_reply);
         s_voice.history_pushed = true;
     }
@@ -1479,7 +1650,7 @@ static void voice_reply_hold_release(void)
 
 /* ---- user entry points (any task) ------------------------------------------*/
 
-int muse_voice_ptt_start(void)
+static int voice_ptt_start_common(bool ack_tone)
 {
     int rc = 0;
     /* HEAD is generated in the first locked section but queued only at
@@ -1571,7 +1742,7 @@ int muse_voice_ptt_start(void)
              rc = -3;
              break;
          }
-         LOGI("voice note head: %s\r\n", head_buf);
+         LOGD("voice note head: %s\r\n", head_buf);
         /* Mark the bring-up; it runs AFTER the lock is released:
          * audio_engine_start / KWS park block on audio-side locks and
          * must never run under s_voice.lock (LVGL reads the state under
@@ -1586,13 +1757,6 @@ int muse_voice_ptt_start(void)
     if (rc != 0) {
         return rc;
     }
-#if CONFIG_MUSE_TTS_VOLC
-    /* TTS 连接预热：等回复的几秒本来就在空等，先把 TCP+TLS+WS+
-     * StartConnection 建好驻留，回复到达只需 StartSession（2026-11-13
-     * 用户拍板）。无 key/已有驻留连接时内部自动放弃。 */
-    muse_tts_volc_prewarm();
-#endif
-
     if (s_voice.engine_had_ours) {
         /* Barge-in over a live recording: stop the old engine before
          * acquiring it again (acquire refuses a busy engine). Lock-free,
@@ -1608,6 +1772,39 @@ int muse_voice_ptt_start(void)
         rtos_unlock_mutex(&s_voice.lock);
         voice_display_flush();
         return -3;
+    }
+
+    if (ack_tone) {
+        /* The tone must be audible before the ASR link is built: first for
+         * product semantics (no "I'm here" means the user should not be
+         * listened to yet), and second because the ASR ws thread/TLS is not
+         * created yet, freeing 4 KB of internal SRAM for the MP3 decoder
+         * thread (field: with two TLS handshakes in flight
+         * audio_thread_create failed, the tone was silent while ASR still
+         * came up normally). */
+        int tone = voice_wakeup_tone_play();
+        if (tone < 0) {
+            /* The first failure is usually transient resource pressure; yield
+             * 200 ms and retry once. The ASR link is still not built, so the
+             * memory has usually been released by then. */
+            rtos_delay_milliseconds(200);
+            tone = voice_wakeup_tone_play();
+        }
+        if (tone < 0) {
+            /* Still failing: cancel this wakeup so the user does not end up
+             * talking to the device without hearing any acknowledgement. */
+            LOGE("wakeup ack tone unavailable; cancel this wakeup\r\n");
+            voice_engine_release();
+            rtos_lock_mutex(&s_voice.lock);
+            voice_queue_drain();
+            s_voice.engine_busy = false;
+            s_voice.engine_had_ours = false;
+            voice_notice_locked("请再说一次");
+            s_voice.show_deadline = rtos_get_time() + 3000U;
+            rtos_unlock_mutex(&s_voice.lock);
+            voice_display_flush();
+            return -8;
+        }
     }
 
     bool immediate_stop;
@@ -1711,6 +1908,12 @@ int muse_voice_ptt_start(void)
     return 0;
 }
 
+int muse_voice_ptt_start(void)
+{
+    /* 按钮/其它入口：不播应答音，预热时机保持原样。 */
+    return voice_ptt_start_common(false);
+}
+
 /* Flush the staged PCM tail as the final body chunk. The caller has
  * already moved the state out of RECORDING, so the resident mic callback
  * (voice_mic_read_cb) drops frames from here on; the short lock around
@@ -1762,6 +1965,12 @@ int muse_voice_ptt_stop(void)
 #endif
         {
             voice_stop_recording_tail();
+#if CONFIG_MUSE_TTS_VOLC
+            /* Non-ASR (WAV) turn: the mic uplink stops here, so prewarm the
+             * TTS connection now instead of at wakeup (see
+             * voice_asr_on_text for the ASR turn). */
+            muse_tts_volc_prewarm();
+#endif
         }
         voice_display_flush();
         LOGI("PTT stop\r\n");
@@ -1832,6 +2041,19 @@ bool muse_voice_ui_notice(char *out, size_t cap)
     }
     rtos_unlock_mutex(&s_voice.lock);
     return ok;
+}
+
+bool muse_voice_ui_holding(void)
+{
+    bool holding = false;
+    if (!s_voice_inited) {
+        return false;
+    }
+    rtos_lock_mutex(&s_voice.lock);
+    holding = (s_voice.state == VOICE_STATE_SHOWING) &&
+              (s_reply_hold_until != 0U);
+    rtos_unlock_mutex(&s_voice.lock);
+    return holding;
 }
 
 bool muse_voice_heard(char *out, size_t cap)
@@ -2103,7 +2325,7 @@ muse_voice_tx_kind_t muse_voice_tx_next(uint8_t *frame, size_t cap,
          * first. Reset the window on each new END. */
         if (kind == MUSE_VOICE_TX_DATA) {
             if (s_tx_probe_count < 4U) {
-                LOGI("tx DATA #%u len=%u: %.10s\r\n",
+                LOGD("tx DATA #%u len=%u: %.10s\r\n",
                      (unsigned)s_tx_probe_count, (unsigned)n, (char *)c->data);
                 s_tx_probe_count++;
             }
@@ -2289,9 +2511,9 @@ void muse_voice_on_rx_ack(int status, const uint8_t *data, size_t len,
     if (s_ack_len < sizeof(s_ack)) {
         s_ack[s_ack_len] = '\0';
     }
-    LOGI("chat/stream ACK status=%d body=%.480s\r\n", s_ack_status,
-         s_ack_ovf ? "(overflow)" : s_ack);
     if (s_ack_status != 200) {
+        LOGW("chat/stream ACK status=%d body=%.480s\r\n", s_ack_status,
+             s_ack_ovf ? "(overflow)" : s_ack);
         voice_abort_locked(false);
         s_voice.engine_had_ours = s_voice.engine_ours;
         voice_notice_locked("消息未送达，请重试");
@@ -2300,6 +2522,7 @@ void muse_voice_on_rx_ack(int status, const uint8_t *data, size_t len,
                                           sizeof(s_note_id),
                                           s_parent_id,
                                           sizeof(s_parent_id)) == 0) {
+        LOGD("chat/stream ACK ok: %.480s\r\n", s_ack);
         LOGI("note acked: id=%.40s parent=%.40s\r\n",
              s_note_id, s_parent_id);
     } else {
@@ -2502,13 +2725,24 @@ static void voice_sub_feed(const uint8_t *data, size_t len)
         if (newline) {
             if (!s_sub_ovf && s_sub_len &&
                 muse_voice_proto_parse_row(s_sub_line, &s_row)) {
-                LOGI("sub row: ev=%s ready=%d msg=%.24s reply_to=%.24s text=%.40s\r\n",
+                LOGD("sub row: ev=%s ready=%d msg=%.24s reply_to=%.24s text=%.40s\r\n",
                      s_row.event, s_row.ready ? 1 : 0, s_row.msg,
                      s_row.reply_to, s_row.text);
                 rtos_lock_mutex(&s_voice.lock);
                 voice_on_row(&s_row);
                 rtos_unlock_mutex(&s_voice.lock);
                 voice_display_flush();
+            } else if (s_sub_len) {
+                /* 诊断：行收到了但解析不出事件（或超过 VOICE_LINE_CAP 被
+                 * 丢弃）。以前这里静默丢弃，现场就无法区分"平台没回"和
+                 * "回了但格式不认识/太长"（2026-11-17 排查"卡在思考"）。 */
+                char head[81];
+                size_t m = s_sub_len < sizeof(head) - 1U
+                               ? s_sub_len : sizeof(head) - 1U;
+                memcpy(head, s_sub_line, m);
+                head[m] = '\0';
+                LOGD("sub row dropped (ovf=%d len=%u): %s\r\n",
+                     (int)s_sub_ovf, (unsigned)s_sub_len, head);
             }
             s_sub_len = 0;
             s_sub_ovf = false;
@@ -2583,8 +2817,14 @@ void muse_voice_on_rx_sub_reset(void)
 void muse_voice_on_tick(void)
 {
     bool do_release = false;
+    bool push_flush = false;
+    static char s_push_flush[VOICE_REPLY_MAX];
 
     rtos_lock_mutex(&s_voice.lock);
+    if (s_voice.state != VOICE_STATE_CLOSING) {
+        /* 离开 CLOSING 就清时刻，避免下一回合继承旧值被立刻判超时。 */
+        s_voice.closing_since = 0U;
+    }
     switch (s_voice.state) {
     case VOICE_STATE_RECORDING: {
         /* 诊断：确认 tick 在跑 + VAD 累计值（排查唤醒后不能自动停止） */
@@ -2672,12 +2912,39 @@ void muse_voice_on_tick(void)
         }
         break;
     }
+    case VOICE_STATE_CLOSING: {
+        /* 兜底：CLOSING 等的是外部回调（WAV 的 END ack / ASR 的火山
+         * final）。回调丢失时这里没有任何出口，回合永久停住，引擎不
+         * 释放、KWS 待机不恢复（2026-11-17 实机：唤醒后没说话，空 final
+         * 没有任何回调，之后所有唤醒失效，只能重启）。超时按失败收尾，
+         * 由锁外的 engine_had_ours 分支释放引擎、恢复唤醒待机。
+         * 火山会话无需在此 abort：进入 CLOSING 时都 kick 过 finish 任务，
+         * 它自己会在 ~12 s 内收尾（幂等）。 */
+        uint32_t now = rtos_get_time();
+        if (s_voice.closing_since == 0U) {
+            s_voice.closing_since = (now == 0U) ? 1U : now;
+        } else if ((uint32_t)(now - s_voice.closing_since) >=
+                   CONFIG_MUSE_VOICE_CLOSING_TIMEOUT_MS) {
+            LOGW("closing timeout (%lu ms); aborting the turn\r\n",
+                 (unsigned long)(now - s_voice.closing_since));
+            s_voice.closing_since = 0U;
+            voice_abort_locked(false);
+            s_voice.asr_turn = false;
+            s_voice.engine_had_ours = s_voice.engine_ours;
+            voice_notice_locked("请求超时，请再试一次");
+        }
+        break;
+    }
     case VOICE_STATE_WAIT_REPLY:
         if (deadline_passed(s_voice.reply_deadline)) {
             LOGW("voice reply timeout\r\n");
             voice_abort_locked(true);
             s_voice.engine_had_ours = s_voice.engine_ours;
             voice_notice_locked("没有收到回复，请重试");
+            /* 兜底：连接层正常但服务端把回复投给了旧会话/旧 stream 时，
+             * 设备侧收不到任何关闭信号。note 已发出却没有回应，只能
+             * 主动重建 chat 会话（代替用户重启设备）。 */
+            muse_chat_request_reconnect("voice reply timeout");
         }
         break;
     case VOICE_STATE_SHOWING:
@@ -2694,7 +2961,26 @@ void muse_voice_on_tick(void)
     default:
         break;
     }
+    /* 挂起的主动推送：对话结束、上一段 TTS 也播完了才上屏+播报。 */
+    if (s_push_pending && !voice_push_busy_locked()) {
+        snprintf(s_push_flush, sizeof(s_push_flush), "%s", s_push_text);
+        s_push_pending = false;
+        push_flush = !voice_push_begin_locked(s_push_flush);
+    }
+    /* Fallback for a held push whose TTS never starts (stuck task, synth
+     * error swallowed): show it rather than leave it invisible. */
+    if (s_push_hold && deadline_passed(s_push_hold_until)) {
+        s_push_hold = false;
+        s_push_hold_until = 0U;
+        snprintf(s_push_flush, sizeof(s_push_flush), "%s", s_push_hold_text);
+        push_flush = true;
+    }
     rtos_unlock_mutex(&s_voice.lock);
+
+    if (push_flush) {
+        LOGI("push flushed: %.40s\r\n", s_push_flush);
+        voice_push_show(s_push_flush);
+    }
 
     if (s_voice.engine_had_ours) {
         voice_engine_release();   /* lock-free, see voice_abort_locked */

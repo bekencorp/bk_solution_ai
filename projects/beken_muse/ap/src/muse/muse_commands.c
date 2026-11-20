@@ -243,25 +243,15 @@ int muse_commands_handle_invoke(const char *json, char *out, size_t out_size)
                 request_id);
             goto done;
         }
-        /* Proactive push with the voice page on screen: show it in the
-         * page's B-scene bubble like a turn reply, not as a standalone
-         * black overlay that covers the video (field 2026-11-11). */
-        if (voice_chat_page_is_active()) {
-            voice_chat_page_show_push(text);
-            n = snprintf(out, out_size,
-                "{\"jsonrpc\":\"2.0\",\"id\":\"%s\",\"result\":{\"ok\":true}}",
-                request_id);
-            goto done;
-        }
+        /* Proactive push that no voice turn claimed: show it AND speak it,
+         * but never interrupt the user -- muse_voice_push_text parks it
+         * while a turn is recording/closing/awaiting a reply or a previous
+         * TTS is still playing, and flushes it once the device is idle.
+         * With the voice page on screen it lands in the page's B-scene
+         * bubble like a turn reply, not as a standalone black overlay that
+         * covers the video (field 2026-11-11). */
 #endif
-        if (muse_display_show_voice_text("Muse", text) != 0) {
-            n = snprintf(out, out_size,
-                "{\"jsonrpc\":\"2.0\",\"id\":\"%s\",\"result\":{\"ok\":false,"
-                "\"error\":{\"code\":\"display_busy\",\"message\":"
-                "\"display unavailable\"}}}",
-                request_id);
-            goto done;
-        }
+        muse_voice_push_text(text);
         n = snprintf(out, out_size,
             "{\"jsonrpc\":\"2.0\",\"id\":\"%s\",\"result\":{\"ok\":true}}",
             request_id);

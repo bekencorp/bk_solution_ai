@@ -996,6 +996,13 @@ int muse_display_show_animation(void)
     return 0;
 }
 
+bool muse_display_image_showing(void)
+{
+    /* Pointer read only: the voice-page timer calls this from the LVGL task,
+     * which already holds the non-recursive display mutex. */
+    return s_overlay != NULL;
+}
+
 /* ---- voice reply text overlay ----------------------------------------------*/
 
 static lv_obj_t *s_voice_overlay;

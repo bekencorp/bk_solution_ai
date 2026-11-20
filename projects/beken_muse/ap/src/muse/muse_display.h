@@ -57,6 +57,13 @@ int muse_display_http_post(const char *url, const char *extra_headers,
 /* Clears the drawn overlay and returns to the normal UI. */
 int muse_display_show_animation(void);
 
+/* True while a display.draw_url image overlay is on screen. The voice page
+ * uses this to keep its reply bubble below the full-screen image: its 300 ms
+ * tick re-foregrounds the label, which otherwise paints the reply text on
+ * top of the picture (field 2026-11-18 "图片上融了字"). Lock-free read:
+ * callers may already hold the non-recursive display lock (LVGL task). */
+bool muse_display_image_showing(void);
+
 /* Voice reply text overlay (push-to-talk): black full-screen panel with a
  * title and a wrapped body. Replaces any draw_url image overlay; callers
  * own the auto-dismiss timing. Returns 0 on success.

@@ -4,9 +4,10 @@
  *        解码（RGB565 直出），画面呈到 320x320 LVGL canvas（居中于
  *        385x320 逻辑屏，两侧留边）。
  *
- * 素材：1:/jolly/a.mp4（语音输入）与 1:/jolly/b.mp4（回复气泡），
- * 320x320 / H.264 / 无音轨。文件不存在时组件保持隐藏，上层页面
- * （voice_chat_page）自动落回普通布局。
+ * 素材：/sd0/jolly/a.mp4（语音输入）、b.mp4（回复气泡）、question.mp4
+ * （等待回复，已裁成 5s 循环）；H.264 / 无音轨，a/b 320x320、question
+ * 384x320。文件不存在时组件保持隐藏，上层页面（voice_chat_page）自动
+ * 落回普通布局。
  *
  * 帧缓冲来自 16MB UNCODED slab（不占 PSRAM 堆）；解码线程与 LVGL
  * 之间以 ping-pong 双缓冲零拷贝交换，无撕裂。播完自动无缝回卷。
@@ -24,6 +25,7 @@ extern "C" {
 typedef enum {
     JOLLY_CLIP_VOICE_INPUT = 0,   /* 1:/jolly/a.mp4  语音输入页（麦克风） */
     JOLLY_CLIP_REPLY_BUBBLE,      /* 1:/jolly/b.mp4  回复对话框页 */
+    JOLLY_CLIP_QUESTION,          /* 1:/jolly/question.mp4  等待回复（问号） */
 } jolly_clip_t;
 
 /**

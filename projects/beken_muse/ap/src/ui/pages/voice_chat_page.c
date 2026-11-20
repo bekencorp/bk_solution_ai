@@ -1,8 +1,9 @@
 /**
  * @file voice_chat_page.c
  * @brief Voice-chat page: full-screen Jolly background video (A: voice input /
- *        B: reply bubble) with the assistant reply overlaid as auto-scrolling
- *        text. Voice turns run hands-free (KWS wakeup + VAD auto-send); the
+ *        question: waiting for the reply / B: reply bubble) with the assistant
+ *        reply overlaid as auto-scrolling text. Voice turns run hands-free
+ *        (KWS wakeup + VAD auto-send); the
  *        on-screen mic button UI is retired — S4 still toggles PTT as a
  *        hardware fallback. Same dynamic-screen lifetime model as
  *        muse_status.c (torn down eagerly on back; timer never outlives the
@@ -27,7 +28,6 @@
 #include "ui_nav_router.h"
 #include "jolly/jolly_video.h"
 #include "muse_service.h"
-#include "ui/muse_status.h"   /* 断线自动回配对/连接状态页 */
 #include "muse_voice.h"
 #include "muse_display.h"     /* muse_cjk_font: full-CJK text rendering */
 #include "voice_history.h"
@@ -38,15 +38,12 @@
 extern int page_top_enter(void);
 
 static lv_obj_t  *s_screen;
-static lv_obj_t  *s_bubble_label;   /* 视频 B 对话框里的回复文字 */
+static lv_obj_t  *s_bubble_label;  
 static lv_timer_t *s_timer;
-/* 在本页里见过 CONNECTED 才置真：之后掉线 = "用着用着断了"，自动回
- * 配对/连接状态页等重连（状态页连上后会再跳回来）。进页时就没连着
- * （比如从 home 手动进）不触发，避免来回弹。 */
-static bool       s_had_connection;
-static char       s_bubble_last[VOICE_HISTORY_BODY_MAX];  /* 上次气泡文字（判变用） */
-/* 主动推送（无语音回合的 draw_text）的显示窗：窗内 want_bubble 为真，
- * 页面切到 B 场景气泡，与回合回复同一展示通道。 */
+static char       s_bubble_last[VOICE_HISTORY_BODY_MAX];  
+
+static int        s_bubble_layout;
+static bool       s_video_pending;
 static uint32_t   s_push_show_until;
 
 void voice_chat_page_show_push(const char *text)
@@ -58,11 +55,9 @@ void voice_chat_page_show_push(const char *text)
     s_push_show_until = rtos_get_time() + 30000U;
 }
 
-/* 气泡文字超出可视高度时的纵向自动滚动：顶部停 1.8s -> 平滑滚到底 ->
- * 底部停 2.4s -> 回顶，循环。由 300ms 页面定时器驱动。 */
 static void bubble_scroll_tick(bool active)
 {
-    static int s_phase;   /* 0=顶停 1=滚动中 2=底停 */
+    static int s_phase; 
     static int s_ticks;
 
     if (s_bubble_label == NULL || !lv_obj_is_valid(s_bubble_label)) {
@@ -78,7 +73,7 @@ static void bubble_scroll_tick(bool active)
     }
     lv_coord_t bottom = lv_obj_get_scroll_y(s_bubble_label) +
                         lv_obj_get_scroll_bottom(s_bubble_label);
-    if (bottom <= 0) {   /* 内容放得下，钉在顶部 */
+    if (bottom <= 0) {
         s_phase = 0;
         s_ticks = 0;
         return;
@@ -107,9 +102,6 @@ static void bubble_scroll_tick(bool active)
     }
 }
 
-/* 视频 B 对话框内文字区（预览页对齐数值：左 7.5% 上 62.5% 宽 85% 高 29%）。
- * 片源是 320x320 内容居中嵌进 384x320 帧（左右各 32px 同色补边，无裁剪），
- * 有效内容区等价于"320 帧 + x 偏移 32"，沿用原坐标即可。 */
 #define BUBBLE_TEXT_X    (32 + 24)
 #define BUBBLE_TEXT_Y    200
 #define BUBBLE_TEXT_W    272
@@ -127,28 +119,71 @@ static bool muse_connected(void)
     return st.state == MUSE_SERVICE_CONNECTED;
 }
 
-/* 掉线自动回配对/连接状态页：先切走活动屏再删本屏（同 S3 teardown
- * 的顺序，只是目标是 muse_status 而非 page_top）。状态页检测到重连
- * 成功会自己跳回本页。timer 在自身回调里删除对 LVGL 是安全的
- * （handler 先取 next 再执行回调，回调返回后不再触碰本 timer）。 */
-static void voice_chat_leave_to_status(void)
+static void bubble_apply_layout(int mode)
 {
-    lv_obj_t *scr = s_screen;
-    s_screen = NULL;
-    s_bubble_label = NULL;
-    if (s_timer != NULL) {
-        lv_timer_delete(s_timer);
-        s_timer = NULL;
+    if (s_bubble_label == NULL || !lv_obj_is_valid(s_bubble_label)) {
+        return;
     }
-    jolly_video_destroy();
-    if (scr != NULL && lv_obj_is_valid(scr)) {
-        ui_nav_unregister_screen(scr);
+    if (s_bubble_layout == mode) {
+        return;
     }
-    (void)muse_status_enter();  /* switch active screen first */
-    if (scr != NULL && lv_obj_is_valid(scr)) {
-        lv_obj_del(scr);
+    s_bubble_layout = mode;
+    if (mode == 0) {
+        /* B 对话框内：白底框里的深灰正文，不加底色。 */
+        lv_obj_set_pos(s_bubble_label, BUBBLE_TEXT_X, BUBBLE_TEXT_Y);
+        lv_obj_set_size(s_bubble_label, BUBBLE_TEXT_W, BUBBLE_TEXT_H);
+        lv_obj_set_style_text_color(s_bubble_label, lv_color_hex(0x333333),
+                                    LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(s_bubble_label, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(s_bubble_label, 0, LV_PART_MAIN);
+        lv_obj_set_style_radius(s_bubble_label, 0, LV_PART_MAIN);
+    } else {
+        lv_obj_set_size(s_bubble_label, 220, 36);
+        lv_obj_set_pos(s_bubble_label, 82, 270);
+        lv_obj_set_style_text_color(s_bubble_label, lv_color_hex(0xFFFFFF),
+                                    LV_PART_MAIN);
+        lv_obj_set_style_bg_color(s_bubble_label, lv_color_hex(0x0A1633),
+                                  LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(s_bubble_label, LV_OPA_70, LV_PART_MAIN);
+        lv_obj_set_style_radius(s_bubble_label, 12, LV_PART_MAIN);
+        lv_obj_set_style_pad_hor(s_bubble_label, 10, LV_PART_MAIN);
+        lv_obj_set_style_pad_ver(s_bubble_label, 4, LV_PART_MAIN);
     }
-    LOGI("link lost, back to muse status page\r\n");
+    s_bubble_last[0] = '\x01';
+    s_bubble_last[1] = '\0';
+}
+
+
+static void bubble_raise(void)
+{
+    if (s_screen == NULL || s_bubble_label == NULL ||
+        !lv_obj_is_valid(s_screen) || !lv_obj_is_valid(s_bubble_label)) {
+        return;
+    }
+    if (muse_display_image_showing()) {
+        return;
+    }
+    uint32_t cnt = lv_obj_get_child_count(s_screen);
+    if (cnt == 0U || lv_obj_get_child(s_screen, (int32_t)cnt - 1) != s_bubble_label) {
+        lv_obj_move_foreground(s_bubble_label);
+    }
+}
+
+static void bubble_label_create(lv_obj_t *parent)
+{
+    s_bubble_label = lv_label_create(parent);
+    lv_obj_set_pos(s_bubble_label, BUBBLE_TEXT_X, BUBBLE_TEXT_Y);
+    lv_obj_set_size(s_bubble_label, BUBBLE_TEXT_W, BUBBLE_TEXT_H);
+    lv_obj_set_style_text_font(s_bubble_label, muse_cjk_font(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_bubble_label, lv_color_hex(0x333333), LV_PART_MAIN);
+    lv_obj_set_style_text_align(s_bubble_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_label_set_long_mode(s_bubble_label, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_scrollbar_mode(s_bubble_label, LV_SCROLLBAR_MODE_OFF);
+    lv_label_set_text(s_bubble_label, "");
+    lv_obj_clear_flag(s_bubble_label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_bubble_label, LV_OBJ_FLAG_HIDDEN);
+    s_bubble_layout = 0;
+    s_bubble_last[0] = '\0';
 }
 
 static void voice_chat_refresh(void)
@@ -156,56 +191,40 @@ static void voice_chat_refresh(void)
     if (s_screen == NULL || !lv_obj_is_valid(s_screen)) {
         return;
     }
-    bool connected = muse_connected();
-    muse_voice_ui_phase_t phase = muse_voice_ui_phase();
 
-    /* ASR 回声（服务器听清了什么）说完后 ~1s 就到：等回复期间先上屏并切
-     * 到对话框场景，给用户即时反馈；回复到达进入 SHOWING 后由
-     * voice_history 的正文自然替换。 */
-    char heard[192];
-    bool interim = (phase == MUSE_VOICE_UI_WAITING) &&
-                   muse_voice_heard(heard, sizeof(heard));
-    /* 本回合的状态/错误提示（如"请求被中断，请再说一次"）：SHOWING 时
-     * 优先于 voice_history 的历史回复显示。 */
+    if (s_bubble_label == NULL || !lv_obj_is_valid(s_bubble_label)) {
+        return;
+    }
+    bool connected = muse_connected();
+    bool connecting = !connected;
+    muse_voice_ui_phase_t phase = muse_voice_ui_phase();
+    bool holding = muse_voice_ui_holding();
+    bool waiting = (phase == MUSE_VOICE_UI_WAITING) || holding;
+
     char notice[96];
     bool has_notice = (phase == MUSE_VOICE_UI_SHOWING) &&
                       muse_voice_ui_notice(notice, sizeof(notice));
     if (!has_notice) {
         notice[0] = '\0';
     }
-    bool want_bubble = (phase == MUSE_VOICE_UI_SHOWING) || interim ||
+    bool want_bubble = connecting || waiting || (phase == MUSE_VOICE_UI_SHOWING) ||
                        (int32_t)(rtos_get_time() - s_push_show_until) < 0;
-
-    /* 视频状态机：语音输入页(A) / 回复对话框页(B)；素材缺失时 jolly_video
-     * 隐藏自己，页面只剩气泡文字。录音/空闲 = A，等回声与显示回复 = B。
-     * B→A 的整轮重建发生在唤醒后（应答音播放窗口内，不产语音数据），
-     * TCP 窗口修复后上行 ~80KB/s 有 2 倍余量，不再避让（2026-11-06 用户
-     * 明确要求唤醒即回 A 场景）。 */
-    if (connected) {
-        s_had_connection = true;
-        (void)jolly_video_play(want_bubble ? JOLLY_CLIP_REPLY_BUBBLE
-                                           : JOLLY_CLIP_VOICE_INPUT);
-    } else if (s_had_connection) {
-        /* 本页使用过程中掉线：回状态页等重连，别再停在黑屏语音页上。 */
-        s_had_connection = false;
-        voice_chat_leave_to_status();
-        return;
-    } else {
-        jolly_video_stop();
+    jolly_clip_t clip = JOLLY_CLIP_VOICE_INPUT;
+    if (!connecting && waiting) {
+        clip = JOLLY_CLIP_QUESTION;
+    } else if (!connecting && want_bubble) {
+        clip = JOLLY_CLIP_REPLY_BUBBLE;
     }
-    bool show_bubble = want_bubble;
+    (void)jolly_video_play(clip);
 
-    /* 气泡文字只在内容变化时重写（set_text 会重置滚动位置）；新内容来了
-     * 从头开始滚。 */
+    bubble_apply_layout(connecting ? 2 : (waiting ? 1 : 0));
     char body[VOICE_HISTORY_BODY_MAX];
     const char *bubble;
-    if (interim) {
-        snprintf(body, sizeof(body), "听到了：%s", heard);
-        bubble = body;
+    if (connecting) {
+        bubble = "正在连接…";
+    } else if (waiting) {
+        bubble = "正在思考，请稍等";
     } else if (notice[0] != '\0') {
-        /* 本回合以状态/错误提示收尾（不是助手回复）：必须显示提示本身。
-         * 气泡只认 voice_history 的话，这里会回放上一条回复——用户看到
-         * 的"又问一句却蹦出上一轮回答"就是这个（field 2026-11-13）。 */
         bubble = notice;
     } else {
         bubble = voice_history_get(0, NULL, 0, body, sizeof(body))
@@ -217,18 +236,48 @@ static void voice_chat_refresh(void)
         lv_obj_scroll_to_y(s_bubble_label, 0, LV_ANIM_OFF);
     }
 
-    /* 回复文字只在 SHOWING 阶段显示。 */
-    if (show_bubble) {
+
+    if (muse_display_image_showing()) {
+        lv_obj_add_flag(s_bubble_label, LV_OBJ_FLAG_HIDDEN);
+        bubble_scroll_tick(false);
+        return;
+    }
+
+    if (want_bubble) {
+        bubble_raise();
         lv_obj_clear_flag(s_bubble_label, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_bubble_label, LV_OBJ_FLAG_HIDDEN);
     }
-    bubble_scroll_tick(show_bubble);
+    bubble_scroll_tick(want_bubble);
+
+
+    {
+        static int s_dbg_state = -1;
+        int dbg = connecting ? 2 : (waiting ? 1 : 0);
+        if (dbg != s_dbg_state) {
+            s_dbg_state = dbg;
+            lv_area_t box;
+            lv_obj_get_coords(s_bubble_label, &box);
+            LOGI("bubble state=%d (connecting=%d waiting=%d phase=%d vis=%d) box=%d,%d-%d,%d txt=%s\r\n",
+                 dbg, (int)connecting, (int)waiting, (int)phase,
+                 (int)!lv_obj_has_flag(s_bubble_label, LV_OBJ_FLAG_HIDDEN),
+                 (int)box.x1, (int)box.y1, (int)box.x2, (int)box.y2,
+                 lv_label_get_text(s_bubble_label));
+        }
+    }
 }
 
 static void voice_chat_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+    if (s_video_pending) {
+        s_video_pending = false;
+        if (s_screen != NULL && lv_obj_is_valid(s_screen)) {
+            (void)jolly_video_create(s_screen);
+            bubble_label_create(s_screen);
+        }
+    }
     voice_chat_refresh();
 }
 
@@ -253,6 +302,9 @@ static void voice_chat_teardown(void)
     lv_obj_t *scr = s_screen;
     s_screen = NULL;
     s_bubble_label = NULL;
+    s_bubble_layout = 0;
+    s_bubble_last[0] = '\0';
+    s_video_pending = false;
     if (s_timer != NULL) {
         lv_timer_delete(s_timer);
         s_timer = NULL;
@@ -289,38 +341,31 @@ static const ui_page_nav_ops_t s_voice_chat_nav_ops = {
 
 int voice_chat_page_enter(void)
 {
-    s_had_connection = false;   /* 掉线自动回状态页只在"本页见过连接"后武装 */
     if (s_screen != NULL && lv_obj_is_valid(s_screen)) {
         lv_screen_load(s_screen);
-        /* 再入页面时在返回前同步一次状态：渲染发生在之后的
-         * lv_timer_handler 里，这里先刷新就不会闪出过期画面。 */
+
         voice_chat_refresh();
         return 0;
     }
     lv_obj_t *screen = lv_obj_create(NULL);
     ui_theme_apply_screen(screen);
 
-    /* 帧序列播放器：铺满整屏；素材缺失时它自己隐藏。 */
-    (void)jolly_video_create(screen);
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x0B1E3C),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_color(screen, lv_color_hex(0x0B1E3C),
+                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_dir(screen, LV_GRAD_DIR_NONE,
+                                 LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    /* 视频 B 对话框里的回复文字：最顶层，默认隐藏，SHOWING 时显示。 */
-    s_bubble_label = lv_label_create(screen);
-    lv_obj_set_pos(s_bubble_label, BUBBLE_TEXT_X, BUBBLE_TEXT_Y);
-    lv_obj_set_size(s_bubble_label, BUBBLE_TEXT_W, BUBBLE_TEXT_H);
-    lv_obj_set_style_text_font(s_bubble_label, muse_cjk_font(), LV_PART_MAIN);
-    /* 新 b.mp4 的对话框是白底浅蓝边（实测框内 x31..352 / y184..307），
-     * 白字会糊成一片——用深灰字。 */
-    lv_obj_set_style_text_color(s_bubble_label, lv_color_hex(0x333333), LV_PART_MAIN);
-    lv_obj_set_style_text_align(s_bubble_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_label_set_long_mode(s_bubble_label, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_scrollbar_mode(s_bubble_label, LV_SCROLLBAR_MODE_OFF);
-    lv_label_set_text(s_bubble_label, "");
-    lv_obj_clear_flag(s_bubble_label, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(s_bubble_label, LV_OBJ_FLAG_HIDDEN);
+    if (ui_disp_is_lvgl_thread()) {
+        (void)jolly_video_create(screen);
+        bubble_label_create(screen);
+    } else {
+        s_video_pending = true;
+    }
 
     s_screen = screen;
     bk_page_attach_right_swipe_gesture(screen);
-    /* 首帧渲染前先同步一次状态（视频 clip 选择 + 气泡可见性）。 */
     voice_chat_refresh();
     lv_screen_load(screen);
     (void)ui_nav_register_screen(screen, &s_voice_chat_nav_ops);

@@ -39,6 +39,8 @@ void muse_chat_stop(void);
  * unusable whenever this is false even if the link session is up. */
 bool muse_chat_is_connected(void);
 
+void muse_chat_request_reconnect(const char *reason);
+
 #ifdef __cplusplus
 }
 #endif

@@ -27,6 +27,10 @@ extern "C" {
 typedef void (*muse_asr_volc_text_cb_t)(const char *text);
 typedef void (*muse_asr_volc_error_cb_t)(int err, const char *msg);
 
+#define MUSE_ASR_ERR_EMPTY_TEXT  (-10)
+
+#define MUSE_ASR_ERR_TRANSPORT   (-11)
+
 /* Register callbacks (before the first start; may be called again). */
 void muse_asr_volc_init(muse_asr_volc_text_cb_t on_text,
                         muse_asr_volc_error_cb_t on_error);

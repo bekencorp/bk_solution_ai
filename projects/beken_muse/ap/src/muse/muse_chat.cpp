@@ -81,6 +81,8 @@ constexpr size_t kServiceScratchSize = 32 * 1024;
  * Noise/proto (~50 B) and WS envelope overhead. */
 constexpr size_t kOutboundScratchSize = 10240;
 constexpr uint32_t kEventWaitMs = 250;
+
+constexpr uint32_t kRxIdleReportMs = 30000;
 /* Same voice pump cadence as the control session had: the mic produces a
  * 2 KB chunk every 48 ms while one send costs ~77 ms on this uplink. */
 constexpr uint32_t kVoiceTxWaitMs = 15;
@@ -99,29 +101,13 @@ constexpr uint32_t kSendTimeoutMs = 10000;
 constexpr uint32_t kCloseTimeoutMs = 12000;
 constexpr uint32_t kReconnectMinMs = 1000;
 constexpr uint32_t kReconnectMaxMs = 15000;
-/* 稳定会话判定（对齐上游）：连接存活超过该时长才算链路真正可用，此时
- * 把重连退避复位到最小值——否则一次长时间会话被踢后，退避已经顶到
- * 15s，之后每次掉线都要白等 15s（field 2026-11-13：被浏览器验证踢掉
- * 后固定 15s 才重连，唤醒后长时间无响应）。 */
+
 constexpr uint32_t kStableSessionMs = 30000;
-/* 连续短命会话上限：连上很快就掉，通常说明会话在服务端被另一路客户端接管
- * （例如浏览器打开同一 VM 的 Muse 页面），重连后仍会被 UNAUTHENTICATED
- * 踢掉。达到该次数后请 service 重新拉取设备令牌并重建两条会话。
- * 注意：本地丢帧（event queue full 等）同样会让 Noise nonce 错位并报
- * UNAUTHENTICATED，但那种情况重连一次就能恢复，不会连续短命。 */
+
 constexpr uint8_t kShortLivedLimit = 3;
-/* 对端主动关闭（被踢）后等 SDK 任务自己收尾的窗口：任务收到 WS close 帧
- * 后最多再等一轮 1s 的 TCP FIN 就会 free_client，3s 足够；超时才强制
- * destroy（destroy 与任务收尸并发会踩已释放的递归互斥量）。 */
-/* 临时关闭（A/B 复现实验）：0 = 不做对端关闭宽限，被踢后立即 destroy，
- * 行为回到 2026-11-13 dump 之前。验证完改回 3000。 */
-constexpr uint32_t kPeerCloseGraceMs = 0;
 constexpr uint8_t kWorkerPriority = 7;
 constexpr uint32_t kWorkerStackSize = 12288;
-/* 入站事件队列深度：取 8 时，回话高峰（服务端一次连推 draw_text、消息行、
- * link.invoke 等）容易溢出。一旦丢帧，Noise 接收 nonce 就少走一步，之后
- * 每一帧都会解密失败并报 UNAUTHENTICATED，整条会话作废（field 2026-11-16）。
- * 32 给 worker 留出足够的突发缓冲。 */
+
 constexpr int kEventQueueDepth = 32;
 
 enum {
@@ -186,20 +172,17 @@ struct ChatContext {
     std::atomic<bool> running{false};
     std::atomic<bool> callback_fault{false};
     std::atomic<bool> callback_closed{false};
-    /* DISCONNECTED 已派发：auto_reconnect=false 时 ws 客户端任务随后必定
-     * 自行退出并 free_client（含 deinit mutex），owner 再 destroy 就会和
-     * 任务自清理并发（2026-11-11 dump：connect 失败后 close_websocket 的
-     * destroy->stop 持锁期间锁被 free_client 销毁，unlock NULL 触发
-     * xQueueGiveMutexRecursive assert）。置位后 close_websocket 只等
-     * CLOSED，不再碰 client。 */
+    /* DISCONNECTED has been dispatched: with auto_reconnect=false the ws
+     * client task will exit and free_client itself (including mutex deinit).
+     * An owner destroy then races with that self-cleanup (2026-11-11 dump:
+     * after a failed connect, close_websocket's destroy->stop held the lock
+     * while free_client destroyed it, and unlocking NULL triggered the
+     * xQueueGiveMutexRecursive assert). Once set, close_websocket only waits
+     * for CLOSED and never touches client again. */
     std::atomic<bool> callback_disconnected{false};
-    /* 当前这条 chat 连接是否已握手成功（Noise + subscribe 就绪）。状态页
-     * 用它和 link 会话一起判断"云端可用"，worker 用它区分"没连上"和
-     * "连上很快就掉"。 */
     std::atomic<bool> up{false};
-    /* 已就"连续短命会话"请求过 service 刷新设备令牌；worker 重启后仍
-     * 保留，避免刷新→重启→再刷新地循环轮换服务端令牌。 */
     std::atomic<bool> refresh_sent{false};
+    std::atomic<bool> reconnect_requested{false};
 
     const char *ca_cert;
     size_t ca_cert_len;
@@ -215,6 +198,7 @@ struct ChatContext {
      * a link that ran fine for N frames and then lost its keys. */
     uint32_t rx_frames;
     uint32_t conn_started_ms;
+    std::atomic<uint32_t> last_rx_ms{0};
 };
 
 static ChatContext s_chat;
@@ -297,6 +281,11 @@ void websocket_event(void *, char *, int32_t event_id, void *event_data)
         data->op_code == WS_TRANSPORT_OPCODES_PONG) {
         return;
     }
+
+    /* 只统计业务下行：SDK 连 PONG 也会当 DATA 事件派发，不过滤的话
+     * idle 永远在 0~10s 之间打转（10s 是 SDK 自己的 ping 周期），
+     * 测不出服务端真正的业务空闲。 */
+    s_chat.last_rx_ms.store(rtos_get_time());
     if (data->op_code != WS_TRANSPORT_OPCODES_BINARY) {
         BK_LOGE(TAG, "chat ws fault: non-binary opcode=%d\r\n",
                 (int)data->op_code);
@@ -812,58 +801,16 @@ int poll_inbound_once(transport client, ClientSession &session,
 
 /* ---- connection lifecycle --------------------------------------------------*/
 
-void close_websocket(transport client, bool &closed, bool peer_closing = false)
+/* Only consume events until CLOSED; never touch client.
+ *
+ * The SDK ws task calls free_client itself when it exits (which deinits the
+ * recursive mutex). An owner websocket_client_destroy -> stop would then
+ * unlock an already deinited lock and trip the
+ * xQueueGiveMutexRecursive:797 assert (2026-11-18 dump: connect-timeout
+ * teardown racing with task self-cleanup). Therefore the application never
+ * destroys the client after a successful start. */
+void wait_for_client_closed(bool &closed)
 {
-    closed = closed || s_chat.callback_closed.load();
-    if (!client || closed) {
-        if (client && closed) {
-            /* The client task already freed the transport (see the CLOSED
-             * handler); destroying here would touch freed memory. */
-            BK_LOGI(TAG, "chat ws already closed by its task, skip destroy\r\n");
-        }
-        return;
-    }
-    if (peer_closing && !s_chat.callback_disconnected.load()) {
-        /* 服务器主动踢人（Noise UNAUTHENTICATED）后会紧接着发 WS close 帧，
-         * SDK 的 ws 任务自己走 CLOSING 收尾、dispatch CLOSED 并在任务里
-         * free_client（含 deinit 递归互斥量）。此时从 owner 调
-         * destroy->stop，stop 在 ws_tcp_close 上等 SSL/socket，等任务释放
-         * 完再 unlock 已 deinit 的互斥量就会 assert
-         * （2026-11-13 dump: xQueueGiveMutexRecursive:797，ws 任务
-         * close connection... 之后 owner 才打印 ws_tcp_close failed）。
-         * 先给任务一个有界窗口自己收尸；收不到再强制 destroy。 */
-        uint32_t waited = 0;
-        while (!closed && waited < kPeerCloseGraceMs) {
-            if (s_chat.callback_closed.load()) {
-                closed = true;
-                break;
-            }
-            ChatEvent event{};
-            if (!pop_event(event, kEventWaitMs)) {
-                waited += kEventWaitMs;
-                continue;
-            }
-            if (event.kind == EventKind::Closed) {
-                closed = true;
-            }
-            release_event(event);
-        }
-        if (closed) {
-            BK_LOGI(TAG, "chat ws closed by the peer; task reclaimed it\r\n");
-            return;
-        }
-        BK_LOGW(TAG, "chat ws peer close incomplete after %lu ms; destroying\r\n",
-                (unsigned long)kPeerCloseGraceMs);
-    }
-    if (s_chat.callback_disconnected.load()) {
-        /* 客户端任务在 DISCONNECTED 后自行收尸（见 callback_disconnected
-         * 注释），这里 destroy 会与 free_client 并发；跳过，只在下面有界
-         * 等 CLOSED。 */
-        BK_LOGI(TAG, "chat ws self-closing after disconnect, skip destroy\r\n");
-    } else {
-        (void)websocket_client_destroy(client);
-    }
-
     uint32_t waited = 0;
     while (!closed && waited < kCloseTimeoutMs) {
         if (s_chat.callback_closed.load()) {
@@ -881,10 +828,46 @@ void close_websocket(transport client, bool &closed, bool peer_closing = false)
         release_event(event);
     }
     if (!closed) {
-        /* Same trade-off as the control session: never reconnect while the
-         * old callback may still run. */
+        /* The task may still be stuck in ws_connect/ws_tcp_close; do not
+         * destroy (that would contend on the same lock, which is exactly the
+         * dump we are avoiding). Let it clean up and let the worker
+         * reconnect. */
         BK_LOGE(TAG, "chat WebSocket close callback timed out\r\n");
     }
+}
+
+void close_websocket(transport client, bool &closed)
+{
+    closed = closed || s_chat.callback_closed.load();
+    if (!client || closed) {
+        if (client && closed) {
+            /* The client task already freed the transport (see the CLOSED
+             * handler); destroying here would touch freed memory. */
+            BK_LOGI(TAG, "chat ws already closed by its task, skip destroy\r\n");
+        }
+        return;
+    }
+
+    if (s_chat.callback_disconnected.load()) {
+        /* The task is already cleaning up after a connect failure / peer
+         * kick: just wait for CLOSED and leave client alone. */
+        BK_LOGI(TAG, "chat ws task self-closing, wait for CLOSED\r\n");
+    } else if (websocket_client_is_connected(client)) {
+        /* Connection is still healthy (local stop / business-layer rebuild):
+         * send a WS close frame first, then set run=false so the task walks
+         * CLOSED -> free_client itself. Do not use destroy: it would contend
+         * with the task's free_client on the same recursive mutex. */
+        (void)websocket_client_send_with_opcode(
+            client, WS_TRANSPORT_OPCODES_CLOSE, (const uint8_t *)"", 0,
+            kSendTimeoutMs);
+        client->run = false;
+        BK_LOGI(TAG, "chat ws stop requested, wait for CLOSED\r\n");
+    } else {
+        /* Not connected (INIT/CLOSING/WAIT_TIMEOUT): the task exits on its
+         * own; do not touch it. */
+        BK_LOGI(TAG, "chat ws not connected, wait for CLOSED\r\n");
+    }
+    wait_for_client_closed(closed);
 }
 
 int run_chat_session(transport client, ChatBuffers &buffers, bool &closed)
@@ -897,10 +880,18 @@ int run_chat_session(transport client, ChatBuffers &buffers, bool &closed)
 
     muse_voice_on_session(true);
     s_chat.up.store(true);
+    s_chat.last_rx_ms.store(rtos_get_time());
     BK_LOGI(TAG, "chat connected (no link.register; own conversation)\r\n");
 
     HeaderView headers[8];
+    uint32_t idle_report_at = rtos_get_time() + kRxIdleReportMs;
     while (s_chat.running.load()) {
+        if (s_chat.reconnect_requested.load()) {
+            BK_LOGW(TAG, "chat rebuilding session on request (rx_frames=%lu, alive=%lu ms)\r\n",
+                    (unsigned long)s_chat.rx_frames,
+                    (unsigned long)(rtos_get_time() - s_chat.conn_started_ms));
+            return CHAT_ERR_TRANSPORT;
+        }
         if (!voice_pump_once(client, session, buffers)) {
             BK_LOGE(TAG, "chat outbound pump failed (rx_frames=%lu, alive=%lu ms)\r\n",
                     (unsigned long)s_chat.rx_frames,
@@ -915,6 +906,14 @@ int run_chat_session(transport client, ChatBuffers &buffers, bool &closed)
                                            8, closed, inbound_wait);
         if (poll < 0) {
             return poll;
+        }
+        const uint32_t now = rtos_get_time();
+        if ((int32_t)(now - idle_report_at) >= 0) {
+            const uint32_t rx = s_chat.last_rx_ms.load();
+            BK_LOGD(TAG, "chat rx idle %lu ms (frames=%lu)\r\n",
+                    (unsigned long)(rx ? now - rx : 0),
+                    (unsigned long)s_chat.rx_frames);
+            idle_report_at = now + kRxIdleReportMs;
         }
     }
     return CHAT_OK;
@@ -947,6 +946,7 @@ int run_connection(ChatBuffers &buffers, bool &came_up)
     s_chat.callback_fault.store(false);
     s_chat.callback_closed.store(false);
     s_chat.callback_disconnected.store(false);
+    s_chat.reconnect_requested.store(false);
     free(s_chat.partial);
     s_chat.partial = nullptr;
     s_chat.partial_size = 0;
@@ -979,7 +979,10 @@ int run_connection(ChatBuffers &buffers, bool &came_up)
         BK_LOGE(TAG, "chat connect failed: no websocket upgrade within %lu ms "
                 "(401/403 token rejection looks identical here)\r\n",
                 (unsigned long)kConnectTimeoutMs);
-        close_websocket(client, closed);
+        /* The connection never came up: after a failed ws_connect the SDK
+         * task exits and free_client itself; only wait for CLOSED here and
+         * never destroy. */
+        wait_for_client_closed(closed);
         return CHAT_ERR_TRANSPORT;
     }
     if (!client->bk_ssl->tls ||
@@ -997,21 +1000,24 @@ int run_connection(ChatBuffers &buffers, bool &came_up)
     came_up = s_chat.up.load();
     s_chat.up.store(false);
     muse_voice_on_session(false);
-    /* 会话在运行中被判错，多半是对端踢人（UNAUTHENTICATED）后紧接 WS
-     * close：不能立刻 destroy，交给 SDK 任务自己收尾。 */
-    close_websocket(client, closed, result != CHAT_OK && s_chat.running.load());
+    /* A mid-session error is usually a peer kick (UNAUTHENTICATED) followed
+     * by WS close: do not destroy immediately, let the SDK task clean up.
+     * A business-layer rebuild request is a healthy connection instead, and
+     * close_websocket sends a close frame proactively. */
+    close_websocket(client, closed);
     if (!closed) {
-        /* 服务器主动断链（如 UNAUTHENTICATED 踢人）时，ws 客户端内部任务
-         * 已在 close_websocket 里 destroy，Closed 事件可能永远不会来。
-         * 这里若无界等待，chat worker 会永远卡死，之后所有唤醒都被
-         * "muse session not connected" 拒绝。再等一个有限窗口后强制重连。 */
+        /* On some paths the SDK ws task frees the client without ever
+         * dispatching CLOSED. Waiting unbounded here would hang the chat
+         * worker forever and every later wakeup would be rejected with
+         * "muse session not connected". Wait one bounded window, then force
+         * a reconnect. */
         uint32_t waited = 0;
         while (s_chat.running.load() && !closed && waited < kCloseTimeoutMs) {
             (void)wait_for(EventKind::Closed, kEventWaitMs, &closed);
             waited += kEventWaitMs;
         }
         if (!closed) {
-            BK_LOGW(TAG, "closed event never arrived after destroy; "
+            BK_LOGW(TAG, "closed event never arrived after ws task exit; "
                     "force reconnect\r\n");
         }
     }
@@ -1202,4 +1208,13 @@ extern "C" void muse_chat_stop(void)
 extern "C" bool muse_chat_is_connected(void)
 {
     return s_chat.up.load();
+}
+
+extern "C" void muse_chat_request_reconnect(const char *reason)
+{
+    if (!s_chat.running.load()) {
+        return;
+    }
+    s_chat.reconnect_requested.store(true);
+    BK_LOGW(TAG, "chat reconnect requested: %s\r\n", reason ? reason : "-");
 }
