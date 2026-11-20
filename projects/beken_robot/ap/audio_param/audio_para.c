@@ -50,7 +50,7 @@ int audio_board_config_init(void)
 #if CONFIG_AE_AUDIO_PARAM && CONFIG_AUD_PARAM_CTRL
 
 /* ============================ EQ (DL, 16K) ============================ */
-#define VOC_EQ_TOTAL_NUM 2
+#define VOC_EQ_TOTAL_NUM 3
 #define VOC_EQGAIN 16384
 
 //E0_freq_600_gain_n15_qval_1_type_1_LS
@@ -77,6 +77,18 @@ int audio_board_config_init(void)
 #define VOC_EQ1QVAL 0x3f800000
 #define VOC_EQ1FTYPE 0x00
 
+//E2_freq_3000_gain_n45_qval_0.7_type_3_LP
+#define VOC_EQ2 1
+#define VOC_EQ2A0 -483487
+#define VOC_EQ2A1 214834
+#define VOC_EQ2B0 194980
+#define VOC_EQ2B1 389961
+#define VOC_EQ2B2 194980
+#define VOC_EQ2FREQ 0x453b8000
+#define VOC_EQ2GAIN 0xc2340000
+#define VOC_EQ2QVAL 0x3f333333
+#define VOC_EQ2FTYPE 0x03
+
 #define VOC_EQSAMP   0x3e80
 #define VOC_EQFGAIN  0x00000000
 
@@ -98,6 +110,11 @@ int audio_board_config_init(void)
     .eq_para[1].b[0] = VOC_EQ1B0,                                               \
     .eq_para[1].b[1] = VOC_EQ1B1,                                               \
     .eq_para[1].b[2] = VOC_EQ1B2,                                               \
+    .eq_para[2].a[0] = -VOC_EQ2A0,                                              \
+    .eq_para[2].a[1] = -VOC_EQ2A1,                                              \
+    .eq_para[2].b[0] = VOC_EQ2B0,                                               \
+    .eq_para[2].b[1] = VOC_EQ2B1,                                               \
+    .eq_para[2].b[2] = VOC_EQ2B2,                                               \
     .eq_load.f_gain     = VOC_EQFGAIN,                                          \
     .eq_load.samplerate = VOC_EQSAMP,                                           \
     .eq_load.eq_load_para[0].freq   = VOC_EQ0FREQ,                              \
@@ -110,6 +127,11 @@ int audio_board_config_init(void)
     .eq_load.eq_load_para[1].q_val  = VOC_EQ1QVAL,                              \
     .eq_load.eq_load_para[1].type   = VOC_EQ1FTYPE,                             \
     .eq_load.eq_load_para[1].enable = VOC_EQ1,                                  \
+    .eq_load.eq_load_para[2].freq   = VOC_EQ2FREQ,                              \
+    .eq_load.eq_load_para[2].gain   = VOC_EQ2GAIN,                              \
+    .eq_load.eq_load_para[2].q_val  = VOC_EQ2QVAL,                              \
+    .eq_load.eq_load_para[2].type   = VOC_EQ2FTYPE,                             \
+    .eq_load.eq_load_para[2].enable = VOC_EQ2,                                  \
 }
 
 /* ======================== SYS (mic/spk gains) ========================= */
