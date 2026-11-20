@@ -48,6 +48,17 @@ if (CONFIG_TFLM_HAND_GESTURE_DETECTION_V1)
 	endif()
 endif()
 
+if (CONFIG_TFLM_PET_DETECTION_V1)
+	list(APPEND srcs
+		src/tflm_pet_detection/PetDetectionModel.cc
+	)
+	if (NOT CONFIG_SDCARD)
+		list(APPEND srcs
+			src/tflm_pet_detection/pet_detect_model_data.cc
+		)
+	endif()
+endif()
+
 if (CONFIG_TFLM_FACE_RECOG_V1)
 	list(APPEND srcs
 		src/tflm_face_recog/FaceRecognitionModel.cc
