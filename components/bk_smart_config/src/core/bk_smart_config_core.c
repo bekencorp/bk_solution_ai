@@ -38,6 +38,9 @@
 #if CONFIG_BK_VIDEO_ENGINE
 #include "video_engine.h"
 #endif
+#if CONFIG_DUAL_SCREEN_AVI_PLAYER
+#include "bk_dual_screen_avi_player.h"
+#endif
 #if CONFIG_BK_MODEM
 #include "components/modem_driver.h"
 #endif
@@ -343,23 +346,33 @@ void bk_sconf_switch_ir_mode_handler(void)
     }
 
     if (is_enable_ir_mode == false) {
-        #if CONFIG_BK_VIDEO_ENGINE
-        ret = video_engine_init();
-        if (ret != BK_OK) {
-            LOGE("%s: Failed to initialize video engine, ret=%d\n", __func__, ret);
-            goto exit;
-        }
-        #endif
-        
         ret = bk_sconf_upate_agent_info(device_id, "vision");
         if (ret != 0) {
             LOGW("%s %d ret:%d, Failed to update agent info\r\n", __func__, __LINE__, ret);
             goto exit;
         }
 
-        #if (CONFIG_DUAL_SCREEN_AVI_PLAY)
-        //TODO: switch to vision screen
+        #if CONFIG_BK_VIDEO_ENGINE
+        ret = video_engine_init();
+        if (ret != BK_OK) {
+            LOGE("%s: Failed to initialize video engine, ret=%d\n", __func__, ret);
+            bk_sconf_upate_agent_info(device_id, "text");
+            goto exit;
+        }
         #endif
+
+        #if CONFIG_DUAL_SCREEN_AVI_PLAYER
+        ret = bk_dual_screen_avi_player_switch_ui(BK_DUAL_SCREEN_AVI_PLAYER_UI_TEXT_AND_IMAGE);
+        if (ret != BK_OK) {
+            LOGE("%s: Failed to switch dual screen to image recognition UI, ret=%d\n", __func__, ret);
+            #if CONFIG_BK_VIDEO_ENGINE
+            video_engine_deinit();
+            #endif
+            bk_sconf_upate_agent_info(device_id, "text");
+            goto exit;
+        }
+        #endif
+
         is_enable_ir_mode = true;
         LOGI("%s %d, Successfully switched to vision mode\r\n", __func__, __LINE__);
     }
@@ -369,7 +382,7 @@ void bk_sconf_switch_ir_mode_handler(void)
         if (ret != BK_OK) {
             LOGE("%s: Failed to deinitialize video engine, ret=%d\n", __func__, ret);
             goto exit;
-        } 
+        }
         #endif
 
         ret = bk_sconf_upate_agent_info(device_id, "text");
@@ -377,9 +390,15 @@ void bk_sconf_switch_ir_mode_handler(void)
             LOGW("%s %d ret:%d, Failed to update agent info\r\n", __func__, __LINE__, ret);
             goto exit;
         }
-        #if (CONFIG_DUAL_SCREEN_AVI_PLAY)
-        //TODO: switch to text screen
+
+        #if CONFIG_DUAL_SCREEN_AVI_PLAYER
+        ret = bk_dual_screen_avi_player_switch_ui(BK_DUAL_SCREEN_AVI_PLAYER_UI_TEXT);
+        if (ret != BK_OK) {
+            LOGE("%s: Failed to switch dual screen to avi UI, ret=%d\n", __func__, ret);
+            goto exit;
+        }
         #endif
+
         is_enable_ir_mode = false;
         LOGI("%s %d, Successfully switched to text mode\r\n", __func__, __LINE__);
     }

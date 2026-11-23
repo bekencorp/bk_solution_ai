@@ -13,4 +13,5 @@ armino_component_register(SRCS "${srcs}" INCLUDE_DIRS "${incs}"
     PRIV_REQUIRES bk_network_provisioning network_transfer 
                   audio_engine bk_common json lwip_intf_v2_1 
                   bk_uid bk_pan bk_app_event bk_factory_config video_engine
+                  bk_dual_screen_avi_player
 	)
