@@ -30,6 +30,7 @@
 
 建议您选择 `release/v3.1.1.x` 系列中版本号最大的标签进行开发和量产。仅需体验最新功能或参与开发时，才建议使用 `release/v3.1.1` 分支。
 
+<!-- readme-get-started:code -->
 ## 获取代码
 
 BK7258 AI 解决方案和 Armino SMP SDK 均同步发布至 GitHub、Gitee 和 GitLab，可根据网络环境及访问权限选择代码源。
@@ -68,8 +69,7 @@ git clone --branch release/v3.1.1.8 https://github.com/bekencorp/bk_avdk_smp.git
 git clone --branch release/v3.1.1.8 https://github.com/bekencorp/bk_solution_ai.git
 ```
 
-代码获取的更多说明请参阅 [快速开始](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/get-started/index.html)。
-
+<!-- readme-get-started:env -->
 ## 编译环境安装
 
 Armino SMP 支持本地编译和 Docker 编译，可根据开发平台选择以下方式部署编译环境。
@@ -84,18 +84,17 @@ cd ~/armino/bk_avdk_smp
 sudo bash tools/env_tools/setup/armino_env_setup.sh
 ```
 
-
-
 ### Windows 本地编译
 
 下载并安装 [Armino Bash](https://dl.bekencorp.com/tools/arminosdk/WindowsInstaller/Armino-Bash-Setup_0.3.0.exe)。
 
 ### Docker 编译
 
-Docker 编译镜像为 `[bekencorp/armino-idk](https://hub.docker.com/r/bekencorp/armino-idk/tags)`，请选择 `1.5` 或更高版本的镜像标签，支持 Windows / Linux / macOS。
+Docker 编译镜像为 [bekencorp/armino-idk](https://hub.docker.com/r/bekencorp/armino-idk/tags)，请选择 `1.5` 或更高版本的镜像标签，支持 Windows / Linux / macOS。
 
-详细安装步骤请参阅 [Armino SMP 快速入门：环境部署及编译](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/get-started/index.html)。
+详细安装步骤请参阅 [环境部署及编译](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/get-started/index.html#smp-get-started-env)。
 
+<!-- readme-get-started:build -->
 ## 编译工程
 
 以 `beken_genie` 工程为例（位于 `projects/beken_genie`），通过 `SDK_DIR` 指向 Armino SMP SDK（即已克隆的 `bk_avdk_smp` 仓库根目录）后本地编译：
@@ -119,31 +118,26 @@ export SDK_DIR=~/armino/bk_avdk_smp
 projects/beken_genie/build/bk7258/beken_genie/package/all-app.bin
 ```
 
-其他工程请将命令中的路径替换为对应的 `projects/<工程名>`。编译命令的详细说明请参阅 [快速开始](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/get-started/index.html)。
+其他工程请将命令中的路径替换为对应的 `projects/<工程名>`。
 
+<!-- readme-get-started:flash -->
 ## 烧录固件
 
 可选择以下任一方式烧录固件：
 
-- 下载并使用 [BKFIL 本地烧录工具](https://dl.bekencorp.com/tools/flash/)
+- 下载并使用 [BKFIL 本地烧录工具](https://dl.bekencorp.com/tools/bkfil/v4)
 - 使用 [BKFIL 网页烧录工具](https://connect.aclsemi.com/)
 
 烧录时请选择上一节编译生成的 `all-app.bin` 固件文件。
 
-详细烧录流程请参阅 [Armino SMP 快速入门](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/get-started/index.html)。
+详细烧录流程请参阅 [烧录代码](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/zh_CN/v3.1.1/get-started/index.html#smp-get-started-flash)。
 
 ## 参考工程
-
-
-| 工程名                                     | 主要功能                                                                                                                                      | 详细说明                                                                                                                |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| [beken_genie](../projects/beken_genie/) | 声网 Agora RTC 版本：双屏显示、语音唤醒与 AI 对话、图像识别、AEC / NS / KWS、多种大语言模型接入（OpenAI、豆包、DeepSeek 等），以及陀螺仪 / NFC / 按键 / 震动马达 / LED / 充电管理 / DVP 摄像头等外设参考。 | [详细说明及使用说明在线文档](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/projects/beken_genie/index.html) |
-| [volc_rtc](../projects/volc_rtc/)       | 火山引擎 RTC 版本：功能与 `beken_genie` 类似，RTC 后端替换为火山引擎（VolcEngine）。                                                                               | [详细说明及使用说明在线文档](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/projects/volc_rtc/index.html)    |
-| [volc_rtc_ab](../projects/volc_rtc_ab/) | 火山引擎 RTC OTA A/B 版本：功能与 `volc_rtc` 一致，在其基础上增加 OTA A/B 双分区升级能力（区别在于分区布局与固件升级流程）。                                                             | [详细说明及使用说明在线文档](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/projects/volc_rtc_ab/index.html) |
-
-
-工程选型说明请参阅在线文档 [参考工程](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/zh_CN/v3.1.1/projects/index.html)。
-
+以下列出参考工程，可点击查看工程详细说明。<!-- readme-projects:begin -->
+- [beken_genie](/projects/beken_genie/)
+- [volc_rtc](/projects/volc_rtc/)
+- [volc_rtc_ab](/projects/volc_rtc_ab/)
+<!-- readme-projects:end -->
 ## BEKEN 相关资源
 
 - [BEKEN 官网](https://www.bekencorp.com/)
