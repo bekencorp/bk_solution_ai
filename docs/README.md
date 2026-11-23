@@ -30,6 +30,7 @@ This solution uses a "maintenance branch + release tag" version management appro
 
 We recommend that you choose the tag with the highest version number in the `release/v3.1.1.x` series for development and mass production. Only use the `release/v3.1.1` branch when you need to try the latest features or participate in development.
 
+<!-- readme-get-started:code -->
 ## Get the Code
 
 The BK7258 AI Solution and the Armino SMP SDK are published simultaneously on GitHub, Gitee, and GitLab. Choose a code source based on your network environment and access permissions.
@@ -68,8 +69,7 @@ git clone --branch release/v3.1.1.8 https://github.com/bekencorp/bk_avdk_smp.git
 git clone --branch release/v3.1.1.8 https://github.com/bekencorp/bk_solution_ai.git
 ```
 
-For more details on getting the code, see [Quick Start](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/get-started/index.html).
-
+<!-- readme-get-started:env -->
 ## Set Up the Build Environment
 
 Armino SMP supports both local builds and Docker builds. Choose one of the following methods to set up the build environment based on your development platform.
@@ -90,10 +90,11 @@ Download and install [Armino Bash](https://dl.bekencorp.com/tools/arminosdk/Wind
 
 ### Docker Build
 
-The Docker build image is [`bekencorp/armino-idk`](https://hub.docker.com/r/bekencorp/armino-idk/tags). Choose an image tag of `1.5` or higher; it supports Windows / Linux / macOS.
+The Docker build image is [bekencorp/armino-idk](https://hub.docker.com/r/bekencorp/armino-idk/tags). Choose an image tag of `1.5` or higher; it supports Windows / Linux / macOS.
 
-For detailed setup steps, see [Armino SMP Quick Start: Environment deployment and build](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/en/v3.1.1/get-started/index.html).
+For detailed setup steps, see [Environment Deployment and Compilation](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/en/v3.1.1/get-started/index.html#smp-get-started-env).
 
+<!-- readme-get-started:build -->
 ## Build the Project
 
 Using the `beken_genie` project as an example (located at `projects/beken_genie`), build locally by pointing `SDK_DIR` to the Armino SMP SDK (the root directory of the cloned `bk_avdk_smp` repository):
@@ -117,29 +118,26 @@ After a successful build, the firmware file used for flashing is located at the 
 projects/beken_genie/build/bk7258/beken_genie/package/all-app.bin
 ```
 
-For other projects, replace the path in the commands with the corresponding `projects/<project_name>`. For detailed build commands, see [Quick Start](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/get-started/index.html).
+For other projects, replace the path in the commands with the corresponding `projects/<project_name>`.
 
+<!-- readme-get-started:flash -->
 ## Flash the Firmware
 
 You can flash the firmware using either of the following methods:
 
-- Download and use the [BKFIL local flashing tool](https://dl.bekencorp.com/tools/flash/)
+- Download and use the [BKFIL local flashing tool](https://dl.bekencorp.com/tools/bkfil/v4)
 - Use the [BKFIL web flashing tool](https://connect.aclsemi.com/)
 
 When flashing, select the `all-app.bin` firmware file generated in the previous section.
 
-For the detailed flashing process, see [Armino SMP Quick Start](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/en/v3.1.1/get-started/index.html).
+For the detailed flashing process, see [Burn Code](https://docs.bekencorp.com/arminodoc/bk_avdk_smp/smp_doc/bk7258/en/v3.1.1/get-started/index.html#smp-get-started-flash).
 
 ## Reference Projects
-
-| Project | Main features | Details |
-| --- | --- | --- |
-| [beken_genie](../projects/beken_genie/) | Agora RTC version: dual-screen display, voice wake-up and AI dialog, image recognition, AEC / NS / KWS, integration with multiple large language models (OpenAI, Doubao, DeepSeek, etc.), and peripheral references such as gyroscope / NFC / buttons / vibration motor / LED / charging management / DVP camera. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/beken_genie/index.html) |
-| [volc_rtc](../projects/volc_rtc/) | VolcEngine RTC version: similar to `beken_genie`, with the RTC backend replaced by VolcEngine. | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/volc_rtc/index.html) |
-| [volc_rtc_ab](../projects/volc_rtc_ab/) | VolcEngine RTC OTA A/B version: same functionality as `volc_rtc`, adding OTA A/B dual-partition upgrade support (differs in partition layout and firmware upgrade flow). | [Detailed and usage documentation (online)](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/volc_rtc_ab/index.html) |
-
-For project selection guidance, see [Reference Projects](https://docs.bekencorp.com/arminodoc/bk_ai_smp/bk7258/en/v3.1.1/projects/index.html) in the online documentation.
-
+The following reference projects are listed; click a name for details.<!-- readme-projects:begin -->
+- [beken_genie](/projects/beken_genie/)
+- [volc_rtc](/projects/volc_rtc/)
+- [volc_rtc_ab](/projects/volc_rtc_ab/)
+<!-- readme-projects:end -->
 ## Beken Resources
 
 - [Beken official website](https://www.bekencorp.com/)

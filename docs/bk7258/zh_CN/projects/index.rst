@@ -5,6 +5,7 @@
 
 .. toctree::
     :maxdepth: 1
-    :glob:
 
-    */index
+    beken_genie/index
+    volc_rtc/index
+    volc_rtc_ab/index
