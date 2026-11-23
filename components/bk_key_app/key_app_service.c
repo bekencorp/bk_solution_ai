@@ -6,6 +6,7 @@
 #include <key_app_config.h>
 #include <driver/gpio.h>
 #include "gpio_driver.h"
+#include "sys_driver.h"
 #if (0)
 #include "audio_config.h"
 #include "aud_intf.h"
@@ -126,7 +127,10 @@ static void handle_system_event(uint8_t event)
             break;
         case FACTORY_RESET:
             LOGI("trigger factory config reset\r\n");
+            bk_bluetooth_deinit();
+            LOGI("deinit bluetooth end\n");
             bk_pm_module_vote_power_ctrl(PM_POWER_MODULE_NAME_BTSP, PM_POWER_MODULE_STATE_OFF);//power off btsp
+            LOGI("power down bluetooth end\n");
             bk_factory_reset();
             #if CONFIG_BK_SMART_CONFIG
             bk_sconf_erase_smart_config();
